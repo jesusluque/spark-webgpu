@@ -122,6 +122,7 @@ describe.skipIf(!device)("aofx effects", () => {
     inputs: Record<string, Pic | FxNode | null>,
     window: Rect,
     node: Partial<FxNode> = {},
+    project?: [number, number],
   ) {
     const wired: FxNode["inputs"] = {};
     for (const [k, v] of Object.entries(inputs)) {
@@ -130,7 +131,7 @@ describe.skipIf(!device)("aofx effects", () => {
     const out = graph.render(
       { effect, params, inputs: wired, ...node },
       window,
-      { projectWidth: window.x2, projectHeight: window.y2 },
+      project ? { projectWidth: project[0], projectHeight: project[1] } : {},
     );
     gpu.flush();
     return {
@@ -429,23 +430,22 @@ describe.skipIf(!device)("aofx effects", () => {
     expect(maxError(pic as Pic, want)).toBeLessThan(2e-3);
   });
 
-  it("Constant and CheckerBoard fill the project frame", async () => {
+  it("Constant fills the project, CheckerBoard its size", async () => {
     const win = rect(-4, -4, 40, 30);
     const c = await render(
       new Constant(),
       { color: [0.1, 0.2, 0.3, 0.5] },
       {},
       win,
+      {},
+      [40, 30],
     );
-    expect(c.out.rod.x2).toBe(1_000_000);
+    // EVERYWHERE, clamped to the project as an aofx engine does.
+    expect(c.out.rod).toEqual(rect(0, 0, 40, 30));
     expect(
       maxError(
         c.pic as Pic,
-        picFrom(win, (x, y) =>
-          x >= 0 && y >= 0 && x < 40 && y < 30
-            ? [0.1, 0.2, 0.3, 0.5]
-            : [0, 0, 0, 0],
-        ),
+        picFrom(c.out.rod, () => [0.1, 0.2, 0.3, 0.5]),
       ),
     ).toBeLessThan(1e-7);
     const k = await render(

@@ -110,6 +110,12 @@ export class Gpu {
       const bound = named[b.name];
       if (!bound) continue;
       const buf = gpuBuffer(bound);
+      const limit = this.device.limits.maxStorageBufferBindingSize;
+      if (buf.size > limit) {
+        errors.push(
+          `${where}: buffer '${b.name}' is ${buf.size} bytes, over the device's maxStorageBufferBindingSize of ${limit}`,
+        );
+      }
       if (b.elementBytes && buf.size % b.elementBytes !== 0) {
         errors.push(
           `${where}: buffer '${b.name}' is ${buf.size} bytes, not whole ${b.elementBytes}-byte elements`,
@@ -220,12 +226,10 @@ export class Gpu {
 
   /** A raw buffer of at least `bytes`, recycled at the next flush. */
   lend(bytes: number): GPUBuffer {
-    // Power-of-two buckets above 64 KiB keep a resizing window from minting
-    // a buffer per size.
-    const size =
-      bytes <= 65536
-        ? Math.max(16, Math.ceil(bytes / 256) * 256)
-        : 2 ** Math.ceil(Math.log2(bytes));
+    // Buckets an eighth of a power of two apart keep a resizing window from
+    // minting a buffer per size without doubling what a frame needs.
+    const step = 2 ** Math.max(8, Math.ceil(Math.log2(bytes)) - 3);
+    const size = Math.max(16, Math.ceil(bytes / step) * step);
     const list = this.free.get(size);
     const buffer =
       list?.pop() ??

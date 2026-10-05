@@ -48,6 +48,12 @@ export class FxChain {
   readonly bridge: TextureBridge;
   readonly graph: FxGraph;
   steps: FxStep[] = [];
+  /**
+   * Scale and project size for every frame. Parameters in pixels are
+   * canonical (say CSS pixels) and the frame renders at `scaleX` of them
+   * (the device pixel ratio), as an aofx host renders a proxy.
+   */
+  context: FxContext = {};
   /** Values the last frame's effects attached, by id (ImageStatistics). */
   values = new Map<string, readonly number[]>();
 
@@ -109,6 +115,7 @@ export class FxChain {
     const out = this.graph.render(top, window, {
       projectWidth: picture.width,
       projectHeight: picture.height,
+      ...this.context,
       ...ctx,
     });
     for (const [k, v] of out.values) this.values.set(k, v);

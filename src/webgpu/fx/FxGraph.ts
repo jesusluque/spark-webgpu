@@ -114,6 +114,18 @@ export class FxGraph {
     } else {
       rod = node.effect.regionOfDefinition(this.query(node));
     }
+    // Clamped to the project, as an aofx engine does: a generator answers
+    // EVERYWHERE, and a transform that shrinks one would otherwise ask it
+    // for a window as many times larger as it shrinks.
+    const { projectWidth: w, projectHeight: h, scaleX, scaleY } = this.ctx;
+    if (w > 0 && h > 0) {
+      rod = intersectRect(rod, {
+        x1: 0,
+        y1: 0,
+        x2: Math.round(w * scaleX),
+        y2: Math.round(h * scaleY),
+      });
+    }
     this.rods.set(node, rod);
     return rod;
   }
