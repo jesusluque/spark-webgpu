@@ -12,18 +12,20 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import { PackedSplats, SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "../js/get-asset-url.js";
-    import { setupCompare } from "./compare.js";
+    import { bench, setupCompare, syntheticPacked } from "./compare.js";
 
-    const { file, pose, size } = setupCompare();
+    const { file, n, pose, size } = setupCompare();
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(size.w, size.h);
     document.body.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
     scene.add(new SparkRenderer({ renderer }));
-    const mesh = new SplatMesh({ url: await getAssetFileURL(file) });
+    const mesh = n
+      ? new SplatMesh({ packedSplats: new PackedSplats({ packedArray: syntheticPacked(utils, n), numSplats: n }) })
+      : new SplatMesh({ url: await getAssetFileURL(file) });
     pose(mesh);
     scene.add(mesh);
     await mesh.initialized;
@@ -32,6 +34,33 @@
       renderer.render(scene, camera);
       if (++frames === 30) window.__ready = true;
     });
+    const gl = renderer.getContext();
+    const pixel = new Uint8Array(4);
+    // Throughput: the normal animation loop for `seconds`, the object turning
+    // every frame; frames counted (run Chrome without vsync to uncap it).
+    window.__fps = (seconds) =>
+      new Promise((resolve) => {
+        let count = 0;
+        const t0 = performance.now();
+        renderer.setAnimationLoop(() => {
+          mesh.rotation.y += 0.01;
+          renderer.render(scene, camera);
+          count++;
+          const t = performance.now() - t0;
+          if (t >= seconds * 1000) {
+            renderer.setAnimationLoop(null);
+            resolve({ fps: (count * 1000) / t, msPerFrame: t / count });
+          }
+        });
+      });
+    window.__bench = async (count) => {
+      renderer.setAnimationLoop(null);
+      return bench(count, () => {
+        mesh.rotation.y += 0.01;
+        renderer.render(scene, camera);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel); // waits for the GPU
+      });
+    };
   </script>
 </body>
 </html>
