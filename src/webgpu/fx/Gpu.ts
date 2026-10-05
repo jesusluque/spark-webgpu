@@ -263,13 +263,15 @@ export class Gpu {
       usage: STORAGE_USAGE(),
     });
     if (data) {
-      this.device.queue.writeBuffer(
-        buffer,
-        0,
-        data.buffer,
-        data.byteOffset,
-        Math.ceil(data.byteLength / 4) * 4,
-      );
+      // writeBuffer takes whole words; pad a ragged tail with a copy rather
+      // than reading past the end of the caller's view.
+      let bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      if (bytes.byteLength % 4 !== 0) {
+        const padded = new Uint8Array(Math.ceil(bytes.byteLength / 4) * 4);
+        padded.set(bytes);
+        bytes = padded;
+      }
+      this.device.queue.writeBuffer(buffer, 0, bytes);
     }
     this.kept.set(key, buffer);
     return buffer;

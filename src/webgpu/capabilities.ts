@@ -1,8 +1,10 @@
 // What this WebGPU device can do, in the terms the splat renderer and the fx
 // host care about, so they pick a path or cap a size instead of failing at
-// validation. One place to look, because the answers differ by browser: the
-// numbers below are what Chrome and Safari 26 report on Apple GPUs, and a
-// device only gets an adapter's higher limits if it asks for them.
+// validation. One place to look, because the answers differ by browser and
+// by request: a device gets the spec's default limits (128 MiB storage
+// bindings, 8 storage buffers a stage) unless it asks for the adapter's, and
+// three's WebGPURenderer asks for none. examples/webgpu/caps.html prints both
+// sets in any browser.
 //
 // Nothing here needs an optional feature. The kernels use plain WGSL:
 // atomics (sort_radix's histogram and the indirect count), 256-thread
@@ -93,6 +95,8 @@ export function capabilitiesOf(
   const binding = lim("maxStorageBufferBindingSize", 134217728);
   const buffer = lim("maxBufferSize", 268435456);
   const perBuffer = Math.min(binding, buffer);
+  // generate runs one 256-thread group per 256 splats along x only.
+  const dispatchable = lim("maxComputeWorkgroupsPerDimension", 65535) * 256;
   // Compatibility-mode devices report vertex-stage storage separately, and
   // may allow none; core WebGPU uses the per-stage limit.
   const vertexStorageBuffers =
@@ -104,8 +108,14 @@ export function capabilitiesOf(
     limits,
     gpuSort: reasons.length === 0,
     gpuSortReason: reasons.join(", "),
-    maxSplats: Math.floor(perBuffer / ACCUMULATOR_BYTES_PER_SPLAT),
-    maxSplatsWithSh: Math.floor(perBuffer / SH_BYTES_PER_SPLAT),
+    maxSplats: Math.min(
+      Math.floor(perBuffer / ACCUMULATOR_BYTES_PER_SPLAT),
+      dispatchable,
+    ),
+    maxSplatsWithSh: Math.min(
+      Math.floor(perBuffer / SH_BYTES_PER_SPLAT),
+      dispatchable,
+    ),
     vertexStorageBuffers,
     vertexStorage: vertexStorageBuffers >= VERTEX_STORAGE_BUFFERS,
     maxFxPixels: Math.floor(perBuffer / 16),
