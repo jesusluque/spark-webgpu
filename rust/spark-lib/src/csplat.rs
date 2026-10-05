@@ -1,3 +1,4 @@
+use crate::attrib::AttribArray;
 use glam::{Mat3A, Quat, Vec3, Vec3A};
 use half::f16;
 use smallvec::SmallVec;
@@ -132,6 +133,8 @@ pub struct CsplatArray {
     pub sh1: Vec<[i8; 9]>,
     pub sh2: Vec<[i8; 15]>,
     pub sh3: Vec<[i8; 21]>,
+    /// Extra per-Gaussian attributes, aligned with `splats` (or empty).
+    pub attribs: AttribArray,
 }
 
 impl CsplatArray {
@@ -156,6 +159,7 @@ impl TsplatArray for CsplatArray {
             sh1: Vec::with_capacity(if max_sh_degree >= 1 { capacity } else { 0 }),
             sh2: Vec::with_capacity(if max_sh_degree >= 2 { capacity } else { 0 }),
             sh3: Vec::with_capacity(if max_sh_degree >= 3 { capacity } else { 0 }),
+            attribs: AttribArray::new(),
         }
     }
 
@@ -247,6 +251,7 @@ impl TsplatArray for CsplatArray {
         
         self.splats.push(Csplat::new(center, opacity, rgb, scales, quaternion, &self.encoding));
         self.children.push(indices.iter().map(|&i| i as u32).collect());
+        self.attribs.push_merged(indices, &weights);
 
         if self.max_sh_degree >= 1 {
             let mut total = [0.0; 9];
@@ -328,6 +333,7 @@ impl TsplatArray for CsplatArray {
         let mut bits = keep.iter();
 
         self.splats.retain(|_splat| *bits.next().unwrap());
+        self.attribs.retain(&keep);
         if !self.children.is_empty() {
             let mut bits = keep.iter();
             self.children.retain(|_children| *bits.next().unwrap());
@@ -361,6 +367,7 @@ impl TsplatArray for CsplatArray {
         let mut bits = keep.iter();
 
         self.splats.retain(|_splat| *bits.next().unwrap());
+        self.attribs.retain(&keep);
         if !self.children.is_empty() {
             let mut bits = keep.iter();
             self.children.retain(|_children| *bits.next().unwrap());
@@ -383,6 +390,7 @@ impl TsplatArray for CsplatArray {
         assert_eq!(index_map.len(), self.splats.len());
         let swaps = compute_swaps(index_map);
         apply_swaps(&mut self.splats, &swaps);
+        self.attribs.apply_swaps(&swaps);
         if !self.children.is_empty() {
             apply_swaps(&mut self.children, &swaps);
         }
@@ -399,6 +407,7 @@ impl TsplatArray for CsplatArray {
 
     fn truncate(&mut self, count: usize) {
         self.splats.truncate(count);
+        self.attribs.truncate(count);
         if !self.children.is_empty() {
             self.children.truncate(count);
         }
@@ -422,6 +431,7 @@ impl TsplatArray for CsplatArray {
             sh1: if !self.sh1.is_empty() { index_map.iter().map(|&i| self.sh1[i].clone()).collect() } else { Vec::new() },
             sh2: if !self.sh2.is_empty() { index_map.iter().map(|&i| self.sh2[i].clone()).collect() } else { Vec::new() },
             sh3: if !self.sh3.is_empty() { index_map.iter().map(|&i| self.sh3[i].clone()).collect() } else { Vec::new() },
+            attribs: self.attribs.from_index_map(index_map),
         }
     }
 
@@ -434,6 +444,7 @@ impl TsplatArray for CsplatArray {
             sh1: if self.sh1.is_empty() { Vec::new() } else { self.sh1[start..start + count].to_vec() },
             sh2: if self.sh2.is_empty() { Vec::new() } else { self.sh2[start..start + count].to_vec() },
             sh3: if self.sh3.is_empty() { Vec::new() } else { self.sh3[start..start + count].to_vec() },
+            attribs: self.attribs.subset(start, count),
         }
     }
 }
