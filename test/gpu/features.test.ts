@@ -268,6 +268,18 @@ describe.skipIf(!device)("WgpuSplatRenderer features", () => {
     expect(meanDiff(plain, skinned)).toBeLessThan(0.5);
   });
 
+  it("draws zero-scale splats as 2D Gaussians with enable2DGS", async () => {
+    // Flat in z, seen nearly face-on: the 2D splat covers what the projected
+    // 3D one does, without the anti-aliasing blur.
+    const flat = grid([0.04, 0.03, 0]);
+    const projected = await render(flat, {});
+    const flat2d = await render(flat, { enable2DGS: true });
+    expect(lit(flat2d)).toBeGreaterThan(W * H * 0.1);
+    const diff = meanDiff(projected, flat2d);
+    expect(diff).toBeGreaterThan(0);
+    expect(diff).toBeLessThan(4);
+  });
+
   it("depth of field blurs splats off the focal plane", async () => {
     const sharp = await render(grid([0.01, 0.01, 0.01]), {});
     const focused = await render(grid([0.01, 0.01, 0.01]), {

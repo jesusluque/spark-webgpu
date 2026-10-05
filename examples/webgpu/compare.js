@@ -1,6 +1,7 @@
 // Shared settings for compare-webgl.html and compare-webgpu.html.
 //   ?file=<asset name>   a file from examples/assets.json (default butterfly.spz)
 //   ?n=<count>           instead, a synthetic cloud of n packed splats
+//   &flat=1              with zero z scales (2D Gaussians, for enable2DGS)
 //   ?w=&h=               canvas size
 //   ?lod=1               load the file with LoD splats (lod: true) and draw
 //                        the LoD traversal's selection
@@ -20,6 +21,7 @@ export function setupCompare() {
   const params = new URLSearchParams(location.search);
   const file = params.get("file") ?? "butterfly.spz";
   const n = params.get("n") ? Number(params.get("n")) : null;
+  const flat = params.get("flat") === "1";
   const lod = params.get("lod") === "1";
   const radParam = params.get("rad");
   const rad =
@@ -58,11 +60,12 @@ export function setupCompare() {
     if (params.has(key)) options[key] = params.get(key) === "1";
   }
   const ext = params.get("ext") === "1" || options.covSplats === true;
-  return { file, n, lod, rad, lodSplatCount, size, pose, options, ext };
+  return { file, n, flat, lod, rad, lodSplatCount, size, pose, options, ext };
 }
 
-// A deterministic cloud of n splats in a 2-unit ball, packed as PackedSplats.
-export function syntheticPacked(utils, n) {
+// A deterministic cloud of n splats in a 2-unit ball, packed as PackedSplats;
+// `flat`: 2D splats, their z scale 0.
+export function syntheticPacked(utils, n, flat = false) {
   const packed = new Uint32Array(n * 4);
   let s = 12345;
   const rnd = () => {
@@ -90,7 +93,7 @@ export function syntheticPacked(utils, n) {
       z,
       sc,
       sc * (0.3 + rnd()),
-      sc,
+      flat ? 0 : sc,
       qx,
       qy,
       qz,

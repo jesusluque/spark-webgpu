@@ -52,6 +52,7 @@ const GEN_COV_TRANSFORM = 1024;
 
 const DRAW_EXT = 1;
 const DRAW_COV = 2;
+const DRAW_2DGS = 4;
 const DRAW_LOD_INFLATE = 8;
 const DRAW_ORTHOGRAPHIC = 16;
 const DRAW_ENCODE_LINEAR = 32;
@@ -112,6 +113,11 @@ export interface WgpuSplatRendererOptions {
    * (WgpuDyno.covObjectModifiers, linear-blend SplatSkinning). Default false.
    */
   covSplats?: boolean;
+  /**
+   * Draw splats with a zero scale as flat 2D Gaussians (2DGS) rather than
+   * projected 3D ones (SparkRenderer.enable2DGS). Default false.
+   */
+  enable2DGS?: boolean;
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -230,6 +236,7 @@ export class WgpuSplatRenderer {
       focalDistance: 0,
       apertureAngle: 0,
       covSplats: false,
+      enable2DGS: false,
       ...options,
     };
     this.capabilities = capabilitiesOf(this.device);
@@ -728,6 +735,7 @@ export class WgpuSplatRenderer {
         DRAW_EXT |
         DRAW_PREMULTIPLIED |
         (o.covSplats ? DRAW_COV : 0) |
+        (o.enable2DGS ? DRAW_2DGS : 0) |
         (o.lodInflate ? DRAW_LOD_INFLATE : 0) |
         (linear ? DRAW_ENCODE_LINEAR : 0) |
         ((camera as THREE.OrthographicCamera).isOrthographicCamera
