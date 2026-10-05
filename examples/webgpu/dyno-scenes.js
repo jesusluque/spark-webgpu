@@ -5,6 +5,8 @@
 //                   &intensity=0.8
 //   ?scene=depth    the butterfly with modifiers.setDepthColor (world space)
 //   ?scene=normal   the butterfly with modifiers.setWorldNormalColor
+//   ?scene=edit     the butterfly with SplatEdit SDFs (a red sphere, a
+//                   displacing box)
 //   ?scene=snow     generators.snowBox
 //   &t=<seconds>    a fixed time for screenshots; animates when absent
 //   ?w=&h=          canvas size
@@ -346,6 +348,27 @@ export async function buildScene({ THREE, spark, getAssetFileURL, params }) {
       modifiers.setDepthColor(mesh, 2, 4, false);
     } else if (params.scene === "normal") {
       modifiers.setWorldNormalColor(mesh);
+    } else if (params.scene === "edit") {
+      const edit = new spark.SplatEdit({
+        rgbaBlendMode: spark.SplatEditRgbaBlendMode.MULTIPLY,
+        softEdge: 0.05,
+      });
+      const sphere = new spark.SplatEditSdf({
+        type: spark.SplatEditSdfType.SPHERE,
+        radius: 0.25,
+        color: new THREE.Color(1, 0.2, 0.2),
+      });
+      sphere.position.set(0.3, 0.1, 0);
+      const box = new spark.SplatEditSdf({
+        type: spark.SplatEditSdfType.BOX,
+        radius: 0.02,
+        color: new THREE.Color(0.3, 1, 0.3),
+        displace: new THREE.Vector3(0, 0.15, 0),
+      });
+      box.scale.set(0.3, 0.2, 0.3);
+      box.position.set(-0.35, -0.2, 0);
+      edit.add(sphere, box);
+      mesh.add(edit);
     }
   }
   mesh.updateGenerator();

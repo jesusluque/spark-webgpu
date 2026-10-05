@@ -864,57 +864,57 @@ export const wgslDefineSdfArray = /*@__PURE__*/ unindent(/* wgsl */ `
       let sizes = sdf.sizes;
       var sdfPos = quatVec(sdf.quaternion, pos * sdf.scale) + sdf.center;
 
-      var distance = 0.0;
+      var dist = 0.0;
       switch (sdf.flags & SDF_FLAG_TYPE) {
         case SDF_TYPE_ALL: {
-          distance = -inf;
+          dist = -inf;
         }
         case SDF_TYPE_PLANE: {
-          distance = sdfPos.z;
+          dist = sdfPos.z;
         }
         case SDF_TYPE_SPHERE: {
-          distance = length(sdfPos) - sizes.w;
+          dist = length(sdfPos) - sizes.w;
         }
         case SDF_TYPE_BOX: {
           let q = abs(sdfPos) - sizes.xyz + sizes.w;
-          distance = length(max(q, vec3f(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - sizes.w;
+          dist = length(max(q, vec3f(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - sizes.w;
         }
         case SDF_TYPE_ELLIPSOID: {
           let k0 = length(sdfPos / sizes.xyz);
           let k1 = length(sdfPos / dot(sizes.xyz, sizes.xyz));
-          distance = k0 * (k0 - 1.0) / k1;
+          dist = k0 * (k0 - 1.0) / k1;
         }
         case SDF_TYPE_CYLINDER: {
           let d = abs(vec2f(length(sdfPos.xz), sdfPos.y)) - sizes.wy;
-          distance = min(max(d.x, d.y), 0.0) + length(max(d, vec2f(0.0)));
+          dist = min(max(d.x, d.y), 0.0) + length(max(d, vec2f(0.0)));
         }
         case SDF_TYPE_CAPSULE: {
           sdfPos.y -= clamp(sdfPos.y, -0.5 * sizes.y, 0.5 * sizes.y);
-          distance = length(sdfPos) - sizes.w;
+          dist = length(sdfPos) - sizes.w;
         }
         case SDF_TYPE_INFINITE_CONE: {
           let angle = 0.25 * PI * sizes.w;
           let c = vec2f(sin(angle), cos(angle));
           let q = vec2f(length(sdfPos.xy), -sdfPos.z);
           let d = length(q - c * max(dot(q, c), 0.0));
-          distance = d * select(1.0, -1.0, (q.x * c.y - q.y * c.x) < 0.0);
+          dist = d * select(1.0, -1.0, (q.x * c.y - q.y * c.x) < 0.0);
         }
         default: {}
       }
 
       if ((sdf.flags & SDF_FLAG_INVERT) != 0u) {
-        distance = -distance;
+        dist = -dist;
       }
 
       if (smoothK == 0.0) {
-        if (distance < distanceAccum) {
-          distanceAccum = distance;
+        if (dist < distanceAccum) {
+          distanceAccum = dist;
           for (var i = 0; i < numValues; i++) {
             (*outValues)[i] = sdf.values[i];
           }
         }
       } else {
-        let scaledDistance = -distance / smoothK;
+        let scaledDistance = -dist / smoothK;
         if (scaledDistance > maxExp) {
           let scale = exp(maxExp - scaledDistance);
           distanceAccum *= scale;
@@ -950,14 +950,14 @@ export const wgslDefineSdfArray = /*@__PURE__*/ unindent(/* wgsl */ `
     smoothK: f32, numValues: i32, values: ptr<function, array<vec4f, 4>>,
     softEdge: f32, invert: bool
   ) -> f32 {
-    var distance = evaluateSdfArray(sdfTexture, numSdfs, sdfFirst, sdfCount, pos, smoothK, numValues, values);
+    var dist = evaluateSdfArray(sdfTexture, numSdfs, sdfFirst, sdfCount, pos, smoothK, numValues, values);
     if (invert) {
-      distance = -distance;
+      dist = -dist;
     }
     if (softEdge == 0.0) {
-      return select(0.0, 1.0, distance < 0.0);
+      return select(0.0, 1.0, dist < 0.0);
     }
-    return clamp(-distance / softEdge + 0.5, 0.0, 1.0);
+    return clamp(-dist / softEdge + 0.5, 0.0, 1.0);
   }
 `);
 
