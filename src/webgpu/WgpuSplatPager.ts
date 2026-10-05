@@ -36,6 +36,11 @@ const unusedRenderer = {
 
 export class WgpuSplatPager extends SplatPager {
   readonly device: GPUDevice;
+  // TODO(attributes): page the AttribPool (src/webgpu/attributes/ on the
+  // integrated branch) as a third pool: its schema comes from RadMeta
+  // attributes, each chunk's `attrib` data uploads at the page base like
+  // core and SH, and source() returns the pool as GpuSplatSource.attribs.
+  // Paged chunk decoding skips attributes for now.
   /** Per-splat words of each pool, by name. */
   readonly pools: Record<"core" | "sh", Pool>;
 
