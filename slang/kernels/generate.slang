@@ -18,12 +18,14 @@ import core.splat_types;
 import core.packed;
 import core.ext;
 import core.sh;
+import core.dyno_hooks;
 
 static const uint GEN_SRC_EXT = 1u;      // source is ext (else packed)
 static const uint GEN_OUT_EXT = 2u;      // accumulator is ext (else packed)
 static const uint GEN_USE_LOD = 4u;      // remap through lodIndices
 static const uint GEN_LOD_OPACITY = 8u;  // packed source stores alpha / 2
 static const uint GEN_SORT_RADIAL = 16u; // radial metric (else along viewDir)
+static const uint GEN_DYNO_SOURCE = 256u; // dynoSource generates the splats
 
 struct GenerateParams {
     uint numSplats;   // output splats for this mesh (the LOD count when LOD is on)
@@ -92,21 +94,24 @@ void generate(uint3 tid: SV_DispatchThreadID) {
     Gsplat s;
     s.flags = 0u;
     if (index < params.srcCount) {
-        s = readSource(index);
+        s = hasFlag(GEN_DYNO_SOURCE) ? dynoSource(int(index)) : readSource(index);
     }
 
     float metric = INFINITY;
     if (isActive(s.flags)) {
         s.rgba.rgb += shColor(index, s.center);
+        s = dynoObjectModifier(s);
 
         float scale = params.translateScale.w;
         s.center = quatVec(params.rotate, s.center * scale) + params.translateScale.xyz;
         s.scales *= scale;
         s.quaternion = quatQuat(params.rotate, s.quaternion);
         s.rgba *= params.recolor;
+        s = dynoWorldModifier(s);
 
         float3 rel = s.center - params.viewCenter.xyz;
         metric = hasFlag(GEN_SORT_RADIAL) ? length(rel) : dot(rel, params.viewDir.xyz) + 100.0;
+        if (!isActive(s.flags)) metric = INFINITY; // a modifier dropped it
     }
 
     uint o = params.outBase + i;

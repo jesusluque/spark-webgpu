@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Dyno graphs on WebGPU: SplatMesh modifiers (examples/splat-shader-effects'
+  effects, modifiers.setDepthColor / setWorldNormalColor) and SplatGenerators
+  (generators.snowBox) compiled to WGSL and run in the generate kernel.
+  Parameters in dyno-scenes.js; dyno-webgl.html renders the same on WebGL.
+-->
+<head>
+  <meta charset="utf-8">
+  <title>Spark • dyno (WebGPU)</title>
+  <style>body { margin: 0; background: #000; } canvas { display: block; }</style>
+</head>
+<body>
+  <script type="importmap">
+    { "imports": { "three": "../js/vendor/three/build/three.webgpu.js", "three/webgpu": "../js/vendor/three/build/three.webgpu.js", "@sparkjsdev/spark": "../../dist/spark.module.js" } }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import * as spark from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
+    import { buildScene, sceneParams } from "./dyno-scenes.js";
+
+    const { GpuSplatSource, WgpuSplatRenderer, splatGeneratorDyno, splatMeshDyno } = spark;
+    const params = sceneParams();
+    const { size } = params;
+    const renderer = new THREE.WebGPURenderer();
+    renderer.setSize(size.w, size.h);
+    document.body.appendChild(renderer.domElement);
+    await renderer.init();
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+    const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
+    const splats = new WgpuSplatRenderer(renderer);
+    const built = await buildScene({ THREE, spark, getAssetFileURL, params });
+    if (built.mesh) {
+      await built.mesh.initialized;
+      const source = GpuSplatSource.fromPackedSplats(splats.device, built.mesh.packedSplats);
+      splats.add(source, built.mesh, splatMeshDyno(built.mesh));
+    } else {
+      const { generator } = built;
+      splats.addGenerator(generator.numSplats, splatGeneratorDyno(generator), generator);
+    }
+    window.__splats = splats;
+    let frames = 0;
+    renderer.setAnimationLoop((ms) => {
+      built.tick(ms / 1000);
+      renderer.render(scene, camera);
+      splats.render(camera);
+      if (++frames === 30) window.__ready = true;
+    });
+  </script>
+</body>
+</html>

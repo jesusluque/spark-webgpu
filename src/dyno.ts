@@ -14,3 +14,4 @@ export * from "./dyno/convert";
 export * from "./dyno/texture";
 export * from "./dyno/trig";
 export * from "./dyno/vecmat";
+export * from "./dyno/wgsl";

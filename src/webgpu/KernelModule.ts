@@ -4,6 +4,8 @@ export type BindingKind =
   | "storage"
   | "read-only-storage"
   | "uniform"
+  /** Added at runtime (e.g. dyno uniforms), bound via DispatchArgs.bindings. */
+  | "external"
   | "unsupported";
 
 export interface UniformField {
@@ -28,6 +30,8 @@ export interface BindingReflection {
   readonly bytes?: number;
   readonly fields?: readonly UniformField[];
   readonly type?: string;
+  /** External bindings: the bind group layout entry, less binding/visibility. */
+  readonly layout?: Omit<GPUBindGroupLayoutEntry, "binding" | "visibility">;
 }
 
 export interface EntryReflection {

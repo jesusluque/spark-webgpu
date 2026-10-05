@@ -133,3 +133,8 @@ export {
   splatRequiredLimits,
   type GpuCapabilities,
 } from "./webgpu/capabilities";
+export {
+  splatGeneratorDyno,
+  splatMeshDyno,
+} from "./webgpu/dyno/adapters";
+export type { WgpuDyno, WgpuDynoFrame } from "./webgpu/dyno/DynoKernels";

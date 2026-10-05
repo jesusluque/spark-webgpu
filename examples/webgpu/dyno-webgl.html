@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- WebGL reference for dyno-webgpu.html: the same dyno scene (dyno-scenes.js) on SparkRenderer. -->
+<head>
+  <meta charset="utf-8">
+  <title>Spark • dyno (WebGL)</title>
+  <style>body { margin: 0; background: #000; } canvas { display: block; }</style>
+</head>
+<body>
+  <script type="importmap">
+    { "imports": { "three": "../js/vendor/three/build/three.module.js", "@sparkjsdev/spark": "../../dist/spark.module.js" } }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import * as spark from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
+    import { buildScene, sceneParams } from "./dyno-scenes.js";
+
+    const params = sceneParams();
+    const { size } = params;
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(size.w, size.h);
+    document.body.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
+    // accumExtSplats: float colours and alpha as WgpuSplatRenderer keeps them (?packed for 8-bit).
+    scene.add(new spark.SparkRenderer({ renderer, accumExtSplats: !location.search.includes("packed") }));
+    const built = await buildScene({ THREE, spark, getAssetFileURL, params });
+    const object = built.mesh ?? built.generator;
+    scene.add(object);
+    if (built.mesh) await built.mesh.initialized;
+    let frames = 0;
+    renderer.setAnimationLoop((ms) => {
+      built.tick(ms / 1000);
+      object.updateVersion();
+      renderer.render(scene, camera);
+      if (++frames === 30) window.__ready = true;
+    });
+  </script>
+</body>
+</html>
