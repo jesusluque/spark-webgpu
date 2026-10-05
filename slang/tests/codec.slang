@@ -6,6 +6,7 @@ import core.math;
 import core.splat_types;
 import core.packed;
 import core.ext;
+import core.sh;
 
 struct CodecParams {
     uint count;
@@ -21,6 +22,28 @@ RWStructuredBuffer<uint4> encoded;
 // Per splat and encoding (packed, ext): center, scales, quaternion, rgba.
 RWStructuredBuffer<float4> decoded;
 ConstantBuffer<CodecParams> params;
+
+// SH: per case, view direction + numSh, shMax, packed sh1 (xy), sh2, sh3,
+// then ext sh1, sh2, sh3a, sh3b. Output: packed rgb, ext rgb.
+StructuredBuffer<float4> shDirs;
+StructuredBuffer<uint4> shWords;
+RWStructuredBuffer<float4> shRgb;
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void shEvaluate(uint3 tid: SV_DispatchThreadID) {
+    uint i = tid.x;
+    if (i >= params.count) {
+        return;
+    }
+    float4 dirN = shDirs[2 * i];
+    float3 shMax = shDirs[2 * i + 1].xyz;
+    int numSh = int(dirN.w);
+    uint4 w[7];
+    [ForceUnroll] for (uint k = 0; k < 7; k++) w[k] = shWords[7 * i + k];
+    shRgb[2 * i] = float4(evaluatePackedSH(numSh, dirN.xyz, shMax, w[0].xy, w[1], w[2]), 0.0);
+    shRgb[2 * i + 1] = float4(evaluateExtSH(numSh, dirN.xyz, w[3], w[4], w[5], w[6]), 0.0);
+}
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
