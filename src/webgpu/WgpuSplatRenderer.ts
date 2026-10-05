@@ -96,6 +96,13 @@ export interface WgpuSplatRendererOptions {
   focalAdjustment?: number;
   /** Trade LOD opacity above 1 for size (SparkRenderer.lodInflate). */
   lodInflate?: boolean;
+  /**
+   * Depth of field: splats blur with their distance from this plane (0 = off,
+   * the default). As SparkRenderer.focalDistance.
+   */
+  focalDistance?: number;
+  /** Full aperture angle in radians for depth of field (0 = off). */
+  apertureAngle?: number;
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -211,6 +218,8 @@ export class WgpuSplatRenderer {
       clipXY: 1.4,
       focalAdjustment: 1,
       lodInflate: false,
+      focalDistance: 0,
+      apertureAngle: 0,
       ...options,
     };
     this.capabilities = capabilitiesOf(this.device);
@@ -687,8 +696,8 @@ export class WgpuSplatRenderer {
       minAlpha: o.minAlpha,
       blurAmount: o.blurAmount,
       preBlurAmount: o.preBlurAmount,
-      focalDistance: 0,
-      apertureAngle: 0,
+      focalDistance: o.focalDistance,
+      apertureAngle: o.apertureAngle,
       clipXY: o.clipXY,
       focalAdjustment: o.focalAdjustment,
       falloff: o.falloff,

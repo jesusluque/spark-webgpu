@@ -7,6 +7,9 @@
 //   ?rad=<url>|1         instead, a paged .rad file streamed through the LoD
 //                        pager (1: the hobbiton scene)
 //   ?count=<n>           lodSplatCount for both renderers
+//   ?focalDistance=&apertureAngle=&covSplats=1&enable2DGS=1
+//                        renderer options for both (SparkRenderer and
+//                        WgpuSplatRenderer take the same names)
 // Both pages expose window.__bench(frames): renders that many frames as fast
 // as possible, each waited on until the GPU finishes, with the object
 // turning a little every frame so both backends regenerate and re-sort.
@@ -42,7 +45,14 @@ export function setupCompare() {
     object.position.set(0, 0, -3);
     object.rotation.y += 0.6;
   };
-  return { file, n, lod, rad, lodSplatCount, size, pose };
+  const options = {};
+  for (const key of ["focalDistance", "apertureAngle"]) {
+    if (params.has(key)) options[key] = Number(params.get(key));
+  }
+  for (const key of ["covSplats", "enable2DGS"]) {
+    if (params.has(key)) options[key] = params.get(key) === "1";
+  }
+  return { file, n, lod, rad, lodSplatCount, size, pose, options };
 }
 
 // A deterministic cloud of n splats in a 2-unit ball, packed as PackedSplats.

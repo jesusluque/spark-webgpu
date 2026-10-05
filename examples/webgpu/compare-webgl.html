@@ -16,13 +16,13 @@
     import { getAssetFileURL } from "../js/get-asset-url.js";
     import { bench, setupCompare, syntheticPacked, waitSettled } from "./compare.js";
 
-    const { file, n, lod, rad, lodSplatCount, pose, size } = setupCompare();
+    const { file, n, lod, rad, lodSplatCount, pose, size, options } = setupCompare();
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(size.w, size.h);
     document.body.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
-    const spark = new SparkRenderer({ renderer, lodSplatCount });
+    const spark = new SparkRenderer({ renderer, lodSplatCount, ...options });
     scene.add(spark);
     const mesh = n
       ? new SplatMesh({ packedSplats: new PackedSplats({ packedArray: syntheticPacked(utils, n), numSplats: n }) })

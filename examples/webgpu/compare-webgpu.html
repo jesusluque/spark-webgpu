@@ -16,7 +16,7 @@
     import { getAssetFileURL } from "../js/get-asset-url.js";
     import { bench, setupCompare, syntheticPacked, waitSettled } from "./compare.js";
 
-    const { file, n, lod, rad, lodSplatCount, pose, size } = setupCompare();
+    const { file, n, lod, rad, lodSplatCount, pose, size, options } = setupCompare();
     // The page pool binds whole pools: take the adapter's larger limits.
     const adapter = await navigator.gpu.requestAdapter();
     const renderer = new THREE.WebGPURenderer({
@@ -31,7 +31,7 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
-    const splats = new WgpuSplatRenderer(renderer, { sort: new URLSearchParams(location.search).get("sort") ?? "gpu", sortBits: Number(new URLSearchParams(location.search).get("sortBits") ?? 32) });
+    const splats = new WgpuSplatRenderer(renderer, { sort: new URLSearchParams(location.search).get("sort") ?? "gpu", sortBits: Number(new URLSearchParams(location.search).get("sortBits") ?? 32), ...options });
     const holder = new THREE.Object3D();
     pose(holder);
     const lodDriver = lod || rad ? new WgpuLod(splats, { lodSplatCount }) : null;
