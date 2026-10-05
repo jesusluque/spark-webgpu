@@ -870,6 +870,33 @@ arrayTex.format = THREE.RGBAIntegerFormat;
 arrayTex.type = THREE.UnsignedIntType;
 arrayTex.needsUpdate = true;
 
+export const matrixCases: [string, d.DynoType, () => Val, Expected][] = [
+  [
+    "mat2 + float",
+    "mat2",
+    () => d.add(d.dynoMat2(new Float32Array([1, 2, 3, 4]) as never), f1(10)),
+    [11, 12, 13, 14],
+  ],
+  [
+    "float - mat2",
+    "mat2",
+    () => d.sub(f1(10), d.dynoMat2(new Float32Array([1, 2, 3, 4]) as never)),
+    [9, 8, 7, 6],
+  ],
+  [
+    "mat2 / float",
+    "mat2",
+    () => d.div(d.dynoMat2(new Float32Array([2, 4, 6, 8]) as never), f1(2)),
+    [1, 2, 3, 4],
+  ],
+  [
+    "-mat2",
+    "mat2",
+    () => d.neg(d.dynoMat2(new Float32Array([1, -2, 3, 4]) as never)),
+    [-1, 2, -3, -4],
+  ],
+];
+
 export const textureCases: [string, d.DynoType, () => Val, Expected][] = [
   [
     "texelFetch usampler2D",

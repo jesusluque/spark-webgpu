@@ -7,6 +7,7 @@ import {
   type Expected,
   cases,
   graph,
+  matrixCases,
   splatCases,
   textureCases,
 } from "./dynoCases";
@@ -30,6 +31,7 @@ describe.skipIf(!device)("dyno ops in WGSL", () => {
   for (const [name, type, f, expected] of [
     ...cases,
     ...splatCases,
+    ...matrixCases,
     ...textureCases,
   ]) {
     it(name, async () => {

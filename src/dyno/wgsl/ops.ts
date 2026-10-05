@@ -51,7 +51,9 @@ import {
   Xor,
 } from "../logic";
 import {
+  Add,
   Clamp,
+  Div,
   InverseSqrt,
   IsInf,
   IsNan,
@@ -60,8 +62,10 @@ import {
   Mix,
   Mod,
   Modf,
+  Neg,
   Smoothstep,
   Step,
+  Sub,
 } from "../math";
 import {
   OutputCovSplat,
@@ -132,6 +136,44 @@ function outType(op: Op): DynoType {
 }
 
 // math
+
+// WGSL matrices lack GLSL's matrix +- scalar, matrix / scalar and -matrix:
+// spelled out per column, or as a multiply.
+for (const [cls, operator] of [
+  [Add, "+"],
+  [Sub, "-"],
+  [Div, "/"],
+] as const) {
+  registerWgsl(
+    cls,
+    assign(({ a, b }, op) => {
+      const sa = typeShape(op.inTypes.a);
+      const sb = typeShape(op.inTypes.b);
+      const t = shapeOf(outType(op));
+      if (t.cols > 1 && (sa?.cols === 1 || sb?.cols === 1)) {
+        if (operator === "/" && sb?.rows === 1) return `${a} * (1.0 / ${b})`;
+        const col = (x: string, s: TypeShape | null, c: number) =>
+          s && s.cols > 1 ? `${x}[${c}]` : x;
+        const cols = Array.from(
+          { length: t.cols },
+          (_, c) => `${col(a, sa, c)} ${operator} ${col(b, sb, c)}`,
+        );
+        return `${shapeType(t)}(${cols.join(", ")})`;
+      }
+      if (operator === "/" && t.cols > 1) {
+        throw new Error("WGSL has no matrix / matrix");
+      }
+      return `${a} ${operator} ${b}`;
+    }),
+  );
+}
+
+registerWgsl(
+  Neg,
+  assign(({ a }, op) =>
+    shapeOf(op.inTypes.a).cols > 1 ? `${a} * -1.0` : `-${a}`,
+  ),
+);
 
 registerWgsl(
   Mod,
