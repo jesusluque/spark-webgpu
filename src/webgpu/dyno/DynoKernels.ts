@@ -11,14 +11,9 @@ import { Gsplat } from "../../dyno/splats";
 import { WgslDynoProgram, type WgslFunction } from "../../dyno/wgsl";
 import type { KernelModule } from "../KernelModule";
 import type { Kernel, KernelRegistry } from "../KernelRegistry";
-import {
-  DYNO_UNIFORMS,
-  type DynoHookFunctions,
-  type TextureLayouts,
-  defaultTextureLayout,
-  patchKernel,
-} from "./patchKernel";
-import { TextureCache, isFilterable } from "./textures";
+import { type TextureLayouts, dynoResources, textureLayouts } from "./bindings";
+import { type DynoHookFunctions, patchKernel } from "./patchKernel";
+import { TextureCache } from "./textures";
 
 export interface WgpuDynoFrame {
   camera: THREE.Camera;
@@ -54,6 +49,7 @@ interface Compiled {
   graphs: unknown[];
   program: WgslDynoProgram;
   module: KernelModule;
+  layouts: TextureLayouts;
 }
 
 function chain(modifiers: GsplatModifier[]): Dyno<IOTypes, IOTypes> {
@@ -104,29 +100,11 @@ export class DynoKernels {
 
   /** The kernel and dyno bindings for `owner`'s next dispatch. */
   prepare(owner: object, dyno: WgpuDyno): DynoDispatch {
-    const { program, module } = this.compile(owner, dyno);
+    const { program, module, layouts } = this.compile(owner, dyno);
     program.update();
-    const bindings: Record<string, GPUBindingResource> = {};
-    if (program.uniformBytes > 0) {
-      bindings[DYNO_UNIFORMS] = this.registry.uniforms.push(
-        program.packUniforms(),
-      );
-    }
-    for (const t of program.backend.textures) {
-      const texture = t.uniform.value as THREE.Texture;
-      const layout = module.reflection.bindings.find((b) => b.name === t.name)
-        ?.layout?.texture as GPUTextureBindingLayout;
-      bindings[t.name] = this.textures.view(
-        texture,
-        layout.viewDimension ?? "2d",
-      );
-      if (t.samplerBinding != null) {
-        bindings[`${t.name}_sampler`] = this.textures.sampler(
-          texture,
-          layout.sampleType === "float",
-        );
-      }
-    }
+    const bindings = dynoResources(program, layouts, this.textures, (data) =>
+      this.registry.uniforms.push(data),
+    );
     return { kernel: this.registry.get(module, this.entry), bindings };
   }
 
@@ -166,19 +144,7 @@ export class DynoKernels {
     }
     const program = new WgslDynoProgram({ functions, group: 1 });
 
-    // Float textures holding 32-bit data can't be filtered.
-    const layouts: TextureLayouts = {};
-    for (const t of program.backend.textures) {
-      const layout = defaultTextureLayout(t.type);
-      if (
-        t.samplerBinding != null &&
-        layout.sampleType === "unfilterable-float" &&
-        isFilterable(t.uniform.value as THREE.Texture)
-      ) {
-        layout.sampleType = "float";
-      }
-      layouts[t.name] = layout;
-    }
+    const layouts = textureLayouts(program);
     const key = `${program.code}\n${JSON.stringify(layouts)}`;
     let module = this.modules.get(key);
     if (!module) {
@@ -191,7 +157,7 @@ export class DynoKernels {
       );
       this.modules.set(key, module);
     }
-    const compiled = { graphs, program, module };
+    const compiled = { graphs, program, module, layouts };
     this.compiled.set(owner, compiled);
     return compiled;
   }

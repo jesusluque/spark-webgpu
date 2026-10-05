@@ -5,9 +5,8 @@
 // dyno uniform block and textures as "external" bindings in their own group.
 
 import type { WgslDynoProgram } from "../../dyno/wgsl";
-import type { BindingReflection, KernelModule } from "../KernelModule";
-
-export const DYNO_UNIFORMS = "dyno_uniforms";
+import type { KernelModule } from "../KernelModule";
+import { type TextureLayouts, dynoBindingReflections } from "./bindings";
 
 /** Which hooks to fill, with the name of the program function for each. */
 export interface DynoHookFunctions {
@@ -104,12 +103,6 @@ function hookBody(
   return `fn ${found.name}(${params}) -> ${found.returns}\n{\n    return ${call};\n}`;
 }
 
-/** Texture layouts by texture binding name; float textures default to unfilterable. */
-export type TextureLayouts = Record<
-  string,
-  { sampleType: GPUTextureSampleType; viewDimension: GPUTextureViewDimension }
->;
-
 export function patchKernel(
   base: KernelModule,
   program: WgslDynoProgram,
@@ -133,41 +126,7 @@ export function patchKernel(
   const conv = converters(wgsl);
   wgsl = `${wgsl}\n\n// dyno\n\n${program.code}\n\n${conv.code}\n`;
 
-  const { group } = program.backend;
-  const extra: BindingReflection[] = [];
-  if (program.uniformBytes > 0) {
-    extra.push({
-      name: DYNO_UNIFORMS,
-      group,
-      binding: 0,
-      kind: "external",
-      bytes: program.uniformBytes,
-      layout: { buffer: { type: "uniform" } },
-    });
-  }
-  for (const t of program.backend.textures) {
-    const layout = textureLayouts[t.name] ?? defaultTextureLayout(t.type);
-    extra.push({
-      name: t.name,
-      group,
-      binding: t.binding,
-      kind: "external",
-      layout: { texture: layout },
-    });
-    if (t.samplerBinding != null) {
-      extra.push({
-        name: `${t.name}_sampler`,
-        group,
-        binding: t.samplerBinding,
-        kind: "external",
-        layout: {
-          sampler: {
-            type: layout.sampleType === "float" ? "filtering" : "non-filtering",
-          },
-        },
-      });
-    }
-  }
+  const extra = dynoBindingReflections(program, textureLayouts);
   const names = extra.map((b) => b.name);
   return {
     name,
@@ -180,26 +139,4 @@ export function patchKernel(
       bindings: [...base.reflection.bindings, ...extra],
     },
   };
-}
-
-export function defaultTextureLayout(type: unknown): {
-  sampleType: GPUTextureSampleType;
-  viewDimension: GPUTextureViewDimension;
-} {
-  const t = String(type);
-  const sampleType: GPUTextureSampleType = t.startsWith("u")
-    ? "uint"
-    : t.startsWith("i")
-      ? "sint"
-      : t.includes("Shadow")
-        ? "depth"
-        : "unfilterable-float";
-  const viewDimension: GPUTextureViewDimension = t.includes("2DArray")
-    ? "2d-array"
-    : t.includes("3D")
-      ? "3d"
-      : t.includes("Cube")
-        ? "cube"
-        : "2d";
-  return { sampleType, viewDimension };
 }

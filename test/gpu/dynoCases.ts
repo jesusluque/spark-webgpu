@@ -823,3 +823,83 @@ export const splatCases: [string, d.DynoType, () => Val, Expected][] = [
     [5, 3, 2],
   ],
 ];
+
+// Sampler uniforms: texture bindings read with textureLoad/textureSampleLevel.
+function dataTexture(
+  data: ArrayBufferView,
+  width: number,
+  height: number,
+  format: THREE.AnyPixelFormat,
+  type: THREE.TextureDataType,
+) {
+  const t = new THREE.DataTexture(data as never, width, height, format, type);
+  t.needsUpdate = true;
+  return t;
+}
+const uTex = dataTexture(
+  Uint32Array.from({ length: 4 * 4 * 3 }, (_, i) => i * 3),
+  4,
+  3,
+  THREE.RGBAIntegerFormat,
+  THREE.UnsignedIntType,
+);
+const fTex = dataTexture(
+  Float32Array.from({ length: 2 * 2 * 4 }, (_, i) => i * 0.5),
+  2,
+  2,
+  THREE.RGBAFormat,
+  THREE.FloatType,
+);
+// Two texels, 0 and 255 in red, linearly filtered.
+const bTex = dataTexture(
+  new Uint8Array([0, 0, 0, 255, 255, 0, 0, 255]),
+  2,
+  1,
+  THREE.RGBAFormat,
+  THREE.UnsignedByteType,
+);
+bTex.magFilter = THREE.LinearFilter;
+bTex.minFilter = THREE.LinearFilter;
+const arrayTex = new THREE.DataArrayTexture(
+  Uint32Array.from({ length: 2 * 2 * 3 * 4 }, (_, i) => i),
+  2,
+  2,
+  3,
+);
+arrayTex.format = THREE.RGBAIntegerFormat;
+arrayTex.type = THREE.UnsignedIntType;
+arrayTex.needsUpdate = true;
+
+export const textureCases: [string, d.DynoType, () => Val, Expected][] = [
+  [
+    "texelFetch usampler2D",
+    "uvec4",
+    () => d.texelFetch(d.dynoUsampler2D(uTex), d.dynoIvec2([1, 2])),
+    [108, 111, 114, 117],
+  ],
+  [
+    "texelFetch sampler2D float",
+    "vec4",
+    () => d.texelFetch(d.dynoSampler2D(fTex), d.dynoIvec2([1, 1])),
+    [6, 6.5, 7, 7.5],
+  ],
+  [
+    "texture sampler2D linear",
+    "vec4",
+    () => d.texture(d.dynoSampler2D(bTex), v2(0.5, 0.5)),
+    [0.5, 0, 0, 1],
+  ],
+  ["textureSize", "ivec2", () => d.textureSize(d.dynoUsampler2D(uTex)), [4, 3]],
+  [
+    "texelFetch usampler2DArray",
+    "uvec4",
+    () => d.texelFetch(d.dynoUsampler2DArray(arrayTex), iv3(1, 0, 2)),
+    [36, 37, 38, 39],
+  ],
+  [
+    "textureSize 2DArray",
+    "ivec3",
+    () => d.textureSize(d.dynoUsampler2DArray(arrayTex)),
+    [2, 2, 3],
+  ],
+];

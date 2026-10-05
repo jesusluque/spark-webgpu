@@ -3,7 +3,13 @@
 
 import { describe, expect, it } from "vitest";
 import { device } from "./device";
-import { type Expected, cases, graph, splatCases } from "./dynoCases";
+import {
+  type Expected,
+  cases,
+  graph,
+  splatCases,
+  textureCases,
+} from "./dynoCases";
 import { evalDyno } from "./dynoHarness";
 
 function check(actual: number[], expected: Expected) {
@@ -21,7 +27,11 @@ function check(actual: number[], expected: Expected) {
 }
 
 describe.skipIf(!device)("dyno ops in WGSL", () => {
-  for (const [name, type, f, expected] of [...cases, ...splatCases]) {
+  for (const [name, type, f, expected] of [
+    ...cases,
+    ...splatCases,
+    ...textureCases,
+  ]) {
     it(name, async () => {
       check(await evalDyno(graph(type, f)), expected);
     });

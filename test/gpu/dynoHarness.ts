@@ -4,7 +4,19 @@
 import type { Dyno, IOTypes } from "../../src/dyno/base";
 import type { DynoType } from "../../src/dyno/types";
 import { WgslDynoProgram, typeShape } from "../../src/dyno/wgsl";
+import {
+  dynoBindingReflections,
+  dynoResources,
+  textureLayouts,
+} from "../../src/webgpu/dyno/bindings";
+import { TextureCache } from "../../src/webgpu/dyno/textures";
 import { device, readBack, storage } from "./device";
+
+let cache: TextureCache | null = null;
+const textures = () => {
+  cache ??= new TextureCache(device as GPUDevice);
+  return cache;
+};
 
 export async function compileErrors(code: string): Promise<string[]> {
   const d = device as GPUDevice;
@@ -71,9 +83,35 @@ export async function evalDyno(
   program.update();
   const { words } = storeWords(type);
   const out = storage(words * 4);
+  const layouts = textureLayouts(program);
+  const dynoEntries = dynoBindingReflections(program, layouts);
+  const bgl0 = d.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage" },
+      },
+    ],
+  });
+  const bgl1 = d.createBindGroupLayout({
+    entries: dynoEntries.map((b) => ({
+      ...b.layout,
+      binding: b.binding,
+      visibility: GPUShaderStage.COMPUTE,
+    })),
+  });
   const pipeline = d.createComputePipeline({
-    layout: "auto",
+    layout: d.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1] }),
     compute: { module: d.createShaderModule({ code }), entryPoint: "main" },
+  });
+  const resources = dynoResources(program, layouts, textures(), (data) => {
+    const ubo = d.createBuffer({
+      size: data.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    d.queue.writeBuffer(ubo, 0, data);
+    return { buffer: ubo };
   });
   const encoder = d.createCommandEncoder();
   const pass = encoder.beginComputePass();
@@ -81,24 +119,20 @@ export async function evalDyno(
   pass.setBindGroup(
     0,
     d.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
+      layout: bgl0,
       entries: [{ binding: 0, resource: { buffer: out } }],
     }),
   );
-  if (program.uniformBytes > 0) {
-    const ubo = d.createBuffer({
-      size: program.uniformBytes,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    d.queue.writeBuffer(ubo, 0, program.packUniforms());
-    pass.setBindGroup(
-      1,
-      d.createBindGroup({
-        layout: pipeline.getBindGroupLayout(1),
-        entries: [{ binding: 0, resource: { buffer: ubo } }],
-      }),
-    );
-  }
+  pass.setBindGroup(
+    1,
+    d.createBindGroup({
+      layout: bgl1,
+      entries: dynoEntries.map((b) => ({
+        binding: b.binding,
+        resource: resources[b.name],
+      })),
+    }),
+  );
   pass.dispatchWorkgroups(1);
   pass.end();
   d.queue.submit([encoder.finish()]);
