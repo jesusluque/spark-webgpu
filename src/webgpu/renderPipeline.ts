@@ -8,7 +8,7 @@ import { usedBindings } from "./KernelRegistry";
 export interface RenderPipelineOptions {
   vertex: string;
   fragment: string;
-  targets: GPUColorTargetState[];
+  targets: (GPUColorTargetState | null)[];
   primitive?: GPUPrimitiveState;
   depthStencil?: GPUDepthStencilState;
   label?: string;
