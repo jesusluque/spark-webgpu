@@ -91,6 +91,9 @@ pub trait TsplatArray {
         }
     }
 
+    /// Extra per-Gaussian attributes, aligned with the splats.
+    fn attribs(&self) -> Option<&crate::attrib::AttribArray> { None }
+
     fn get_sh1(&self, index: usize) -> [f32; 9];
     fn get_sh2(&self, index: usize) -> [f32; 15];
     fn get_sh3(&self, index: usize) -> [f32; 21];

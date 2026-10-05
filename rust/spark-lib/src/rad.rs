@@ -17,6 +17,7 @@ use miniz_oxide::inflate::decompress_to_vec;
 //     encode_all(data, 19).unwrap()
 // }
 
+use crate::attrib::AttribSpec;
 use crate::decoder::{ChunkReceiver, SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatReceiver};
 use crate::sh_clustering::ShClusters;
 use crate::splat_encode::{self, decode_scale8, encode_scale8_zero};
@@ -140,6 +141,10 @@ pub struct RadMeta {
     sh_code_count: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     comment: Option<String>,
+    /// Extra per-Gaussian attributes (attrib.rs), each stored in every chunk
+    /// as an "attrib" property with its name.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    attributes: Option<Vec<AttribSpec>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,6 +181,9 @@ pub struct RadChunkProperty {
     min: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max: Option<f32>,
+    /// The attribute of an "attrib" property.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    name: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,6 +217,8 @@ pub enum RadChunkPropertyName {
     Sh3Code,
     #[serde(rename = "sh_label")]
     ShLabel,
+    #[serde(rename = "attrib")]
+    Attrib,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -575,6 +585,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             splat_encoding: None,
             sh_code_count: self.sh_clusters.as_ref().map(|c| c.num_clusters as u32),
             comment: self.comment.clone(),
+            attributes: self.getter.get_attribs().map(|a| a.specs.clone()),
         };
         if let Some(mut encoding) = self.encoding.clone().or_else(|| self.getter.get_encoding()) {
             encoding.lod_opacity = self.getter.has_lod_tree();
@@ -891,6 +902,12 @@ impl<T: SplatGetter> RadEncoder<T> {
             props.push(self.encode_chunk_child_start(base, count, buffer_usize));
         }
 
+        if let Some(attribs) = self.getter.get_attribs() {
+            for (spec, column) in attribs.specs.iter().zip(attribs.columns.iter()) {
+                props.push(encode_chunk_attrib(spec, column, base, count));
+            }
+        }
+
         let mut offset = 0u64;
         for (prop, data) in props.iter_mut() {
             prop.offset = offset;
@@ -932,6 +949,47 @@ impl<T: SplatGetter> RadEncoder<T> {
 
         Ok(encoded)
     }
+}
+
+// An attribute in its own format: floats as f32 or f16, normalized bytes as
+// r8 or s8, integers as u32 (gz takes the slack).
+fn encode_chunk_attrib(spec: &AttribSpec, column: &[f64], base: usize, count: usize) -> (RadChunkProperty, Vec<u8>) {
+    let c = spec.components;
+    let values = &column[base * c..(base + count) * c];
+    let floats = || values.iter().map(|&v| v as f32).collect::<Vec<f32>>();
+    let (encoding, bytes, min, max) = match spec.format.as_str() {
+        "f16" => (RadChunkPropertyEncoding::F16, encode_f16(&floats(), c, count), None, None),
+        "unorm8" => (RadChunkPropertyEncoding::R8, encode_r8(&floats(), c, count, 0.0, 1.0), Some(0.0), Some(1.0)),
+        "snorm8" => (RadChunkPropertyEncoding::S8, encode_s8(&floats(), c, count, 1.0), None, Some(1.0)),
+        "u8" | "u16" | "u32" => {
+            let ints: Vec<u32> = values.iter().map(|&v| v.max(0.0).round() as u32).collect();
+            (RadChunkPropertyEncoding::U32, encode_u32(&ints, c, count), None, None)
+        }
+        _ => (RadChunkPropertyEncoding::F32, encode_f32(&floats(), c, count), None, None),
+    };
+    let meta = RadChunkProperty {
+        property: RadChunkPropertyName::Attrib,
+        encoding,
+        compression: Some(RadChunkPropertyCompression::Gz),
+        min,
+        max,
+        name: Some(spec.name.clone()),
+        ..Default::default()
+    };
+    (meta, compress_to_vec(&bytes, GZ_LEVEL))
+}
+
+fn decode_attrib(prop: &RadChunkProperty, data: &[u8], dims: usize, count: usize) -> anyhow::Result<Vec<f64>> {
+    let floats = |v: Vec<f32>| v.into_iter().map(f64::from).collect();
+    Ok(match prop.encoding {
+        RadChunkPropertyEncoding::F32 => floats(decode_f32(data, dims, count)),
+        RadChunkPropertyEncoding::F16 => floats(decode_f16(data, dims, count)),
+        RadChunkPropertyEncoding::R8 => floats(decode_r8(data, dims, count, prop.min.unwrap_or(0.0), prop.max.unwrap_or(1.0))),
+        RadChunkPropertyEncoding::S8 => floats(decode_s8(data, dims, count, prop.max.unwrap_or(1.0))),
+        RadChunkPropertyEncoding::U16 => decode_u16_as_u32(data, dims, count).into_iter().map(f64::from).collect(),
+        RadChunkPropertyEncoding::U32 => decode_u32(data, dims, count).into_iter().map(f64::from).collect(),
+        _ => return Err(anyhow::anyhow!("Unsupported attribute encoding: {:?}", prop.encoding)),
+    })
 }
 
 fn roundup8(size: usize) -> usize {
@@ -1528,6 +1586,10 @@ impl<T: SplatReceiver> RadDecoder<T> {
             self.splats.set_encoding(set_splat_encoding)?;
         }
 
+        if let Some(specs) = meta.attributes.as_ref() {
+            self.splats.init_attribs(specs);
+        }
+
         if lod_tree {
             self.splats.set_encoding(&SetSplatEncoding {
                 lod_opacity: Some(true),
@@ -1776,6 +1838,18 @@ impl<T: SplatReceiver> RadDecoder<T> {
                     }
                     let child_starts = decode_u32_as_usize(data, 1, self.count);
                     self.splats.set_child_start(self.base, self.count, &child_starts);
+                },
+                RadChunkPropertyName::Attrib => {
+                    // Needs the file's schema: skipped in a chunk read alone.
+                    let specs = self.meta.as_ref().and_then(|meta| meta.attributes.as_ref());
+                    let found = specs.and_then(|specs| {
+                        let name = prop.name.as_deref()?;
+                        specs.iter().position(|s| s.name == name).map(|k| (k, specs[k].components))
+                    });
+                    if let Some((k, dims)) = found {
+                        let values = decode_attrib(prop, data, dims, self.count)?;
+                        self.splats.set_attrib(k, self.base, self.count, &values);
+                    }
                 },
                 // _ => return Err(anyhow::anyhow!("Unknown property type: {:?}", prop.property)),
             }

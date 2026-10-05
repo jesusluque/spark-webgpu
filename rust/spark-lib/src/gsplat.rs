@@ -1,4 +1,4 @@
-use crate::attrib::AttribArray;
+use crate::attrib::{AttribArray, AttribSpec};
 
 use std::array;
 
@@ -469,6 +469,10 @@ impl TsplatArray for GsplatArray {
         self.children.clear();
     }
 
+    fn attribs(&self) -> Option<&AttribArray> {
+        if self.attribs.is_empty() { None } else { Some(&self.attribs) }
+    }
+
     fn get_sh1(&self, index: usize) -> [f32; 9] {
         self.sh1[index].to_array()
     }
@@ -730,6 +734,14 @@ pub fn ellipsoid_area(scales: Vec3A) -> f32 {
 }
 
 impl SplatReceiver for GsplatArray {
+    fn init_attribs(&mut self, specs: &[AttribSpec]) {
+        self.attribs = AttribArray::new_zeroed(specs, self.splats.len());
+    }
+
+    fn set_attrib(&mut self, attrib: usize, base: usize, count: usize, values: &[f64]) {
+        self.attribs.set_range(attrib, base, count, values);
+    }
+
     fn init_splats(&mut self, init: &SplatInit) -> anyhow::Result<()> {
         self.max_sh_degree = init.max_sh_degree;
         self.splats.resize_with(init.num_splats, Default::default);
@@ -905,6 +917,10 @@ impl SplatReceiver for GsplatArray {
 }
 
 impl SplatGetter for GsplatArray {
+    fn get_attribs(&self) -> Option<&AttribArray> {
+        if self.attribs.is_empty() { None } else { Some(&self.attribs) }
+    }
+
     fn num_splats(&self) -> usize { self.len() }
     fn max_sh_degree(&self) -> usize { self.max_sh_degree }
     fn flag_antialias(&self) -> bool { true }

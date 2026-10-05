@@ -1,3 +1,4 @@
+use crate::attrib::{AttribArray, AttribSpec};
 use std::any::Any;
 
 #[cfg(feature = "spz")]
@@ -145,6 +146,11 @@ pub trait SplatReceiver: 'static {
 
     fn set_child_count(&mut self, base: usize, count: usize, child_count: &[u16]) {}
     fn set_child_start(&mut self, base: usize, count: usize, child_start: &[usize]) {}
+
+    /// Extra per-Gaussian attributes (attrib.rs): the schema, after init_splats.
+    fn init_attribs(&mut self, specs: &[AttribSpec]) {}
+    /// Values of attribute `attrib` for splats base..base + count.
+    fn set_attrib(&mut self, attrib: usize, base: usize, count: usize, values: &[f64]) {}
 }
 
 #[derive(Default)]
@@ -235,6 +241,8 @@ pub struct SplatPropsMut<'a> {
 pub trait SplatGetter: 'static {
     // Source/format metadata (header-like)
     fn num_splats(&self) -> usize;
+    /// Extra per-Gaussian attributes, aligned with the splats.
+    fn get_attribs(&self) -> Option<&AttribArray> { None }
     fn max_sh_degree(&self) -> usize;
     fn flag_antialias(&self) -> bool { false }
     fn has_lod_tree(&self) -> bool { false }

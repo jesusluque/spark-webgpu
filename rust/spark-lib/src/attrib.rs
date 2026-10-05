@@ -7,8 +7,10 @@
 //! Values are f64 so integer labels and ids up to 2^53 merge exactly.
 
 use ahash::AHashMap;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum LodMerge {
     /// Weighted mean of each component.
     WeightedMean,
@@ -47,12 +49,13 @@ impl LodMerge {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AttribSpec {
     pub name: String,
     /// Storage format on the GPU ("f32", "u8", ...), carried for the caller.
     pub format: String,
     pub components: usize,
+    #[serde(rename = "lodMerge")]
     pub lod_merge: LodMerge,
 }
 
@@ -92,6 +95,20 @@ impl AttribArray {
         self.specs.push(spec);
         self.columns.push(values);
         Ok(())
+    }
+
+    /// Zeroed columns of `specs` for `count` splats, for a decoder to fill.
+    pub fn new_zeroed(specs: &[AttribSpec], count: usize) -> Self {
+        Self {
+            specs: specs.to_vec(),
+            columns: specs.iter().map(|s| vec![0.0; count * s.components]).collect(),
+        }
+    }
+
+    /// Writes `count` splats of attribute `attrib` from `base`.
+    pub fn set_range(&mut self, attrib: usize, base: usize, count: usize, values: &[f64]) {
+        let c = self.specs[attrib].components;
+        self.columns[attrib][base * c..(base + count) * c].copy_from_slice(&values[..count * c]);
     }
 
     pub fn get(&self, attrib: usize, index: usize) -> &[f64] {
@@ -339,6 +356,48 @@ mod tests {
             c.splats.push(Csplat::new(s.center(), s.opacity(), s.rgb(), s.scales(), s.quaternion(), &c.encoding));
         }
         lod_case(c, |s| crate::tiny_lod::compute_lod_tree(s, 1.5, true, |_| {}), 3000, 1e-2);
+    }
+
+    // Attributes round-trip through a .rad file in their own formats.
+    #[cfg(all(feature = "gsplat", feature = "rad"))]
+    #[test]
+    fn through_rad() {
+        use crate::decoder::ChunkReceiver;
+        use crate::gsplat::GsplatArray;
+        use crate::rad::{RadDecoder, RadEncoder};
+        use crate::tsplat::TsplatArray;
+        // Over one 65536-splat chunk, so the second chunk's base matters.
+        let n = 70000;
+        let mut splats = random_gsplats(n);
+        let mut attribs = AttribArray::new();
+        let fmt = |name: &str, format: &str, components: usize, lod_merge| AttribSpec {
+            name: name.into(), format: format.into(), components, lod_merge,
+        };
+        attribs.add(fmt("label", "u8", 1, LodMerge::Mode), (0..n).map(|i| (i % 251) as f64).collect()).unwrap();
+        attribs.add(fmt("id", "u32", 1, LodMerge::First), (0..n).map(|i| (i * 977) as f64).collect()).unwrap();
+        attribs.add(fmt("normal", "snorm8", 3, LodMerge::NormalizeMean), (0..3 * n).map(|k| if k % 3 == 2 { -1.0 } else { 0.0 }).collect()).unwrap();
+        attribs.add(fmt("feature", "f16", 5, LodMerge::WeightedMean), (0..5 * n).map(|k| (k % 1000) as f64 * 0.5).collect()).unwrap();
+        attribs.add(fmt("weight", "f32", 1, LodMerge::Max), (0..n).map(|i| i as f64 / 3.0).collect()).unwrap();
+        attribs.add(fmt("mask", "unorm8", 2, LodMerge::WeightedMean), (0..2 * n).map(|k| (k % 256) as f64 / 255.0).collect()).unwrap();
+        splats.attribs = attribs.clone();
+
+        let mut bytes = Vec::new();
+        RadEncoder::new(splats).encode(&mut bytes).unwrap();
+        let mut decoder = RadDecoder::new(GsplatArray::new());
+        decoder.push(&bytes).unwrap();
+        decoder.finish().unwrap();
+        let out = decoder.into_splats();
+        assert_eq!(out.len(), n);
+        assert_eq!(out.attribs.specs, attribs.specs);
+        for (k, spec) in attribs.specs.iter().enumerate() {
+            for i in [0, 1, 4095, 65535, 65536, n - 1] {
+                let (got, want) = (out.attribs.get(k, i), attribs.get(k, i));
+                for c in 0..spec.components {
+                    let tol = if spec.format == "f32" { 1e-6 * (1.0 + want[c].abs()) } else { 1e-2 * (1.0 + want[c].abs()) };
+                    assert!((got[c] - want[c]).abs() <= tol, "{} [{i}][{c}]: {} vs {}", spec.name, got[c], want[c]);
+                }
+            }
+        }
     }
 
     #[test]
