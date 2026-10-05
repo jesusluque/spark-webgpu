@@ -127,3 +127,8 @@ export {
 } from "./webgpu/WgpuSplatRenderer";
 export { KernelRegistry } from "./webgpu/KernelRegistry";
 export { UniformWriter } from "./webgpu/uniforms";
+export {
+  splatGeneratorDyno,
+  splatMeshDyno,
+} from "./webgpu/dyno/adapters";
+export type { WgpuDyno, WgpuDynoFrame } from "./webgpu/dyno/DynoKernels";
