@@ -126,6 +126,13 @@ export {
   type WgpuSplatRendererOptions,
 } from "./webgpu/WgpuSplatRenderer";
 export { KernelRegistry } from "./webgpu/KernelRegistry";
+export {
+  WgpuLod,
+  type WgpuLodMesh,
+  type WgpuLodMeshOptions,
+  type WgpuLodOptions,
+} from "./webgpu/WgpuLod";
+export { WgpuSplatPager } from "./webgpu/WgpuSplatPager";
 export { UniformWriter } from "./webgpu/uniforms";
 export * as fx from "./webgpu/fx";
 export {

@@ -531,7 +531,7 @@ export class SplatPager {
     splats.clear();
   }
 
-  private uploadPage(
+  protected uploadPage(
     page: number,
     packedArray: Uint32Array,
     shArrays: Array<Uint32Array>,
@@ -562,7 +562,7 @@ export class SplatPager {
     }
   }
 
-  private newUint32ArrayTexture(
+  protected newUint32ArrayTexture(
     elementsPerSplat: 2 | 4,
   ): THREE.DataArrayTexture {
     const data = new Uint32Array(

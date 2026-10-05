@@ -49,6 +49,7 @@ const GEN_SORT_RADIAL = 16;
 const GEN_DYNO_SOURCE = 256;
 
 const DRAW_EXT = 1;
+const DRAW_LOD_INFLATE = 8;
 const DRAW_ORTHOGRAPHIC = 16;
 const DRAW_ENCODE_LINEAR = 32;
 const DRAW_PREMULTIPLIED = 64;
@@ -93,6 +94,8 @@ export interface WgpuSplatRendererOptions {
   falloff?: number;
   clipXY?: number;
   focalAdjustment?: number;
+  /** Trade LOD opacity above 1 for size (SparkRenderer.lodInflate). */
+  lodInflate?: boolean;
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -207,6 +210,7 @@ export class WgpuSplatRenderer {
       falloff: 1,
       clipXY: 1.4,
       focalAdjustment: 1,
+      lodInflate: false,
       ...options,
     };
     this.capabilities = capabilitiesOf(this.device);
@@ -283,11 +287,26 @@ export class WgpuSplatRenderer {
 
   /** Restricts a mesh to the given source indices (a LOD traversal result). */
   setLodIndices(mesh: WgpuSplatMesh, indices: Uint32Array | null) {
-    mesh.lodBuffer?.destroy();
     mesh.lodIndices = indices;
-    mesh.lodBuffer = indices
-      ? upload(this.device, indices, "lod indices")
-      : null;
+    if (
+      indices &&
+      mesh.lodBuffer &&
+      mesh.lodBuffer.size >= indices.byteLength
+    ) {
+      // LOD updates arrive often; reuse the buffer while it is large enough.
+      this.device.queue.writeBuffer(
+        mesh.lodBuffer,
+        0,
+        indices.buffer,
+        indices.byteOffset,
+        indices.byteLength,
+      );
+    } else {
+      mesh.lodBuffer?.destroy();
+      mesh.lodBuffer = indices
+        ? upload(this.device, indices, "lod indices")
+        : null;
+    }
     this.mappingVersion += 1;
   }
 
@@ -676,6 +695,7 @@ export class WgpuSplatRenderer {
       flags:
         DRAW_EXT |
         DRAW_PREMULTIPLIED |
+        (o.lodInflate ? DRAW_LOD_INFLATE : 0) |
         (linear ? DRAW_ENCODE_LINEAR : 0) |
         ((camera as THREE.OrthographicCamera).isOrthographicCamera
           ? DRAW_ORTHOGRAPHIC

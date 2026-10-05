@@ -2,6 +2,11 @@
 //   ?file=<asset name>   a file from examples/assets.json (default butterfly.spz)
 //   ?n=<count>           instead, a synthetic cloud of n packed splats
 //   ?w=&h=               canvas size
+//   ?lod=1               load the file with LoD splats (lod: true) and draw
+//                        the LoD traversal's selection
+//   ?rad=<url>|1         instead, a paged .rad file streamed through the LoD
+//                        pager (1: the hobbiton scene)
+//   ?count=<n>           lodSplatCount for both renderers
 // Both pages expose window.__bench(frames): renders that many frames as fast
 // as possible, each waited on until the GPU finishes, with the object
 // turning a little every frame so both backends regenerate and re-sort.
@@ -9,6 +14,15 @@ export function setupCompare() {
   const params = new URLSearchParams(location.search);
   const file = params.get("file") ?? "butterfly.spz";
   const n = params.get("n") ? Number(params.get("n")) : null;
+  const lod = params.get("lod") === "1";
+  const radParam = params.get("rad");
+  const rad =
+    radParam === "1"
+      ? "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260219/tijerin_w6_hobbiton-lod.rad"
+      : radParam;
+  const lodSplatCount = params.get("count")
+    ? Number(params.get("count"))
+    : undefined;
   const size = {
     w: Number(params.get("w") ?? 800),
     h: Number(params.get("h") ?? 600),
@@ -19,11 +33,16 @@ export function setupCompare() {
       object.position.set(0, 0, -3);
       return;
     }
+    if (rad) {
+      object.quaternion.set(1, 0, 0, 0);
+      object.position.set(0, 0, -1);
+      return;
+    }
     object.quaternion.set(1, 0, 0, 0);
     object.position.set(0, 0, -3);
     object.rotation.y += 0.6;
   };
-  return { file, n, size, pose };
+  return { file, n, lod, rad, lodSplatCount, size, pose };
 }
 
 // A deterministic cloud of n splats in a 2-unit ball, packed as PackedSplats.
@@ -95,4 +114,23 @@ export async function bench(frames, step) {
     medianMs: times[times.length >> 1],
     p90Ms: times[Math.floor(times.length * 0.9)],
   };
+}
+
+// Resolves once `state()` (a JSON-able LoD summary with a `pending` flag)
+// has stayed the same, and not pending, for `ms`: the LoD selection and any
+// page streaming have settled, so both backends draw the same splats.
+export async function waitSettled(state, ms = 1500) {
+  let last = "";
+  let since = performance.now();
+  while (true) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const s = state();
+    const key = JSON.stringify(s);
+    if (key !== last || s.pending) {
+      last = key;
+      since = performance.now();
+    } else if (performance.now() - since >= ms) {
+      return s;
+    }
+  }
 }

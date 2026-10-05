@@ -14,26 +14,38 @@
     import * as THREE from "three";
     import { PackedSplats, SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "../js/get-asset-url.js";
-    import { bench, setupCompare, syntheticPacked } from "./compare.js";
+    import { bench, setupCompare, syntheticPacked, waitSettled } from "./compare.js";
 
-    const { file, n, pose, size } = setupCompare();
+    const { file, n, lod, rad, lodSplatCount, pose, size } = setupCompare();
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(size.w, size.h);
     document.body.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
-    scene.add(new SparkRenderer({ renderer }));
+    const spark = new SparkRenderer({ renderer, lodSplatCount });
+    scene.add(spark);
     const mesh = n
       ? new SplatMesh({ packedSplats: new PackedSplats({ packedArray: syntheticPacked(utils, n), numSplats: n }) })
-      : new SplatMesh({ url: await getAssetFileURL(file) });
+      : rad
+        ? new SplatMesh({ url: rad, paged: true })
+        : new SplatMesh({ url: await getAssetFileURL(file), lod });
     pose(mesh);
     scene.add(mesh);
     await mesh.initialized;
     let frames = 0;
+    const settled = lod || rad
+      ? waitSettled(() => ({
+        lod: spark.currentLod?.timestamp ?? null,
+        splats: mesh.paged ? mesh.paged.numSplats : (spark.lodInstances.get(mesh)?.numSplats ?? 0),
+        pending: !spark.currentLod || (spark.pager?.isPending() ?? false),
+      }))
+      : Promise.resolve();
+    settled.then((s) => { window.__lodState = s; });
     renderer.setAnimationLoop(() => {
       renderer.render(scene, camera);
-      if (++frames === 30) window.__ready = true;
+      if (++frames >= 30 && window.__lodState !== undefined || (!lod && !rad && frames === 30)) window.__ready = true;
     });
+    window.__spark = spark;
     const gl = renderer.getContext();
     const pixel = new Uint8Array(4);
     // Throughput: the normal animation loop for `seconds`, the object turning

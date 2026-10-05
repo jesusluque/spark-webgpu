@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  LoD on WebGPU: WgpuLod drives the same WASM traversal as SparkRenderer and
+  feeds WgpuSplatRenderer the selected splats. Mirrors examples/lod,
+  examples/lod-on-demand and examples/multi-lod:
+    ?file=valley.spz      an asset loaded with lod: true (default)
+    ?rad=<url>|1          a paged .rad file, streamed (1: the hobbiton scene)
+    ?multi=<n>            n paged marble-100-mini scenes on a sphere
+    ?ondemand=1           woobles.spz without LoD; build it from the GUI
+    ?count=<n>            lodSplatCount
+-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spark • WebGPU LoD</title>
+  <style>
+    body { margin: 0; background: #000; color: #ccc; font: 13px system-ui, sans-serif; }
+    canvas { display: block; touch-action: none; }
+    #info { position: absolute; top: 8px; left: 8px; white-space: pre; pointer-events: none; }
+  </style>
+</head>
+
+<body>
+  <div id="info">Spark WebGPU LoD · starting…</div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.webgpu.js",
+        "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { PackedSplats, PagedSplats, SparkControls, WgpuLod, WgpuSplatRenderer, isMobile } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
+
+    const info = document.getElementById("info");
+    const params = new URLSearchParams(location.search);
+    if (!navigator.gpu) {
+      info.textContent = "WebGPU is not available in this browser.";
+      throw new Error("no WebGPU");
+    }
+
+    // The page pool is one storage binding per pool: ask for the adapter's
+    // larger limits, where it has them, to hold more pages.
+    const adapter = await navigator.gpu.requestAdapter();
+    const requiredLimits = adapter ? {
+      maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+      maxBufferSize: adapter.limits.maxBufferSize,
+    } : {};
+    const renderer = new THREE.WebGPURenderer({ requiredLimits });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    await renderer.init();
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+    camera.position.set(0, 0, 1);
+    function resize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener("resize", resize);
+
+    const splats = new WgpuSplatRenderer(renderer);
+    const lod = new WgpuLod(splats, {
+      lodSplatCount: params.get("count") ? Number(params.get("count")) : undefined,
+      maxPagedSplats: (isMobile() ? 128 : 256) * 65536,
+    });
+    window.__splats = splats;
+    window.__lod = lod;
+
+    const gui = new GUI({ title: "Settings" });
+    gui.add(lod.options, "lodSplatScale", 0.001, 2.0, 0.001).name("Level of Detail").listen();
+    gui.add(lod.options, "lodRenderScale", 0.5, 5.0, 0.1).name("LoD render scale");
+    gui.add(splats.options, "lodInflate").name("LoD inflate");
+
+    const meshes = [];
+    const multi = Number(params.get("multi") ?? 0);
+    const rad = params.get("rad");
+    if (multi > 0) {
+      // examples/multi-lod
+      const list = "03facf44-511b-42d0-9ddb-9e2a0227e50e 0524c1a1-abf2-4969-ae40-9981ee836536 05c65f47-5ecf-4f0f-badc-1c8234c0fe03 0677323b-42b6-4b7d-88d5-e066428850e1 08851659-2382-44e5-a988-05dfb6899165 09a99d87-cbf2-4beb-a1d7-7e6274647d5f 0f2453d4-cf93-469a-9274-76accf339c84 1064da41-40b6-47d5-b143-a1cad98605ec 1081428c-38a2-4908-a38a-e5d74da32b06 10e947d4-2888-4d97-ad20-c918a73939ac 1279023c-ceff-4f84-90e5-a81c63ff2542 13958d31-dfcc-4f15-bbcc-91bed2731f73 13970b1c-834f-41f8-9f7b-3a1312e161e0 144fbd5e-5d1e-4564-b8ce-2993c3c05ebd 1736e123-4215-4d25-b4f3-3c8cd451d616 18cd8d4d-02df-4d2e-8884-b3e4342cd8c8 1b6cd27e-6d11-498d-a345-2cf17ca8c6a9 1d63bbd1-6c9d-4343-9df0-a17fd8057fcd 1e04986e-2e3e-4666-9a56-8c15a585321f 22182c03-dfc2-41ab-b518-ade4f5253505".split(" ");
+      const n = Math.min(multi, list.length);
+      const side = Math.ceil(Math.sqrt(n));
+      camera.position.set(0, 0, 10);
+      await Promise.all(list.slice(0, n).map(async (file, index) => {
+        const url = `https://storage.googleapis.com/forge-dev-public/marble-100-mini/${file}_1000000-lod.rad`;
+        const holder = new THREE.Object3D();
+        const x = (index % side) / Math.max(1, side - 1) - 0.5;
+        const y = Math.floor(index / side) / Math.max(1, side - 1) - 0.5;
+        const z = Math.sqrt(Math.max(0, 0.7 - x * x - y * y));
+        holder.position.set(20 * x, 16 * y, -20 * z + 10);
+        holder.quaternion.set(1, 0, 0, 0);
+        holder.scale.setScalar(0.2);
+        meshes.push(await lod.add(new PagedSplats({ rootUrl: url }), holder));
+      }));
+    } else if (rad) {
+      const url = rad === "1"
+        ? "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260219/tijerin_w6_hobbiton-lod.rad"
+        : rad;
+      const holder = new THREE.Object3D();
+      holder.quaternion.set(1, 0, 0, 0);
+      meshes.push(await lod.add(new PagedSplats({ rootUrl: url }), holder));
+    } else if (params.get("ondemand")) {
+      // examples/lod-on-demand: no LoD until the button builds it.
+      lod.options.lodSplatCount = 50000;
+      const packed = new PackedSplats({ url: await getAssetFileURL("woobles.spz") });
+      const holder = new THREE.Object3D();
+      holder.quaternion.set(1, 0, 0, 0);
+      holder.position.set(0, -0.5, -2);
+      meshes.push(await lod.add(packed, holder));
+      gui.add({
+        async createLod() {
+          await packed.createLodSplats({ quality: false });
+          lod.remove(meshes.pop());
+          meshes.push(await lod.add(packed, holder));
+        },
+      }, "createLod").name("Create LoD splats");
+      gui.add(lod.options, "lodSplatCount", 10000, 600000, 10000).name("LoD splat count");
+    } else {
+      const packed = new PackedSplats({ url: await getAssetFileURL(params.get("file") ?? "valley.spz"), lod: true, nonLod: true });
+      const holder = new THREE.Object3D();
+      holder.quaternion.set(1, 0, 0, 0);
+      meshes.push(await lod.add(packed, holder));
+    }
+    const lodToggle = { enabled: true };
+    gui.add(lodToggle, "enabled").name("Enable LoD").onChange((v) => {
+      for (const m of meshes) lod.setEnableLod(m, v);
+    });
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+    let frames = 0;
+    let last = performance.now();
+    renderer.setAnimationLoop(() => {
+      controls.update(camera);
+      lod.update(camera);
+      renderer.render(scene, camera);
+      splats.render(camera);
+      frames++;
+      const now = performance.now();
+      if (now - last > 500) {
+        const fps = (frames * 1000) / (now - last);
+        const pager = lod.pager;
+        const pages = pager ? `\npages ${pager.pageToSplatsChunk.filter(Boolean).length}/${pager.maxPages}` : "";
+        info.textContent = `Spark WebGPU LoD · ${fps.toFixed(0)} fps\n${splats.stats.drawn.toLocaleString()} splats · traverse ${lod.stats.traverseMs.toFixed(1)} ms${pages}`;
+        frames = 0;
+        last = now;
+      }
+    });
+  </script>
+</body>
+
+</html>

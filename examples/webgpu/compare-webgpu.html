@@ -12,32 +12,58 @@
   </script>
   <script type="module">
     import * as THREE from "three/webgpu";
-    import { GpuSplatSource, PackedSplats, WgpuSplatRenderer, utils } from "@sparkjsdev/spark";
+    import { GpuSplatSource, PackedSplats, PagedSplats, WgpuLod, WgpuSplatRenderer, utils } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "../js/get-asset-url.js";
-    import { bench, setupCompare, syntheticPacked } from "./compare.js";
+    import { bench, setupCompare, syntheticPacked, waitSettled } from "./compare.js";
 
-    const { file, n, pose, size } = setupCompare();
-    const renderer = new THREE.WebGPURenderer();
+    const { file, n, lod, rad, lodSplatCount, pose, size } = setupCompare();
+    // The page pool binds whole pools: take the adapter's larger limits.
+    const adapter = await navigator.gpu.requestAdapter();
+    const renderer = new THREE.WebGPURenderer({
+      requiredLimits: {
+        maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+        maxBufferSize: adapter.limits.maxBufferSize,
+      },
+    });
     renderer.setSize(size.w, size.h);
     document.body.appendChild(renderer.domElement);
     await renderer.init();
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
-    const packed = n
-      ? new PackedSplats({ packedArray: syntheticPacked(utils, n), numSplats: n })
-      : new PackedSplats({ url: await getAssetFileURL(file) });
-    await packed.initialized;
     const splats = new WgpuSplatRenderer(renderer, { sort: new URLSearchParams(location.search).get("sort") ?? "gpu", sortBits: Number(new URLSearchParams(location.search).get("sortBits") ?? 32) });
     const holder = new THREE.Object3D();
     pose(holder);
-    splats.add(GpuSplatSource.fromPackedSplats(splats.device, packed), holder);
+    const lodDriver = lod || rad ? new WgpuLod(splats, { lodSplatCount }) : null;
+    if (rad) {
+      await lodDriver.add(new PagedSplats({ rootUrl: rad }), holder);
+    } else {
+      const packed = n
+        ? new PackedSplats({ packedArray: syntheticPacked(utils, n), numSplats: n })
+        : new PackedSplats({ url: await getAssetFileURL(file), lod });
+      if (lodDriver) {
+        await lodDriver.add(packed, holder);
+      } else {
+        await packed.initialized;
+        splats.add(GpuSplatSource.fromPackedSplats(splats.device, packed), holder);
+      }
+    }
     window.__splats = splats;
+    window.__lod = lodDriver;
+    const settled = lodDriver
+      ? waitSettled(() => ({
+        lod: lodDriver.stats.traversals,
+        splats: lodDriver.stats.lodSplats,
+        pending: lodDriver.stats.traversals === 0 || (lodDriver.pager?.isPending() ?? false),
+      }))
+      : Promise.resolve();
+    settled.then((s) => { window.__lodState = s; });
     let frames = 0;
     renderer.setAnimationLoop(() => {
+      lodDriver?.update(camera);
       renderer.render(scene, camera);
       splats.render(camera);
-      if (++frames === 30) window.__ready = true;
+      if (++frames >= 30 && window.__lodState !== undefined || (!lodDriver && frames === 30)) window.__ready = true;
     });
     // Throughput: the normal animation loop for `seconds`, the object turning
     // every frame; frames counted (run Chrome without vsync to uncap it).
@@ -47,6 +73,7 @@
         const t0 = performance.now();
         renderer.setAnimationLoop(() => {
           holder.rotation.y += 0.01;
+          lodDriver?.update(camera);
           renderer.render(scene, camera);
         splats.render(camera);
           count++;
@@ -61,6 +88,7 @@
       renderer.setAnimationLoop(null);
       const result = await bench(count, async () => {
         holder.rotation.y += 0.01;
+        lodDriver?.update(camera);
         renderer.render(scene, camera);
         splats.render(camera);
         await splats.device.queue.onSubmittedWorkDone();
