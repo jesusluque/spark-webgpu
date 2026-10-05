@@ -4,6 +4,7 @@ use std::f32::consts::SQRT_2;
 
 use anyhow::anyhow;
 
+use crate::attrib::{AttribSpec, LodMerge};
 use crate::decoder::{ChunkReceiver, SplatGetter, SplatInit, SplatProps, SplatReceiver};
 
 pub const PLY_MAGIC: u32 = 0x00796c70; // "ply"
@@ -87,6 +88,10 @@ impl<T: SplatReceiver> PlyDecoder<T> {
                 max_sh_degree: state.max_sh_degree,
                 lod_tree: false,
             })?;
+            if !state.attribs.is_empty() {
+                let specs: Vec<AttribSpec> = state.attribs.iter().map(|(spec, _)| spec.clone()).collect();
+                self.splats.init_attribs(&specs);
+            }
             PlyState::Standard(state)
         };
 
@@ -208,6 +213,19 @@ impl<T: SplatReceiver> PlyDecoder<T> {
                         state.out_sh3[i21 + d] = sh3[d].get_f32(&self.buffer, base);
                     }
                 }
+            }
+
+            for (k, (spec, props)) in state.attribs.iter().enumerate() {
+                let c = spec.components;
+                let out = &mut state.out_attribs[k];
+                out.resize(count * c, 0.0);
+                for i in 0..count {
+                    let base = offset + i * state.record_size;
+                    for (d, prop) in props.iter().enumerate() {
+                        out[i * c + d] = ply_attrib_value(prop, &self.buffer, base);
+                    }
+                }
+                self.splats.set_attrib(k, state.next_splat, count, &out[..count * c]);
             }
 
             self.splats.set_batch(state.next_splat, count, &SplatProps {
@@ -909,6 +927,80 @@ struct PlyDecoderState {
     out_sh1: Vec<f32>,
     out_sh2: Vec<f32>,
     out_sh3: Vec<f32>,
+
+    /// Non-standard vertex properties as per-Gaussian attributes.
+    attribs: Vec<(AttribSpec, Vec<PlyProperty>)>,
+    out_attribs: Vec<Vec<f64>>,
+}
+
+// Properties the splat itself uses (f_dc_* and f_rest_* by prefix).
+const STANDARD_PROPERTIES: [&str; 15] = [
+    "x", "y", "z", "opacity", "red", "green", "blue", "alpha",
+    "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3",
+];
+
+/// The extra vertex properties grouped into attributes, as
+/// src/webgpu/attributes/plyAttributes.ts does: nx, ny, nz -> "normal";
+/// name_0, name_1, ... of one type -> "name"; anything else alone.
+fn ply_attrib_groups(properties: &HashMap<String, PlyProperty>) -> Vec<(AttribSpec, Vec<PlyProperty>)> {
+    let mut extra: Vec<(&String, &PlyProperty)> = properties.iter()
+        .filter(|(name, _)| !STANDARD_PROPERTIES.contains(&name.as_str()) && !name.starts_with("f_dc_") && !name.starts_with("f_rest_"))
+        .collect();
+    extra.sort_by_key(|(_, p)| p.offset);
+    let format = |ty: PlyPropertyType| match ty {
+        PlyPropertyType::Uchar => "u8",
+        PlyPropertyType::Ushort => "u16",
+        PlyPropertyType::Uint => "u32",
+        _ => "f32",
+    };
+    let same_type = |a: &PlyProperty, b: &PlyProperty| std::mem::discriminant(&a.ty) == std::mem::discriminant(&b.ty);
+    let mut used: Vec<&String> = Vec::new();
+    let mut groups = Vec::new();
+    let normal: Vec<_> = ["nx", "ny", "nz"].iter().filter_map(|n| properties.get_key_value(*n)).collect();
+    if normal.len() == 3 && normal.iter().all(|(_, p)| same_type(p, normal[0].1)) {
+        used.extend(normal.iter().map(|(n, _)| *n));
+        groups.push((
+            AttribSpec { name: "normal".into(), format: format(normal[0].1.ty).into(), components: 3, lod_merge: LodMerge::NormalizeMean },
+            normal.iter().map(|(_, p)| **p).collect(),
+        ));
+    }
+    for (name, prop) in extra.iter() {
+        if used.contains(name) {
+            continue;
+        }
+        let mut members = vec![(*name, **prop)];
+        let stem = name.strip_suffix("_0");
+        if let Some(stem) = stem {
+            for k in 1.. {
+                match properties.get_key_value(&format!("{stem}_{k}")) {
+                    Some((n, p)) if !used.contains(&n) && same_type(p, prop) => members.push((n, *p)),
+                    _ => break,
+                }
+            }
+        }
+        used.extend(members.iter().map(|(n, _)| *n));
+        let fmt = format(prop.ty);
+        let lod_merge = if fmt == "f32" { LodMerge::WeightedMean } else { LodMerge::Mode };
+        let name = match stem { Some(stem) if members.len() > 1 => stem.to_string(), _ => name.to_string() };
+        groups.push((
+            AttribSpec { name, format: fmt.into(), components: members.len(), lod_merge },
+            members.iter().map(|(_, p)| *p).collect(),
+        ));
+    }
+    groups
+}
+
+// A property's value as stored: integers exactly, not normalized.
+fn ply_attrib_value(prop: &PlyProperty, data: &[u8], record_offset: usize) -> f64 {
+    match prop.ty {
+        PlyPropertyType::Uchar | PlyPropertyType::Ushort | PlyPropertyType::Uint => prop.get_u32(data, record_offset) as f64,
+        PlyPropertyType::Int => prop.get_u32(data, record_offset) as i32 as f64,
+        PlyPropertyType::Double => {
+            let at = record_offset + prop.offset;
+            f64::from_le_bytes(data[at..at + 8].try_into().unwrap())
+        }
+        _ => prop.get_raw_f32(data, record_offset) as f64,
+    }
 }
 
 impl PlyDecoderState {
@@ -976,10 +1068,14 @@ impl PlyDecoderState {
             None
         };
 
+        let attribs = ply_attrib_groups(&properties);
+        let out_attribs = vec![Vec::new(); attribs.len()];
         Ok(Self {
             num_splats,
             record_size,
             next_splat: 0,
+            attribs,
+            out_attribs,
             properties,
             xyz,
             scale,

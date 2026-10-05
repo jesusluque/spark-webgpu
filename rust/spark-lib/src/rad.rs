@@ -41,6 +41,8 @@ pub struct RadEncoder<T: SplatGetter> {
     pub sh_label_encoding: RadShLabelEncoding,
     pub sh_clusters: Option<ShClusters>,
     pub comment: Option<String>,
+    /// The getter's attributes that get stored (AttribArray::meaningful).
+    attrib_keep: Vec<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -273,6 +275,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             sh_label_encoding: RadShLabelEncoding::default(),
             sh_clusters: None,
             comment: None,
+            attrib_keep: Vec::new(),
         }
     }
 
@@ -535,6 +538,7 @@ impl<T: SplatGetter> RadEncoder<T> {
         let num_splats = self.getter.num_splats();
         let max_sh = self.getter.max_sh_degree().min(self.max_sh);
         let encoding = self.encoding.clone().or_else(|| self.getter.get_encoding()).unwrap_or_default();
+        self.attrib_keep = self.getter.get_attribs().map(|a| a.meaningful()).unwrap_or_default();
 
         let mut buffer = Vec::new();
         let buffer_dim = if max_sh == 0 { 4 } else if max_sh == 1 { 9 } else if max_sh == 2 { 15 } else { 21 };
@@ -585,7 +589,9 @@ impl<T: SplatGetter> RadEncoder<T> {
             splat_encoding: None,
             sh_code_count: self.sh_clusters.as_ref().map(|c| c.num_clusters as u32),
             comment: self.comment.clone(),
-            attributes: self.getter.get_attribs().map(|a| a.specs.clone()),
+            attributes: self.getter.get_attribs()
+                .map(|a| self.attrib_keep.iter().map(|&k| a.specs[k].clone()).collect::<Vec<_>>())
+                .filter(|specs| !specs.is_empty()),
         };
         if let Some(mut encoding) = self.encoding.clone().or_else(|| self.getter.get_encoding()) {
             encoding.lod_opacity = self.getter.has_lod_tree();
@@ -903,8 +909,8 @@ impl<T: SplatGetter> RadEncoder<T> {
         }
 
         if let Some(attribs) = self.getter.get_attribs() {
-            for (spec, column) in attribs.specs.iter().zip(attribs.columns.iter()) {
-                props.push(encode_chunk_attrib(spec, column, base, count));
+            for &k in self.attrib_keep.iter() {
+                props.push(encode_chunk_attrib(&attribs.specs[k], &attribs.columns[k], base, count));
             }
         }
 

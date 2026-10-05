@@ -1,3 +1,5 @@
+use spark_lib::attrib::{AttribArray, AttribSpec};
+use crate::set_attribs_object;
 use std::array;
 
 use js_sys::{Array, Object, Reflect, Uint32Array};
@@ -36,6 +38,8 @@ pub struct ExtSplatsData {
     buffer_base: usize,
     buffer_count: usize,
     buffer_dirty: bool,
+    /// Extra per-Gaussian attributes (spark-lib attrib.rs), if any.
+    pub attribs: AttribArray,
 }
 
 impl ExtSplatsData {
@@ -63,11 +67,13 @@ impl ExtSplatsData {
             buffer_base: 0,
             buffer_count: 0,
             buffer_dirty: false,
+            attribs: AttribArray::new(),
         }
     }
 
     pub fn into_splat_object(self) -> Object {
         let object = Object::new();
+        set_attribs_object(&object, &self.attribs);
         Reflect::set(&object, &JsValue::from_str("maxSplats"), &JsValue::from(self.max_splats as u32)).unwrap();
         Reflect::set(&object, &JsValue::from_str("numSplats"), &JsValue::from(self.num_splats as u32)).unwrap();
         Reflect::set(&object, &JsValue::from_str("maxShDegree"), &JsValue::from(self.max_sh_degree as u32)).unwrap();
@@ -304,6 +310,9 @@ impl ExtSplatsData {
             }
         }
 
+        if let Some(attribs) = splats.attribs() {
+            receiver.attribs = attribs.clone();
+        }
         receiver.finish()?;
         Ok(receiver)
     }
@@ -356,6 +365,14 @@ impl ExtSplatsData {
 }
 
 impl SplatReceiver for ExtSplatsData {
+    fn init_attribs(&mut self, specs: &[AttribSpec]) {
+        self.attribs = AttribArray::new_zeroed(specs, self.num_splats);
+    }
+
+    fn set_attrib(&mut self, attrib: usize, base: usize, count: usize, values: &[f64]) {
+        self.attribs.set_range(attrib, base, count, values);
+    }
+
     fn init_splats(&mut self, init: &SplatInit) -> anyhow::Result<()> {
         let (_, _, _, max_splats) = get_splat_tex_size(init.num_splats);
         self.max_splats = max_splats;

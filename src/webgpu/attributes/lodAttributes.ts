@@ -1,10 +1,14 @@
-// Attributes through the WASM LOD builders (rust/spark-lib/src/attrib.rs):
-// handed over as decoded values before the build, which merges and reorders
-// them with the splats, and read back into an AttribPool for the LOD splats.
+// Attributes through the WASM LOD builders (rust/spark-lib/src/attrib.rs).
+// The WASM decoders read a PLY's extra properties and a .rad's attribute
+// chunks themselves, and results carry them (attribsFromResult). With a WASM
+// build that does not, the PLY attributes PlyAttributeReader found are handed
+// over before the build, which merges and reorders them with the splats, and
+// read back for the LOD splats.
 
 import {
   AttribPool,
   type AttributeColumn,
+  type AttributeSpec,
   columnBits,
   decodeComponent,
 } from "./schema";
@@ -39,6 +43,8 @@ export function setLodAttribs(
   if (!attribs || !target.set_attribs || attribs.count !== target.len()) {
     return null;
   }
+  // Already decoded with the splats (spark-lib ply.rs): merged in any case.
+  if (target.get_attribs?.().length) return null;
   target.set_attribs(
     attribs.schema,
     attribs.columns.map((col) => columnValues(col, attribs.count)),
@@ -58,4 +64,30 @@ export function withLodAttribs<
   });
   result.extra.attribs = pool;
   return result;
+}
+
+/**
+ * Attributes a WASM splat result carries (decoded from a .rad, or merged by
+ * a LOD build): attribSpecs and one Float64Array per attribute.
+ */
+export function attribsFromResult(result: {
+  numSplats: number;
+  attribSpecs?: AttributeSpec[];
+  attribColumns?: Float64Array[];
+}): AttribPool | undefined {
+  const { attribSpecs: specs, attribColumns: columns } = result;
+  if (!specs?.length || !columns) return undefined;
+  const pool = new AttribPool(result.numSplats);
+  specs.forEach(({ name, format, components, lodMerge }, k) => {
+    // The file keeps no flags: a renormalized 3-vector is a direction. An
+    // all-zero one is a 3DGS trainer's placeholder normal.
+    const direction = lodMerge === "normalizeMean" && components === 3;
+    if (direction && columns[k].every((v) => v === 0)) return;
+    pool.setAttribute(name, columns[k], format, components, {
+      lodMerge,
+      direction,
+      toDraw: true,
+    });
+  });
+  return pool.columns.length ? pool : undefined;
 }

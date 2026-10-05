@@ -21,10 +21,12 @@ import init_wasm, {
 } from "spark-rs";
 import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
 import {
+  attribsFromResult,
   setLodAttribs,
   withLodAttribs,
 } from "./webgpu/attributes/lodAttributes";
 import { PlyAttributeReader } from "./webgpu/attributes/plyAttributes";
+import type { AttributeSpec } from "./webgpu/attributes/schema";
 
 const rpcHandlers = {
   sortSplats16,
@@ -212,6 +214,8 @@ type DecodedPackedResult = {
   readonly sh3Codes?: Uint32Array;
   readonly lodTree?: Uint32Array;
   readonly splatEncoding: SplatEncoding;
+  readonly attribSpecs?: AttributeSpec[];
+  readonly attribColumns?: Float64Array[];
 };
 
 function toPackedResult(packed: DecodedPackedResult): PackedResult {
@@ -226,6 +230,7 @@ function toPackedResult(packed: DecodedPackedResult): PackedResult {
       sh2Codes: packed.sh2Codes,
       sh3Codes: packed.sh3Codes,
       lodTree: packed.lodTree,
+      attribs: attribsFromResult(packed),
     },
     splatEncoding: packed.splatEncoding,
   };
@@ -236,6 +241,8 @@ function toPackedResult(packed: DecodedPackedResult): PackedResult {
 function withAttribs<
   R extends { numSplats: number; extra: Record<string, unknown> },
 >(result: R, ply: PlyAttributeReader): R {
+  // A current WASM decoder reads them itself (spark-lib ply.rs).
+  if (result.extra.attribs) return result;
   const attribs = ply.finish();
   if (attribs && attribs.count === result.numSplats) {
     result.extra.attribs = attribs;
@@ -402,6 +409,8 @@ type DecodedExtResult = {
   sh2Codes?: Uint32Array;
   sh3Codes?: [Uint32Array, Uint32Array];
   lodTree?: Uint32Array;
+  attribSpecs?: AttributeSpec[];
+  attribColumns?: Float64Array[];
 };
 
 function toExtResult(packed: DecodedExtResult): ExtResult {
@@ -417,6 +426,7 @@ function toExtResult(packed: DecodedExtResult): ExtResult {
       sh2Codes: packed.sh2Codes,
       sh3Codes: packed.sh3Codes,
       lodTree: packed.lodTree,
+      attribs: attribsFromResult(packed),
     },
   };
 }

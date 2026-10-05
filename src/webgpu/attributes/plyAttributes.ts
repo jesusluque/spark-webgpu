@@ -4,8 +4,8 @@
 // decoded PackedSplats/ExtSplats is vertex i.
 //
 // Grouping: nx, ny, nz -> "normal" (a direction); name_0, name_1, ... of one
-// type -> "name" with that many components; anything else alone. All-zero
-// attributes are dropped: 3DGS trainers write nx = ny = nz = 0.
+// type -> "name" with that many components; anything else alone. An
+// all-zero normal is dropped: 3DGS trainers write nx = ny = nz = 0.
 
 import {
   type AttribFormat,
@@ -266,7 +266,7 @@ export class PlyAttributeReader {
     }
     const pool = new AttribPool(this.count);
     for (const g of this.groups) {
-      if (g.values.every((v) => v === 0)) continue;
+      if (g.spec.direction && g.values.every((v) => v === 0)) continue;
       const { name, format, components, ...options } = g.spec;
       pool.setAttribute(name, g.values, format, components, options);
     }

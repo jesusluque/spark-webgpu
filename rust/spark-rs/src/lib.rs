@@ -371,6 +371,18 @@ fn attribs_from_js(specs: JsValue, columns: &Array, count: usize) -> Result<Attr
     Ok(attribs)
 }
 
+/// Puts attributes on a splat result object as attribSpecs and attribColumns
+/// (one Float64Array each), for the loader worker.
+pub(crate) fn set_attribs_object(object: &Object, attribs: &AttribArray) {
+    if attribs.is_empty() {
+        return;
+    }
+    if let Ok(specs) = serde_wasm_bindgen::to_value(&attribs.specs) {
+        Reflect::set(object, &JsValue::from_str("attribSpecs"), &specs).unwrap();
+        Reflect::set(object, &JsValue::from_str("attribColumns"), &attribs_to_js(attribs)).unwrap();
+    }
+}
+
 fn attribs_to_js(attribs: &AttribArray) -> Array {
     attribs.columns.iter().map(|col| JsValue::from(Float64Array::from(&col[..]))).collect()
 }

@@ -111,6 +111,14 @@ impl AttribArray {
         self.columns[attrib][base * c..(base + count) * c].copy_from_slice(&values[..count * c]);
     }
 
+    /// Attributes worth storing: not an all-zero normal, which 3DGS
+    /// trainers write as nx = ny = nz = 0.
+    pub fn meaningful(&self) -> Vec<usize> {
+        (0..self.specs.len()).filter(|&k| {
+            self.specs[k].lod_merge != LodMerge::NormalizeMean || self.columns[k].iter().any(|&v| v != 0.0)
+        }).collect()
+    }
+
     pub fn get(&self, attrib: usize, index: usize) -> &[f64] {
         let c = self.specs[attrib].components;
         &self.columns[attrib][index * c..(index + 1) * c]
@@ -397,6 +405,79 @@ mod tests {
                     assert!((got[c] - want[c]).abs() <= tol, "{} [{i}][{c}]: {} vs {}", spec.name, got[c], want[c]);
                 }
             }
+        }
+    }
+
+    // A 3DGS PLY with extra properties: decoded into attributes, through
+    // LOD, then through a .rad file.
+    #[cfg(all(feature = "gsplat", feature = "ply", feature = "rad", feature = "tiny_lod"))]
+    #[test]
+    fn ply_to_lod_to_rad() {
+        use crate::decoder::ChunkReceiver;
+        use crate::gsplat::GsplatArray;
+        use crate::ply::PlyDecoder;
+        use crate::rad::{RadDecoder, RadEncoder};
+        use crate::tsplat::{Tsplat, TsplatArray};
+        let n = 4000;
+        let floats = ["x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2", "opacity",
+            "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3", "feat_0", "feat_1"];
+        let mut header = format!("ply\nformat binary_little_endian 1.0\nelement vertex {n}\n");
+        for p in floats {
+            header += &format!("property float {p}\n");
+        }
+        header += "property uchar label\nproperty uint id\nproperty float zero_nx\nend_header\n";
+        let mut bytes = header.into_bytes();
+        let mut s = 7u32;
+        let mut r = move || { s = s.wrapping_mul(1664525).wrapping_add(1013904223); s as f32 / u32::MAX as f32 };
+        for i in 0..n {
+            let x = if i % 2 == 0 { -2.0 } else { 2.0 } + r() - 0.5;
+            let vals = [x, r() - 0.5, r() - 0.5, 0.0, 0.0, if r() < 0.5 { 1.0 } else { -1.0 }, 0.0, 0.0, 0.0, 2.0,
+                -4.0, -4.0, -4.0, 1.0, 0.0, 0.0, 0.0, x, 1.0];
+            for v in vals {
+                bytes.extend(v.to_le_bytes());
+            }
+            bytes.push(if x < 0.0 { 1 } else { 2 });
+            bytes.extend((100_000_000u32 + i).to_le_bytes());
+            bytes.extend(0.0f32.to_le_bytes());
+        }
+
+        let mut ply = PlyDecoder::new(GsplatArray::new());
+        for chunk in bytes.chunks(1000) {
+            ply.push(chunk).unwrap();
+        }
+        ply.finish().unwrap();
+        let mut splats = ply.into_splats();
+        let names: Vec<_> = splats.attribs.specs.iter().map(|s| (s.name.as_str(), s.format.as_str(), s.components, s.lod_merge)).collect();
+        assert_eq!(names, vec![
+            ("normal", "f32", 3, LodMerge::NormalizeMean),
+            ("feat", "f32", 2, LodMerge::WeightedMean),
+            ("label", "u8", 1, LodMerge::Mode),
+            ("id", "u32", 1, LodMerge::Mode),
+            ("zero_nx", "f32", 1, LodMerge::WeightedMean),
+        ]);
+        assert_eq!(splats.attribs.get(3, 17), &[100_000_017.0]);
+        assert_eq!(splats.attribs.get(1, 5)[0], splats.get(5).center().x as f64);
+
+        crate::tiny_lod::compute_lod_tree(&mut splats, 1.5, true, |_| {});
+        let lod_count = splats.len();
+        assert!(lod_count > n as usize);
+
+        let mut rad = Vec::new();
+        RadEncoder::new(splats).encode(&mut rad).unwrap();
+        let mut decoder = RadDecoder::new(GsplatArray::new());
+        decoder.push(&rad).unwrap();
+        decoder.finish().unwrap();
+        let out = decoder.into_splats();
+        assert_eq!(out.len(), lod_count);
+        for i in 0..lod_count {
+            let x = out.get(i).center().x as f64;
+            let feat = out.attribs.get(1, i);
+            assert!((feat[0] - x).abs() < 1e-3 * (1.0 + x.abs()) && (feat[1] - 1.0).abs() < 1e-5);
+            let normal = out.attribs.get(0, i);
+            assert!(normal[2].abs() > 0.999, "normal {normal:?}");
+            let label = out.attribs.get(2, i)[0];
+            assert!(label == 1.0 || label == 2.0);
+            assert!(out.attribs.get(3, i)[0] >= 100_000_000.0);
         }
     }
 
