@@ -229,7 +229,11 @@ export function buildAll({ check = false, log = console.log } = {}) {
     count += 1;
     const dest = path.join(OUT_DIR, `${out.rel}.ts`);
     const prev = fs.existsSync(dest) ? fs.readFileSync(dest, "utf8") : null;
-    if (prev === out.ts) continue;
+    if (prev === out.ts) {
+      // Unchanged, but mark it current so upToDate() can skip the next build.
+      if (!check) fs.utimesSync(dest, new Date(), new Date());
+      continue;
+    }
     if (check) {
       stale.push(out.rel);
       continue;
@@ -246,8 +250,26 @@ export function buildAll({ check = false, log = console.log } = {}) {
 
 // Vite plugin: rebuild on .slang changes in dev. A missing slangc is only a
 // warning, since the generated files are committed.
+// True when no .slang file is newer than the oldest generated module, so a
+// build can skip slangc. Modules import each other, hence the global check.
+export function upToDate() {
+  const sources = listSlang(SLANG_DIR);
+  const outputs = fs.existsSync(OUT_DIR)
+    ? fs
+        .readdirSync(OUT_DIR, { recursive: true })
+        .filter((f) => String(f).endsWith(".ts"))
+    : [];
+  if (sources.length === 0 || outputs.length === 0) return false;
+  const newest = Math.max(...sources.map((f) => fs.statSync(f).mtimeMs));
+  const oldest = Math.min(
+    ...outputs.map((f) => fs.statSync(path.join(OUT_DIR, String(f))).mtimeMs),
+  );
+  return newest <= oldest;
+}
+
 export function slangBuild() {
   const run = () => {
+    if (upToDate()) return;
     try {
       buildAll({ log: () => {} });
     } catch (err) {

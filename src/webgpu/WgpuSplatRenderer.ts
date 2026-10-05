@@ -21,6 +21,8 @@
 // metric readback one frame behind, as SparkRenderer does with its WASM sort.
 
 import * as THREE from "three";
+import type { ExtSplats } from "../ExtSplats";
+import type { PackedSplats } from "../PackedSplats";
 import { KernelRegistry } from "./KernelRegistry";
 import drawModule from "./generated/draw/splat_draw";
 import generateModule from "./generated/kernels/generate";
@@ -153,6 +155,39 @@ export class GpuSplatSource {
       sh = upload(device, shWords, "ext SH");
     }
     return new GpuSplatSource("ext", count, src, sh, numSh);
+  }
+
+  /** From a loaded PackedSplats (await packedSplats.initialized first). */
+  static fromPackedSplats(device: GPUDevice, splats: PackedSplats) {
+    if (!splats.packedArray) throw new Error("PackedSplats has no data");
+    const e = splats.splatEncoding;
+    const extra = splats.extra as Record<string, Uint32Array | undefined>;
+    return GpuSplatSource.fromPacked(
+      device,
+      splats.packedArray,
+      splats.numSplats,
+      {
+        sh1: extra.sh1,
+        sh2: extra.sh1 ? extra.sh2 : undefined,
+        sh3: extra.sh1 && extra.sh2 ? extra.sh3 : undefined,
+        shMax: [e.sh1Max, e.sh2Max, e.sh3Max],
+        encoding: [e.rgbMin, e.rgbMax, e.lnScaleMin, e.lnScaleMax],
+        lodOpacity: e.lodOpacity,
+      },
+    );
+  }
+
+  /** From a loaded ExtSplats (await extSplats.initialized first). */
+  static fromExtSplats(device: GPUDevice, splats: ExtSplats) {
+    const [a, b] = splats.extArrays;
+    const extra = splats.extra as Record<string, Uint32Array | undefined>;
+    const sh3 = extra.sh3a && extra.sh3b;
+    return GpuSplatSource.fromExt(device, a, b, splats.numSplats, {
+      sh1: extra.sh1,
+      sh2: extra.sh1 ? extra.sh2 : undefined,
+      sh3a: sh3 ? extra.sh3a : undefined,
+      sh3b: sh3 ? extra.sh3b : undefined,
+    });
   }
 
   destroy() {
