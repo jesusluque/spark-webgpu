@@ -11,6 +11,23 @@ import {
 
 const DEFAULT_INDENT = "    ";
 
+/**
+ * A shading language other than GLSL to compile dynos to (src/dyno/wgsl).
+ * Ops emit GLSL; a backend supplies its own code for the ops whose GLSL isn't
+ * valid in its language, and its own declarations and literals.
+ */
+export interface DynoBackend {
+  readonly target: string;
+  generate(
+    dyno: Dyno<IOTypes, IOTypes>,
+    context: GenerateContext<IOTypes, IOTypes>,
+  ): DynoGenerated;
+  declare(name: string, type: DynoType): string;
+  literal(value: DynoLiteral<DynoType>): string;
+  /** The expression for a named value, e.g. a uniform that lives in a block. */
+  resolve(name: string): string;
+}
+
 export class Compilation {
   globals: Set<string> = new Set();
   statements: string[] = [];
@@ -19,9 +36,19 @@ export class Compilation {
   updaters: (() => void)[] = [];
   sequence = 0;
   indent: string = DEFAULT_INDENT;
+  backend?: DynoBackend;
 
-  constructor({ indent }: { indent?: string } = {}) {
+  constructor({
+    indent,
+    backend,
+  }: { indent?: string; backend?: DynoBackend } = {}) {
     this.indent = indent ?? DEFAULT_INDENT;
+    this.backend = backend;
+  }
+
+  /** "glsl", or the backend's language: dynos may branch on it. */
+  get target(): string {
+    return this.backend?.target ?? "glsl";
   }
 
   nextSequence() {
@@ -30,10 +57,24 @@ export class Compilation {
 }
 
 export type IOTypes = Record<string, DynoType>;
-type GenerateContext<InTypes extends IOTypes, OutTypes extends IOTypes> = {
+export type GenerateContext<
+  InTypes extends IOTypes,
+  OutTypes extends IOTypes,
+> = {
   inputs: { [K in keyof InTypes]?: string };
   outputs: { [K in keyof OutTypes]?: string };
   compile: Compilation;
+};
+export type DynoGenerated = {
+  globals?: string[];
+  statements?: string[];
+  uniforms?: Record<string, IUniform>;
+};
+
+/** WGSL code for a dyno whose GLSL statements or globals aren't valid WGSL. */
+export type DynoWgsl<InTypes extends IOTypes, OutTypes extends IOTypes> = {
+  globals?: (context: GenerateContext<InTypes, OutTypes>) => string[];
+  statements?: (context: GenerateContext<InTypes, OutTypes>) => string[];
 };
 
 export class Dyno<InTypes extends IOTypes, OutTypes extends IOTypes> {
@@ -42,6 +83,7 @@ export class Dyno<InTypes extends IOTypes, OutTypes extends IOTypes> {
 
   inputs: { [K in keyof InTypes]?: DynoVal<InTypes[K]> };
   update?: () => void;
+  wgsl?: DynoWgsl<InTypes, OutTypes>;
   globals?: ({
     inputs,
     outputs,
@@ -70,11 +112,13 @@ export class Dyno<InTypes extends IOTypes, OutTypes extends IOTypes> {
     globals,
     statements,
     generate,
+    wgsl,
   }: {
     inTypes?: InTypes;
     outTypes?: OutTypes;
     inputs?: { [K in keyof InTypes]?: DynoVal<InTypes[K]> };
     update?: () => void;
+    wgsl?: DynoWgsl<InTypes, OutTypes>;
     globals?: ({
       inputs,
       outputs,
@@ -99,6 +143,7 @@ export class Dyno<InTypes extends IOTypes, OutTypes extends IOTypes> {
     this.outTypes = outTypes ?? ({} as OutTypes);
     this.inputs = inputs ?? {};
     this.update = update;
+    this.wgsl = wgsl;
 
     this.globals = globals;
     this.statements = statements;
@@ -149,11 +194,13 @@ export class Dyno<InTypes extends IOTypes, OutTypes extends IOTypes> {
       }
     }
 
-    const { globals, statements, uniforms } = this.generate({
-      inputs,
-      outputs,
-      compile,
-    });
+    const { globals, statements, uniforms } = compile.backend
+      ? compile.backend.generate(this as unknown as Dyno<IOTypes, IOTypes>, {
+          inputs,
+          outputs,
+          compile,
+        })
+      : this.generate({ inputs, outputs, compile });
     for (const global of globals ?? []) {
       compile.globals.add(global);
     }
@@ -168,7 +215,10 @@ export class Dyno<InTypes extends IOTypes, OutTypes extends IOTypes> {
       const name = outputs[key];
       if (name) {
         if (!compile.uniforms[name]) {
-          result.push(`${dynoDeclare(name, this.outTypes[key])};`);
+          const type = this.outTypes[key];
+          result.push(
+            `${compile.backend ? compile.backend.declare(name, type) : dynoDeclare(name, type)};`,
+          );
         }
       }
     }
@@ -335,7 +385,9 @@ export class DynoBlock<
         while (value) {
           if (value instanceof DynoValue) {
             if (value instanceof DynoLiteral) {
-              inputs[key] = value.getLiteral();
+              inputs[key] = compile.backend
+                ? compile.backend.literal(value)
+                : value.getLiteral();
             } else if (value instanceof DynoOutput) {
               const source = nodeOuts.get(value.dyno)?.outNames.get(value.key);
               if (!source) {
@@ -343,7 +395,9 @@ export class DynoBlock<
                   `Source not found for ${value.dyno.constructor.name}.${value.key}`,
                 );
               }
-              inputs[key] = source;
+              inputs[key] = compile.backend
+                ? compile.backend.resolve(source)
+                : source;
             }
             break;
           }
@@ -363,9 +417,10 @@ export class DynoBlock<
 
     const literalOutputs = [];
     for (const key in outputs) {
-      if (blockOutputs[key] instanceof DynoLiteral) {
+      const literal = blockOutputs[key];
+      if (literal instanceof DynoLiteral) {
         literalOutputs.push(
-          `${outputs[key]} = ${blockOutputs[key].getLiteral()};`,
+          `${outputs[key]} = ${compile.backend ? compile.backend.literal(literal) : literal.getLiteral()};`,
         );
       }
     }
@@ -404,11 +459,13 @@ export function dyno<
   globals,
   statements,
   generate,
+  wgsl,
 }: {
   inTypes: InTypes;
   outTypes: OutTypes;
   inputs?: { [K in keyof InTypes]?: DynoVal<InTypes[K]> };
   update?: () => void;
+  wgsl?: DynoWgsl<InTypes, OutTypes>;
   globals?: ({
     inputs,
     outputs,
@@ -437,6 +494,7 @@ export function dyno<
     globals,
     statements,
     generate,
+    wgsl,
   });
 }
 

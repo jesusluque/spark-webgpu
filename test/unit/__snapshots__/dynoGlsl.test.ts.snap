@@ -1,0 +1,4766 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`dyno GLSL > abs int 1`] = `
+"uniform int value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // Abs(value_1) => (out_value)
+        {
+            out_value = abs(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > add vec3+float 1`] = `
+"uniform vec3 value_1;
+
+uniform float value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // Add(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 + value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > and/or/xor bool 1`] = `
+"uniform bool value_3;
+
+uniform bool value_4;
+
+uniform bool value_7;
+
+uniform bool value_8;
+
+uniform bool value_11;
+
+uniform bool value_12;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoBool() => (value_3)
+        
+        // DynoBool() => (value_4)
+        
+        // And(value_3, value_4) => (and_2)
+        bool and_2;
+        {
+            and_2 = value_3 && value_4;
+        }
+        
+        // Int(and_2) => (int_1)
+        int int_1;
+        {
+            int_1 = int(and_2);
+        }
+        
+        // DynoBool() => (value_7)
+        
+        // DynoBool() => (value_8)
+        
+        // Or(value_7, value_8) => (or_6)
+        bool or_6;
+        {
+            or_6 = value_7 || value_8;
+        }
+        
+        // Int(or_6) => (int_5)
+        int int_5;
+        {
+            int_5 = int(or_6);
+        }
+        
+        // DynoBool() => (value_11)
+        
+        // DynoBool() => (value_12)
+        
+        // Xor(value_11, value_12) => (xor_10)
+        bool xor_10;
+        {
+            xor_10 = value_11 ^^ value_12;
+        }
+        
+        // Int(xor_10) => (int_9)
+        int int_9;
+        {
+            int_9 = int(xor_10);
+        }
+        
+        // Combine(int_1, int_5, int_9) => (out_value)
+        {
+            out_value.x = int_1;
+            out_value.y = int_5;
+            out_value.z = int_9;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > and/or/xor uint 1`] = `
+"uniform uint value_2;
+
+uniform uint value_3;
+
+uniform uint value_5;
+
+uniform uint value_6;
+
+uniform uint value_8;
+
+uniform uint value_9;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoUint() => (value_2)
+        
+        // DynoUint() => (value_3)
+        
+        // And(value_2, value_3) => (and_1)
+        uint and_1;
+        {
+            and_1 = value_2 & value_3;
+        }
+        
+        // DynoUint() => (value_5)
+        
+        // DynoUint() => (value_6)
+        
+        // Or(value_5, value_6) => (or_4)
+        uint or_4;
+        {
+            or_4 = value_5 | value_6;
+        }
+        
+        // DynoUint() => (value_8)
+        
+        // DynoUint() => (value_9)
+        
+        // Xor(value_8, value_9) => (xor_7)
+        uint xor_7;
+        {
+            xor_7 = value_8 ^ value_9;
+        }
+        
+        // Combine(and_1, or_4, xor_7) => (out_value)
+        {
+            out_value.x = and_1;
+            out_value.y = or_4;
+            out_value.z = xor_7;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > any/all 1`] = `
+"uniform bvec3 value_3;
+
+uniform bvec3 value_6;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoBvec3() => (value_3)
+        
+        // Any(value_3) => (any_2)
+        bool any_2;
+        {
+            any_2 = any(value_3);
+        }
+        
+        // Int(any_2) => (int_1)
+        int int_1;
+        {
+            int_1 = int(any_2);
+        }
+        
+        // DynoBvec3() => (value_6)
+        
+        // All(value_6) => (all_5)
+        bool all_5;
+        {
+            all_5 = all(value_6);
+        }
+        
+        // Int(all_5) => (int_4)
+        int int_4;
+        {
+            int_4 = int(all_5);
+        }
+        
+        // Combine(int_1, int_4) => (out_value)
+        {
+            out_value.x = int_1;
+            out_value.y = int_4;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > asin/acos/atan 1`] = `
+"uniform float value_2;
+
+uniform float value_4;
+
+uniform float value_6;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // Asin(value_2) => (asin_1)
+        float asin_1;
+        {
+            asin_1 = asin(value_2);
+        }
+        
+        // DynoFloat() => (value_4)
+        
+        // Acos(value_4) => (acos_3)
+        float acos_3;
+        {
+            acos_3 = acos(value_4);
+        }
+        
+        // DynoFloat() => (value_6)
+        
+        // Atan(value_6) => (atan_5)
+        float atan_5;
+        {
+            atan_5 = atan(value_6);
+        }
+        
+        // Combine(asin_1, acos_3, atan_5) => (out_value)
+        {
+            out_value.x = asin_1;
+            out_value.y = acos_3;
+            out_value.z = atan_5;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > asinh/acosh/atanh 1`] = `
+"uniform float value_2;
+
+uniform float value_4;
+
+uniform float value_6;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // Asinh(value_2) => (asinh_1)
+        float asinh_1;
+        {
+            asinh_1 = asinh(value_2);
+        }
+        
+        // DynoFloat() => (value_4)
+        
+        // Acosh(value_4) => (acosh_3)
+        float acosh_3;
+        {
+            acosh_3 = acosh(value_4);
+        }
+        
+        // DynoFloat() => (value_6)
+        
+        // Atanh(value_6) => (atanh_5)
+        float atanh_5;
+        {
+            atanh_5 = atanh(value_6);
+        }
+        
+        // Combine(asinh_1, acosh_3, atanh_5) => (out_value)
+        {
+            out_value.x = asinh_1;
+            out_value.y = acosh_3;
+            out_value.z = atanh_5;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > atan2 1`] = `
+"uniform float value_1;
+
+uniform float value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // Atan2(value_1, value_2) => (out_value)
+        {
+            out_value = atan2(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > bool/int/uint/float 1`] = `
+"uniform float value_3;
+
+uniform float value_6;
+
+uniform float value_9;
+
+uniform int value_11;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_3)
+        
+        // Bool(value_3) => (bool_2)
+        bool bool_2;
+        {
+            bool_2 = bool(value_3);
+        }
+        
+        // Float(bool_2) => (float_1)
+        float float_1;
+        {
+            float_1 = float(bool_2);
+        }
+        
+        // DynoFloat() => (value_6)
+        
+        // Int(value_6) => (int_5)
+        int int_5;
+        {
+            int_5 = int(value_6);
+        }
+        
+        // Float(int_5) => (float_4)
+        float float_4;
+        {
+            float_4 = float(int_5);
+        }
+        
+        // DynoFloat() => (value_9)
+        
+        // Uint(value_9) => (uint_8)
+        uint uint_8;
+        {
+            uint_8 = uint(value_9);
+        }
+        
+        // Float(uint_8) => (float_7)
+        float float_7;
+        {
+            float_7 = float(uint_8);
+        }
+        
+        // DynoInt() => (value_11)
+        
+        // Float(value_11) => (float_10)
+        float float_10;
+        {
+            float_10 = float(value_11);
+        }
+        
+        // Combine(float_1, float_4, float_7, float_10) => (out_value)
+        {
+            out_value.x = float_1;
+            out_value.y = float_4;
+            out_value.z = float_7;
+            out_value.w = float_10;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > bvec3(vec3) 1`] = `
+"uniform vec3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // BVec3(value_1) => (out_value)
+        {
+            out_value = bvec3(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > clamp vec3,float,float 1`] = `
+"uniform vec3 value_1;
+
+uniform float value_2;
+
+uniform float value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // DynoFloat() => (value_3)
+        
+        // Clamp(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = clamp(value_1, value_2, value_3);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > combine defaults 1`] = `
+"uniform uint value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoUint() => (value_1)
+        
+        // Combine(value_1) => (out_value)
+        {
+            out_value.x = uint(0u);
+            out_value.y = uint(0u);
+            out_value.z = value_1;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > combine with vector 1`] = `
+"uniform ivec3 value_1;
+
+uniform int value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoIvec3() => (value_1)
+        
+        // DynoInt() => (value_2)
+        
+        // Combine(value_1, value_2) => (out_value)
+        {
+            out_value.x = value_1.x;
+            out_value.y = value_2;
+            out_value.z = value_1.z;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > compMult 1`] = `
+"uniform mat2 value_1;
+
+uniform mat2 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat2() => (value_1)
+        
+        // DynoMat2() => (value_2)
+        
+        // CompMult(value_1, value_2) => (out_value)
+        {
+            out_value = matrixCompMult([object Object], [object Object]);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > compXor bvec3 1`] = `
+"uniform bvec3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoBvec3() => (value_1)
+        
+        // CompXor(value_1) => (out_value)
+        {
+            out_value = value_1.x ^^ value_1.y ^^ value_1.z ^^ value_1.w;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > compXor ivec3 1`] = `
+"uniform ivec3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoIvec3() => (value_1)
+        
+        // CompXor(value_1) => (out_value)
+        {
+            out_value = value_1;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > compare scalar 1`] = `
+"uniform float value_3;
+
+uniform float value_4;
+
+uniform int value_7;
+
+uniform int value_8;
+
+uniform uint value_11;
+
+uniform uint value_12;
+
+uniform float value_15;
+
+uniform float value_16;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_3)
+        
+        // DynoFloat() => (value_4)
+        
+        // LessThan(value_3, value_4) => (lessThan_2)
+        bool lessThan_2;
+        {
+            lessThan_2 = value_3 < value_4;
+        }
+        
+        // Int(lessThan_2) => (int_1)
+        int int_1;
+        {
+            int_1 = int(lessThan_2);
+        }
+        
+        // DynoInt() => (value_7)
+        
+        // DynoInt() => (value_8)
+        
+        // LessThanEqual(value_7, value_8) => (lessThanEqual_6)
+        bool lessThanEqual_6;
+        {
+            lessThanEqual_6 = value_7 <= value_8;
+        }
+        
+        // Int(lessThanEqual_6) => (int_5)
+        int int_5;
+        {
+            int_5 = int(lessThanEqual_6);
+        }
+        
+        // DynoUint() => (value_11)
+        
+        // DynoUint() => (value_12)
+        
+        // GreaterThan(value_11, value_12) => (greaterThan_10)
+        bool greaterThan_10;
+        {
+            greaterThan_10 = value_11 > value_12;
+        }
+        
+        // Int(greaterThan_10) => (int_9)
+        int int_9;
+        {
+            int_9 = int(greaterThan_10);
+        }
+        
+        // DynoFloat() => (value_15)
+        
+        // DynoFloat() => (value_16)
+        
+        // GreaterThanEqual(value_15, value_16) => (greaterThanEqual_14)
+        bool greaterThanEqual_14;
+        {
+            greaterThanEqual_14 = value_15 >= value_16;
+        }
+        
+        // Int(greaterThanEqual_14) => (int_13)
+        int int_13;
+        {
+            int_13 = int(greaterThanEqual_14);
+        }
+        
+        // Combine(int_1, int_5, int_9, int_13) => (out_value)
+        {
+            out_value.x = int_1;
+            out_value.y = int_5;
+            out_value.z = int_9;
+            out_value.w = int_13;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > compare vector 1`] = `
+"uniform vec3 value_1;
+
+uniform vec3 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // LessThan(value_1, value_2) => (out_value)
+        {
+            out_value = lessThan(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > const bvec/mat 1`] = `
+"
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // Vec3(bvec3(true, false, true)) => (vec3_1)
+        vec3 vec3_1;
+        {
+            vec3_1 = vec3(bvec3(true, false, true));
+        }
+        
+        // Mul(mat3(2.0, 1.0, 0.0, 0.0, 3.0, 1.0, 1.0, 0.0, 4.0), vec3_1) => (out_value)
+        {
+            out_value = mat3(2.0, 1.0, 0.0, 0.0, 3.0, 1.0, 1.0, 0.0, 4.0) * vec3_1;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > const infinity 1`] = `
+"
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // IsInf(-INFINITY) => (out_value)
+        {
+            out_value = isInf(-INFINITY);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > const vectors 1`] = `
+"
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // IVec3(uvec3(1u, 1u, 1u)) => (ivec3_1)
+        ivec3 ivec3_1;
+        {
+            ivec3_1 = ivec3(uvec3(1u, 1u, 1u));
+        }
+        
+        // Add(ivec3(1, 2, 3), ivec3_1) => (out_value)
+        {
+            out_value = ivec3(1, 2, 3) + ivec3_1;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > consts 1`] = `
+"
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // Float(-3) => (float_1)
+        float float_1;
+        {
+            float_1 = float(-3);
+        }
+        
+        // Float(4u) => (float_2)
+        float float_2;
+        {
+            float_2 = float(4u);
+        }
+        
+        // Float(true) => (float_3)
+        float float_3;
+        {
+            float_3 = float(true);
+        }
+        
+        // Combine(1.5, float_1, float_2, float_3) => (out_value)
+        {
+            out_value.x = 1.5;
+            out_value.y = float_1;
+            out_value.z = float_2;
+            out_value.w = float_3;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > cross 1`] = `
+"uniform vec3 value_1;
+
+uniform vec3 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // Cross(value_1, value_2) => (out_value)
+        {
+            out_value = cross(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > debugColorHue 1`] = `
+"uniform int value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // DebugColorHue(value_1) => (out_value)
+        {
+            out_value = debugColorHue(uint(value_1));
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > determinant 1`] = `
+"uniform mat3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat3() => (value_1)
+        
+        // Determinant(value_1) => (out_value)
+        {
+            out_value = determinant(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > div ivec3/int 1`] = `
+"uniform ivec3 value_1;
+
+uniform int value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoIvec3() => (value_1)
+        
+        // DynoInt() => (value_2)
+        
+        // Div(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 / value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > equal scalar 1`] = `
+"uniform float value_1;
+
+uniform float value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // Equal(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 == value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > equal/notEqual 1`] = `
+"uniform ivec3 value_1;
+
+uniform ivec3 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoIvec3() => (value_1)
+        
+        // DynoIvec3() => (value_2)
+        
+        // NotEqual(value_1, value_2) => (out_value)
+        {
+            out_value = notEqual(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > extendVec 1`] = `
+"uniform vec3 value_1;
+
+uniform float value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // ExtendVec(value_1, value_2) => (out_value)
+        {
+            out_value = vec4(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > faceforward 1`] = `
+"uniform vec3 value_1;
+
+uniform vec3 value_2;
+
+uniform vec3 value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // DynoVec3() => (value_3)
+        
+        // FaceForward(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = faceforward(value_1, value_2, value_3);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > float bits 1`] = `
+"uniform float value_2;
+
+uniform float value_5;
+
+uniform int value_8;
+
+uniform uint value_11;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // FloatBitsToUint(value_2) => (uint_1)
+        uint uint_1;
+        {
+            uint_1 = floatBitsToUint(value_2);
+        }
+        
+        // DynoFloat() => (value_5)
+        
+        // FloatBitsToInt(value_5) => (int_4)
+        int int_4;
+        {
+            int_4 = floatBitsToInt(value_5);
+        }
+        
+        // Uint(int_4) => (uint_3)
+        uint uint_3;
+        {
+            uint_3 = uint(int_4);
+        }
+        
+        // DynoInt() => (value_8)
+        
+        // IntBitsToFloat(value_8) => (float_7)
+        float float_7;
+        {
+            float_7 = intBitsToFloat(value_8);
+        }
+        
+        // FloatBitsToUint(float_7) => (uint_6)
+        uint uint_6;
+        {
+            uint_6 = floatBitsToUint(float_7);
+        }
+        
+        // DynoUint() => (value_11)
+        
+        // UintBitsToFloat(value_11) => (float_10)
+        float float_10;
+        {
+            float_10 = uintBitsToFloat(value_11);
+        }
+        
+        // FloatBitsToUint(float_10) => (uint_9)
+        uint uint_9;
+        {
+            uint_9 = floatBitsToUint(float_10);
+        }
+        
+        // Combine(uint_1, uint_3, uint_6, uint_9) => (out_value)
+        {
+            out_value.x = uint_1;
+            out_value.y = uint_3;
+            out_value.z = uint_6;
+            out_value.w = uint_9;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > floor/ceil/trunc/round/fract 1`] = `
+"uniform float value_2;
+
+uniform float value_4;
+
+uniform float value_6;
+
+uniform float value_8;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // Floor(value_2) => (floor_1)
+        float floor_1;
+        {
+            floor_1 = floor(value_2);
+        }
+        
+        // DynoFloat() => (value_4)
+        
+        // Ceil(value_4) => (ceil_3)
+        float ceil_3;
+        {
+            ceil_3 = ceil(value_4);
+        }
+        
+        // DynoFloat() => (value_6)
+        
+        // Trunc(value_6) => (trunc_5)
+        float trunc_5;
+        {
+            trunc_5 = trunc(value_6);
+        }
+        
+        // DynoFloat() => (value_8)
+        
+        // Fract(value_8) => (fract_7)
+        float fract_7;
+        {
+            fract_7 = fract(value_8);
+        }
+        
+        // Combine(floor_1, ceil_3, trunc_5, fract_7) => (out_value)
+        {
+            out_value.x = floor_1;
+            out_value.y = ceil_3;
+            out_value.z = trunc_5;
+            out_value.w = fract_7;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > generators 1`] = `
+"struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+uniform vec3 value_5;
+
+uniform vec3 value_8;
+
+uint pcg_mix(uint value) {
+  return value;
+}
+uint pcg_mix(uvec2 value) {
+  return value.x + 0x9e3779b9u * value.y;
+}
+uint pcg_mix(uvec3 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z;
+}
+uint pcg_mix(uvec4 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z + 0xc2b2ae35u * value.w;
+}
+
+uint pcg_next(uint state) {
+  return state * 747796405u + 2891336453u;
+}
+
+uint pcg_hash(uint state) {
+  uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (hash >> 22u) ^ hash;
+}
+
+uniform vec3 value_13;
+
+uniform float value_19;
+
+uniform float value_24;
+
+uniform float value_26;
+
+uniform float value_28;
+
+uniform float value_32;
+
+uniform float value_40;
+
+uniform vec3 value_41;
+
+uniform vec3 value_44;
+
+uniform vec3 value_45;
+
+uniform float value_49;
+
+uniform float value_50;
+
+uniform vec4 value_51;
+
+uniform vec3 value_52;
+void main() {
+    // DynoBlock(index) => (out_gsplat)
+    {
+        // DynoVec3() => (value_5)
+        
+        // DynoVec3() => (value_8)
+        
+        // Sub(value_8, value_5) => (difference_7)
+        vec3 difference_7;
+        {
+            difference_7 = value_8 - value_5;
+        }
+        
+        // HashVec4(index) => (hash_12)
+        vec4 hash_12;
+        {
+            // Hash4(index) => (hash_55)
+            uvec4 hash_55;
+            {
+                // PcgMix(index) => (state_59)
+                uint state_59;
+                {
+                    uint bits = uint(index);
+                    state_59 = pcg_mix(bits);
+                }
+                
+                // PcgNext(state_59) => (state_58)
+                uint state_58;
+                {
+                    state_58 = pcg_next(state_59);
+                }
+                
+                // PcgHash(state_58) => (hash_57)
+                uint hash_57;
+                {
+                    hash_57 = pcg_hash(state_58);
+                }
+                
+                // PcgNext(state_58) => (state_61)
+                uint state_61;
+                {
+                    state_61 = pcg_next(state_58);
+                }
+                
+                // PcgHash(state_61) => (hash_60)
+                uint hash_60;
+                {
+                    hash_60 = pcg_hash(state_61);
+                }
+                
+                // PcgNext(state_61) => (state_63)
+                uint state_63;
+                {
+                    state_63 = pcg_next(state_61);
+                }
+                
+                // PcgHash(state_63) => (hash_62)
+                uint hash_62;
+                {
+                    hash_62 = pcg_hash(state_63);
+                }
+                
+                // PcgNext(state_63) => (state_65)
+                uint state_65;
+                {
+                    state_65 = pcg_next(state_63);
+                }
+                
+                // PcgHash(state_65) => (hash_64)
+                uint hash_64;
+                {
+                    hash_64 = pcg_hash(state_65);
+                }
+                
+                // Combine(hash_57, hash_60, hash_62, hash_64) => (hash_55)
+                {
+                    hash_55.x = hash_57;
+                    hash_55.y = hash_60;
+                    hash_55.z = hash_62;
+                    hash_55.w = hash_64;
+                }
+            }
+            
+            // Vec4(hash_55) => (vec4_54)
+            vec4 vec4_54;
+            {
+                vec4_54 = vec4(hash_55);
+            }
+            
+            // Mul(vec4_54, 2.3283064365386963e-10) => (hash_12)
+            {
+                hash_12 = vec4_54 * 2.3283064365386963e-10;
+            }
+        }
+        
+        // Vec3(hash_12) => (vec3_11)
+        vec3 vec3_11;
+        {
+            vec3_11 = vec3(hash_12);
+        }
+        
+        // DynoVec3() => (value_13)
+        
+        // Add(vec3_11, value_13) => (sum_10)
+        vec3 sum_10;
+        {
+            sum_10 = vec3_11 + value_13;
+        }
+        
+        // Mod(sum_10, vec3(1.0, 1.0, 1.0)) => (remainder_9)
+        vec3 remainder_9;
+        {
+            remainder_9 = mod(sum_10, vec3(1.0, 1.0, 1.0));
+        }
+        
+        // Mul(difference_7, remainder_9) => (product_6)
+        vec3 product_6;
+        {
+            product_6 = difference_7 * remainder_9;
+        }
+        
+        // Add(value_5, product_6) => (sum_4)
+        vec3 sum_4;
+        {
+            sum_4 = value_5 + product_6;
+        }
+        
+        // DynoFloat() => (value_19)
+        
+        // Combine(index, 6837) => (vector_23)
+        ivec2 vector_23;
+        {
+            vector_23.x = index;
+            vector_23.y = 6837;
+        }
+        
+        // HashVec4(vector_23) => (hash_22)
+        vec4 hash_22;
+        {
+            // Hash4(vector_23) => (hash_68)
+            uvec4 hash_68;
+            {
+                // PcgMix(vector_23) => (state_72)
+                uint state_72;
+                {
+                    uvec2 bits = uvec2(vector_23);
+                    state_72 = pcg_mix(bits);
+                }
+                
+                // PcgNext(state_72) => (state_71)
+                uint state_71;
+                {
+                    state_71 = pcg_next(state_72);
+                }
+                
+                // PcgHash(state_71) => (hash_70)
+                uint hash_70;
+                {
+                    hash_70 = pcg_hash(state_71);
+                }
+                
+                // PcgNext(state_71) => (state_74)
+                uint state_74;
+                {
+                    state_74 = pcg_next(state_71);
+                }
+                
+                // PcgHash(state_74) => (hash_73)
+                uint hash_73;
+                {
+                    hash_73 = pcg_hash(state_74);
+                }
+                
+                // PcgNext(state_74) => (state_76)
+                uint state_76;
+                {
+                    state_76 = pcg_next(state_74);
+                }
+                
+                // PcgHash(state_76) => (hash_75)
+                uint hash_75;
+                {
+                    hash_75 = pcg_hash(state_76);
+                }
+                
+                // PcgNext(state_76) => (state_78)
+                uint state_78;
+                {
+                    state_78 = pcg_next(state_76);
+                }
+                
+                // PcgHash(state_78) => (hash_77)
+                uint hash_77;
+                {
+                    hash_77 = pcg_hash(state_78);
+                }
+                
+                // Combine(hash_70, hash_73, hash_75, hash_77) => (hash_68)
+                {
+                    hash_68.x = hash_70;
+                    hash_68.y = hash_73;
+                    hash_68.z = hash_75;
+                    hash_68.w = hash_77;
+                }
+            }
+            
+            // Vec4(hash_68) => (vec4_67)
+            vec4 vec4_67;
+            {
+                vec4_67 = vec4(hash_68);
+            }
+            
+            // Mul(vec4_67, 2.3283064365386963e-10) => (hash_22)
+            {
+                hash_22 = vec4_67 * 2.3283064365386963e-10;
+            }
+        }
+        
+        // Split(hash_22) => (w_21)
+        float w_21;
+        {
+            w_21 = hash_22.w;
+        }
+        
+        // DynoFloat() => (value_24)
+        
+        // Mul(w_21, value_24) => (product_20)
+        float product_20;
+        {
+            product_20 = w_21 * value_24;
+        }
+        
+        // Add(value_19, product_20) => (sum_18)
+        float sum_18;
+        {
+            sum_18 = value_19 + product_20;
+        }
+        
+        // Vec3(sum_18) => (vec3_17)
+        vec3 vec3_17;
+        {
+            vec3_17 = vec3(sum_18);
+        }
+        
+        // Vec3(hash_22) => (vec3_25)
+        vec3 vec3_25;
+        {
+            vec3_25 = vec3(hash_22);
+        }
+        
+        // Add(vec3_17, vec3_25) => (sum_16)
+        vec3 sum_16;
+        {
+            sum_16 = vec3_17 + vec3_25;
+        }
+        
+        // Sin(sum_16) => (sin_15)
+        vec3 sin_15;
+        {
+            sin_15 = sin(sum_16);
+        }
+        
+        // DynoFloat() => (value_26)
+        
+        // Mul(sin_15, value_26) => (product_14)
+        vec3 product_14;
+        {
+            product_14 = sin_15 * value_26;
+        }
+        
+        // Add(sum_4, product_14) => (sum_3)
+        vec3 sum_3;
+        {
+            sum_3 = sum_4 + product_14;
+        }
+        
+        // DynoFloat() => (value_28)
+        
+        // Split(sum_3) => (y_29)
+        float y_29;
+        {
+            y_29 = sum_3.y;
+        }
+        
+        // Max(value_28, y_29) => (max_27)
+        float max_27;
+        {
+            max_27 = max(value_28, y_29);
+        }
+        
+        // Combine(sum_3, max_27) => (vector_2)
+        vec3 vector_2;
+        {
+            vector_2.x = sum_3.x;
+            vector_2.y = max_27;
+            vector_2.z = sum_3.z;
+        }
+        
+        // DynoFloat() => (value_32)
+        
+        // Split(hash_12) => (w_38)
+        float w_38;
+        {
+            w_38 = hash_12.w;
+        }
+        
+        // Mul(w_38, 100.0) => (product_37)
+        float product_37;
+        {
+            product_37 = w_38 * 100.0;
+        }
+        
+        // Fract(product_37) => (fract_36)
+        float fract_36;
+        {
+            fract_36 = fract(product_37);
+        }
+        
+        // Mul(PI, fract_36) => (product_35)
+        float product_35;
+        {
+            product_35 = PI * fract_36;
+        }
+        
+        // Sin(product_35) => (sin_34)
+        float sin_34;
+        {
+            sin_34 = sin(product_35);
+        }
+        
+        // DynoFloat() => (value_40)
+        
+        // Sub(value_40, value_32) => (difference_39)
+        float difference_39;
+        {
+            difference_39 = value_40 - value_32;
+        }
+        
+        // Mul(sin_34, difference_39) => (product_33)
+        float product_33;
+        {
+            product_33 = sin_34 * difference_39;
+        }
+        
+        // Add(value_32, product_33) => (sum_31)
+        float sum_31;
+        {
+            sum_31 = value_32 + product_33;
+        }
+        
+        // DynoVec3() => (value_41)
+        
+        // Mul(sum_31, value_41) => (product_30)
+        vec3 product_30;
+        {
+            product_30 = sum_31 * value_41;
+        }
+        
+        // DynoVec3() => (value_44)
+        
+        // DynoVec3() => (value_45)
+        
+        // Fract(w_38) => (fract_46)
+        float fract_46;
+        {
+            fract_46 = fract(w_38);
+        }
+        
+        // Mix(value_44, value_45, fract_46) => (mix_43)
+        vec3 mix_43;
+        {
+            mix_43 = mix(value_44, value_45, fract_46);
+        }
+        
+        // Mul(w_38, 10.0) => (product_48)
+        float product_48;
+        {
+            product_48 = w_38 * 10.0;
+        }
+        
+        // Fract(product_48) => (fract_47)
+        float fract_47;
+        {
+            fract_47 = fract(product_48);
+        }
+        
+        // Mul(mix_43, fract_47) => (product_42)
+        vec3 product_42;
+        {
+            product_42 = mix_43 * fract_47;
+        }
+        
+        // DynoFloat() => (value_49)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, index, vector_2, product_30, vec4(0.0, 0.0, 0.0, 1.0), product_42, value_49) => (gsplat_1)
+        Gsplat gsplat_1;
+        {
+            gsplat_1.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_1.index = index;
+            gsplat_1.center = vector_2;
+            gsplat_1.scales = product_30;
+            gsplat_1.quaternion = vec4(0.0, 0.0, 0.0, 1.0);
+            gsplat_1.rgba = vec4(0.0, 0.0, 0.0, 0.0);
+            gsplat_1.rgba.rgb = product_42;
+            gsplat_1.rgba.a = value_49;
+        }
+        
+        // DynoFloat() => (value_50)
+        
+        // DynoVec4() => (value_51)
+        
+        // DynoVec3() => (value_52)
+        
+        // TransformGsplat(gsplat_1, value_50, value_51, value_52) => (out_gsplat)
+        {
+            out_gsplat = gsplat_1;
+            if (isGsplatActive(out_gsplat.flags)) {
+                out_gsplat.center *= value_50;
+                out_gsplat.center = quatVec(value_51, out_gsplat.center);
+                out_gsplat.center += value_52;
+                out_gsplat.scales *= value_50;
+                out_gsplat.quaternion = quatQuat(value_51, out_gsplat.quaternion);
+            }
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > generators 2`] = `
+"struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+uniform float value_16;
+
+uint pcg_mix(uint value) {
+  return value;
+}
+uint pcg_mix(uvec2 value) {
+  return value.x + 0x9e3779b9u * value.y;
+}
+uint pcg_mix(uvec3 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z;
+}
+uint pcg_mix(uvec4 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z + 0xc2b2ae35u * value.w;
+}
+
+uint pcg_next(uint state) {
+  return state * 747796405u + 2891336453u;
+}
+
+uint pcg_hash(uint state) {
+  uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (hash >> 22u) ^ hash;
+}
+
+uniform float value_20;
+
+uniform vec4 value_21;
+
+uniform vec3 value_22;
+void main() {
+    // DynoBlock(index) => (out_gsplat)
+    {
+        // Sub(vec3(1.0, 1.0, 1.0), vec3(-1.0, -1.0, -1.0)) => (difference_4)
+        vec3 difference_4;
+        {
+            difference_4 = vec3(1.0, 1.0, 1.0) - vec3(-1.0, -1.0, -1.0);
+        }
+        
+        // IMod(index, 4) => (remainder_9)
+        int remainder_9;
+        {
+            remainder_9 = index % 4;
+        }
+        
+        // Div(index, 4) => (quotient_11)
+        int quotient_11;
+        {
+            quotient_11 = index / 4;
+        }
+        
+        // IMod(quotient_11, 4) => (remainder_10)
+        int remainder_10;
+        {
+            remainder_10 = quotient_11 % 4;
+        }
+        
+        // Div(quotient_11, 4) => (quotient_12)
+        int quotient_12;
+        {
+            quotient_12 = quotient_11 / 4;
+        }
+        
+        // Combine(remainder_9, remainder_10, quotient_12) => (vector_8)
+        ivec3 vector_8;
+        {
+            vector_8.x = remainder_9;
+            vector_8.y = remainder_10;
+            vector_8.z = quotient_12;
+        }
+        
+        // Vec3(vector_8) => (vec3_7)
+        vec3 vec3_7;
+        {
+            vec3_7 = vec3(vector_8);
+        }
+        
+        // DynoFloat() => (value_16)
+        
+        // FloatBitsToInt(value_16) => (int_15)
+        int int_15;
+        {
+            int_15 = floatBitsToInt(value_16);
+        }
+        
+        // Combine(index, int_15) => (vector_14)
+        ivec2 vector_14;
+        {
+            vector_14.x = index;
+            vector_14.y = int_15;
+        }
+        
+        // HashVec3(vector_14) => (hash_13)
+        vec3 hash_13;
+        {
+            // Hash3(vector_14) => (hash_25)
+            uvec3 hash_25;
+            {
+                // PcgMix(vector_14) => (state_29)
+                uint state_29;
+                {
+                    uvec2 bits = uvec2(vector_14);
+                    state_29 = pcg_mix(bits);
+                }
+                
+                // PcgNext(state_29) => (state_28)
+                uint state_28;
+                {
+                    state_28 = pcg_next(state_29);
+                }
+                
+                // PcgHash(state_28) => (hash_27)
+                uint hash_27;
+                {
+                    hash_27 = pcg_hash(state_28);
+                }
+                
+                // PcgNext(state_28) => (state_31)
+                uint state_31;
+                {
+                    state_31 = pcg_next(state_28);
+                }
+                
+                // PcgHash(state_31) => (hash_30)
+                uint hash_30;
+                {
+                    hash_30 = pcg_hash(state_31);
+                }
+                
+                // PcgNext(state_31) => (state_33)
+                uint state_33;
+                {
+                    state_33 = pcg_next(state_31);
+                }
+                
+                // PcgHash(state_33) => (hash_32)
+                uint hash_32;
+                {
+                    hash_32 = pcg_hash(state_33);
+                }
+                
+                // Combine(hash_27, hash_30, hash_32) => (hash_25)
+                {
+                    hash_25.x = hash_27;
+                    hash_25.y = hash_30;
+                    hash_25.z = hash_32;
+                }
+            }
+            
+            // Vec3(hash_25) => (vec3_24)
+            vec3 vec3_24;
+            {
+                vec3_24 = vec3(hash_25);
+            }
+            
+            // Mul(vec3_24, 2.3283064365386963e-10) => (hash_13)
+            {
+                hash_13 = vec3_24 * 2.3283064365386963e-10;
+            }
+        }
+        
+        // Add(vec3_7, hash_13) => (sum_6)
+        vec3 sum_6;
+        {
+            sum_6 = vec3_7 + hash_13;
+        }
+        
+        // Div(sum_6, vec3(4.0, 4.0, 4.0)) => (quotient_5)
+        vec3 quotient_5;
+        {
+            quotient_5 = sum_6 / vec3(4.0, 4.0, 4.0);
+        }
+        
+        // Mul(difference_4, quotient_5) => (product_3)
+        vec3 product_3;
+        {
+            product_3 = difference_4 * quotient_5;
+        }
+        
+        // Add(vec3(-1.0, -1.0, -1.0), product_3) => (sum_2)
+        vec3 sum_2;
+        {
+            sum_2 = vec3(-1.0, -1.0, -1.0) + product_3;
+        }
+        
+        // Vec3(0.01) => (vec3_17)
+        vec3 vec3_17;
+        {
+            vec3_17 = vec3(0.01);
+        }
+        
+        // Split(quotient_5) => (r_19, g_19, b_19)
+        float r_19;
+        float g_19;
+        float b_19;
+        {
+            r_19 = quotient_5.r;
+            g_19 = quotient_5.g;
+            b_19 = quotient_5.b;
+        }
+        
+        // Combine(r_19, g_19, b_19, 1.0) => (vector_18)
+        vec4 vector_18;
+        {
+            vector_18.x = r_19;
+            vector_18.y = g_19;
+            vector_18.z = b_19;
+            vector_18.w = 1.0;
+        }
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, index, sum_2, vec3_17, vec4(0.0, 0.0, 0.0, 1.0), vector_18) => (gsplat_1)
+        Gsplat gsplat_1;
+        {
+            gsplat_1.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_1.index = index;
+            gsplat_1.center = sum_2;
+            gsplat_1.scales = vec3_17;
+            gsplat_1.quaternion = vec4(0.0, 0.0, 0.0, 1.0);
+            gsplat_1.rgba = vector_18;
+        }
+        
+        // DynoFloat() => (value_20)
+        
+        // DynoVec4() => (value_21)
+        
+        // DynoVec3() => (value_22)
+        
+        // TransformGsplat(gsplat_1, value_20, value_21, value_22) => (out_gsplat)
+        {
+            out_gsplat = gsplat_1;
+            if (isGsplatActive(out_gsplat.flags)) {
+                out_gsplat.center *= value_20;
+                out_gsplat.center = quatVec(value_21, out_gsplat.center);
+                out_gsplat.center += value_22;
+                out_gsplat.scales *= value_20;
+                out_gsplat.quaternion = quatQuat(value_21, out_gsplat.quaternion);
+            }
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > gsplat active/index 1`] = `
+"uniform int value_4;
+
+uniform vec3 value_5;
+
+uniform vec3 value_6;
+
+uniform vec4 value_7;
+
+uniform vec4 value_8;
+
+struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_4)
+        
+        // DynoVec3() => (value_5)
+        
+        // DynoVec3() => (value_6)
+        
+        // DynoVec4() => (value_7)
+        
+        // DynoVec4() => (value_8)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, value_4, value_5, value_6, value_7, value_8) => (gsplat_3)
+        Gsplat gsplat_3;
+        {
+            gsplat_3.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_3.index = value_4;
+            gsplat_3.center = value_5;
+            gsplat_3.scales = value_6;
+            gsplat_3.quaternion = value_7;
+            gsplat_3.rgba = value_8;
+        }
+        
+        // SplitGsplat(gsplat_3) => (active_2, index_2)
+        bool active_2;
+        int index_2;
+        {
+            active_2 = isGsplatActive(gsplat_3.flags);
+            index_2 = gsplat_3.index;
+        }
+        
+        // Int(active_2) => (int_1)
+        int int_1;
+        {
+            int_1 = int(active_2);
+        }
+        
+        // Combine(int_1, index_2) => (out_value)
+        {
+            out_value.x = int_1;
+            out_value.y = index_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > gsplat axes 1`] = `
+"uniform int value_4;
+
+uniform vec3 value_5;
+
+uniform vec3 value_6;
+
+uniform vec4 value_7;
+
+uniform vec4 value_8;
+
+struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+uniform int value_11;
+
+uniform vec3 value_12;
+
+uniform vec3 value_13;
+
+uniform vec4 value_14;
+
+uniform vec4 value_15;
+
+uniform int value_18;
+
+uniform vec3 value_19;
+
+uniform vec3 value_20;
+
+uniform vec4 value_21;
+
+uniform vec4 value_22;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_4)
+        
+        // DynoVec3() => (value_5)
+        
+        // DynoVec3() => (value_6)
+        
+        // DynoVec4() => (value_7)
+        
+        // DynoVec4() => (value_8)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, value_4, value_5, value_6, value_7, value_8) => (gsplat_3)
+        Gsplat gsplat_3;
+        {
+            gsplat_3.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_3.index = value_4;
+            gsplat_3.center = value_5;
+            gsplat_3.scales = value_6;
+            gsplat_3.quaternion = value_7;
+            gsplat_3.rgba = value_8;
+        }
+        
+        // GsplatXAxis(gsplat_3) => (xaxis_2)
+        vec3 xaxis_2;
+        {
+            xaxis_2 = quatVec(gsplat_3.quaternion, vec3(1.0, 0.0, 0.0));
+        }
+        
+        // DynoInt() => (value_11)
+        
+        // DynoVec3() => (value_12)
+        
+        // DynoVec3() => (value_13)
+        
+        // DynoVec4() => (value_14)
+        
+        // DynoVec4() => (value_15)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, value_11, value_12, value_13, value_14, value_15) => (gsplat_10)
+        Gsplat gsplat_10;
+        {
+            gsplat_10.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_10.index = value_11;
+            gsplat_10.center = value_12;
+            gsplat_10.scales = value_13;
+            gsplat_10.quaternion = value_14;
+            gsplat_10.rgba = value_15;
+        }
+        
+        // GsplatYAxis(gsplat_10) => (yaxis_9)
+        vec3 yaxis_9;
+        {
+            yaxis_9 = quatVec(gsplat_10.quaternion, vec3(0.0, 1.0, 0.0));
+        }
+        
+        // Add(xaxis_2, yaxis_9) => (sum_1)
+        vec3 sum_1;
+        {
+            sum_1 = xaxis_2 + yaxis_9;
+        }
+        
+        // DynoInt() => (value_18)
+        
+        // DynoVec3() => (value_19)
+        
+        // DynoVec3() => (value_20)
+        
+        // DynoVec4() => (value_21)
+        
+        // DynoVec4() => (value_22)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, value_18, value_19, value_20, value_21, value_22) => (gsplat_17)
+        Gsplat gsplat_17;
+        {
+            gsplat_17.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_17.index = value_18;
+            gsplat_17.center = value_19;
+            gsplat_17.scales = value_20;
+            gsplat_17.quaternion = value_21;
+            gsplat_17.rgba = value_22;
+        }
+        
+        // GsplatZAxis(gsplat_17) => (zaxis_16)
+        vec3 zaxis_16;
+        {
+            zaxis_16 = quatVec(gsplat_17.quaternion, vec3(0.0, 0.0, 1.0));
+        }
+        
+        // Add(sum_1, zaxis_16) => (out_value)
+        {
+            out_value = sum_1 + zaxis_16;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > gsplatNormal 1`] = `
+"uniform int value_2;
+
+uniform vec3 value_3;
+
+uniform vec3 value_4;
+
+uniform vec4 value_5;
+
+uniform vec4 value_6;
+
+struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+vec3 gsplatNormal(vec3 scales, vec4 quaternion) {
+  float minScale = min(scales.x, min(scales.y, scales.z));
+  vec3 normal;
+  if (scales.z == minScale) {
+    normal = vec3(0.0, 0.0, 1.0);
+  } else if (scales.y == minScale) {
+    normal = vec3(0.0, 1.0, 0.0);
+  } else {
+    normal = vec3(1.0, 0.0, 0.0);
+  }
+  return quatVec(quaternion, normal);
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_2)
+        
+        // DynoVec3() => (value_3)
+        
+        // DynoVec3() => (value_4)
+        
+        // DynoVec4() => (value_5)
+        
+        // DynoVec4() => (value_6)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, value_2, value_3, value_4, value_5, value_6) => (gsplat_1)
+        Gsplat gsplat_1;
+        {
+            gsplat_1.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_1.index = value_2;
+            gsplat_1.center = value_3;
+            gsplat_1.scales = value_4;
+            gsplat_1.quaternion = value_5;
+            gsplat_1.rgba = value_6;
+        }
+        
+        // GsplatNormal(gsplat_1) => (out_value)
+        {
+            out_value = gsplatNormal(gsplat_1.scales, gsplat_1.quaternion);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > gsplatToCovSplat 1`] = `
+"uniform int value_4;
+
+uniform vec3 value_5;
+
+uniform vec3 value_6;
+
+uniform vec4 value_7;
+
+uniform vec4 value_8;
+
+struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+struct CovSplat {
+  vec3 center;
+  uint flags;
+  vec4 rgba;
+  vec3 xxyyzz;
+  int index;
+  vec3 xyxzyz;
+};
+
+bool isCovSplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+uniform float value_9;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_4)
+        
+        // DynoVec3() => (value_5)
+        
+        // DynoVec3() => (value_6)
+        
+        // DynoVec4() => (value_7)
+        
+        // DynoVec4() => (value_8)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, value_4, value_5, value_6, value_7, value_8) => (gsplat_3)
+        Gsplat gsplat_3;
+        {
+            gsplat_3.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_3.index = value_4;
+            gsplat_3.center = value_5;
+            gsplat_3.scales = value_6;
+            gsplat_3.quaternion = value_7;
+            gsplat_3.rgba = value_8;
+        }
+        
+        // GsplatToCovSplat(gsplat_3) => (covsplat_2)
+        CovSplat covsplat_2;
+        {
+            covsplat_2.flags = 0u;
+            if (isGsplatActive(gsplat_3.flags)) {
+              covsplat_2.flags = gsplat_3.flags;
+              covsplat_2.index = gsplat_3.index;
+              covsplat_2.rgba = gsplat_3.rgba;
+              covsplat_2.center = gsplat_3.center;
+              mat3 m = scaleQuaternionToMatrix(gsplat_3.scales, gsplat_3.quaternion);
+              m = m * transpose(m);
+              covsplat_2.xxyyzz = vec3(m[0][0], m[1][1], m[2][2]);
+              covsplat_2.xyxzyz = vec3(m[0][1], m[0][2], m[1][2]);
+            }
+        }
+        
+        // DynoFloat() => (value_9)
+        
+        // CombineCovSplat(covsplat_2, value_9) => (covsplat_1)
+        CovSplat covsplat_1;
+        {
+            covsplat_1.flags = covsplat_2.flags;
+            covsplat_1.index = covsplat_2.index;
+            covsplat_1.center = covsplat_2.center;
+            covsplat_1.rgba = covsplat_2.rgba;
+            covsplat_1.rgba.r = value_9;
+            covsplat_1.xxyyzz = covsplat_2.xxyyzz;
+            covsplat_1.xyxzyz = covsplat_2.xyxzyz;
+        }
+        
+        // SplitCovSplat(covsplat_1) => (out_value)
+        {
+            out_value = covsplat_1.rgba.rgb;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > hash int 1`] = `
+"uniform int value_1;
+
+uint pcg_mix(uint value) {
+  return value;
+}
+uint pcg_mix(uvec2 value) {
+  return value.x + 0x9e3779b9u * value.y;
+}
+uint pcg_mix(uvec3 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z;
+}
+uint pcg_mix(uvec4 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z + 0xc2b2ae35u * value.w;
+}
+
+uint pcg_next(uint state) {
+  return state * 747796405u + 2891336453u;
+}
+
+uint pcg_hash(uint state) {
+  uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (hash >> 22u) ^ hash;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // Hash(value_1) => (out_value)
+        {
+            // PcgMix(value_1) => (state_4)
+            uint state_4;
+            {
+                uint bits = uint(value_1);
+                state_4 = pcg_mix(bits);
+            }
+            
+            // PcgNext(state_4) => (state_3)
+            uint state_3;
+            {
+                state_3 = pcg_next(state_4);
+            }
+            
+            // PcgHash(state_3) => (out_value)
+            {
+                out_value = pcg_hash(state_3);
+            }
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > hash2 uvec2 1`] = `
+"uniform uvec2 value_1;
+
+uint pcg_mix(uint value) {
+  return value;
+}
+uint pcg_mix(uvec2 value) {
+  return value.x + 0x9e3779b9u * value.y;
+}
+uint pcg_mix(uvec3 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z;
+}
+uint pcg_mix(uvec4 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z + 0xc2b2ae35u * value.w;
+}
+
+uint pcg_next(uint state) {
+  return state * 747796405u + 2891336453u;
+}
+
+uint pcg_hash(uint state) {
+  uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (hash >> 22u) ^ hash;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoUvec2() => (value_1)
+        
+        // Hash2(value_1) => (out_value)
+        {
+            // PcgMix(value_1) => (state_5)
+            uint state_5;
+            {
+                uvec2 bits = value_1;
+                state_5 = pcg_mix(bits);
+            }
+            
+            // PcgNext(state_5) => (state_4)
+            uint state_4;
+            {
+                state_4 = pcg_next(state_5);
+            }
+            
+            // PcgHash(state_4) => (hash_3)
+            uint hash_3;
+            {
+                hash_3 = pcg_hash(state_4);
+            }
+            
+            // PcgNext(state_4) => (state_7)
+            uint state_7;
+            {
+                state_7 = pcg_next(state_4);
+            }
+            
+            // PcgHash(state_7) => (hash_6)
+            uint hash_6;
+            {
+                hash_6 = pcg_hash(state_7);
+            }
+            
+            // Combine(hash_3, hash_6) => (out_value)
+            {
+                out_value.x = hash_3;
+                out_value.y = hash_6;
+            }
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > hash3 vec3 1`] = `
+"uniform vec3 value_1;
+
+uint pcg_mix(uint value) {
+  return value;
+}
+uint pcg_mix(uvec2 value) {
+  return value.x + 0x9e3779b9u * value.y;
+}
+uint pcg_mix(uvec3 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z;
+}
+uint pcg_mix(uvec4 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z + 0xc2b2ae35u * value.w;
+}
+
+uint pcg_next(uint state) {
+  return state * 747796405u + 2891336453u;
+}
+
+uint pcg_hash(uint state) {
+  uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (hash >> 22u) ^ hash;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // Hash3(value_1) => (out_value)
+        {
+            // PcgMix(value_1) => (state_5)
+            uint state_5;
+            {
+                uvec3 bits = floatBitsToUint(value_1);
+                state_5 = pcg_mix(bits);
+            }
+            
+            // PcgNext(state_5) => (state_4)
+            uint state_4;
+            {
+                state_4 = pcg_next(state_5);
+            }
+            
+            // PcgHash(state_4) => (hash_3)
+            uint hash_3;
+            {
+                hash_3 = pcg_hash(state_4);
+            }
+            
+            // PcgNext(state_4) => (state_7)
+            uint state_7;
+            {
+                state_7 = pcg_next(state_4);
+            }
+            
+            // PcgHash(state_7) => (hash_6)
+            uint hash_6;
+            {
+                hash_6 = pcg_hash(state_7);
+            }
+            
+            // PcgNext(state_7) => (state_9)
+            uint state_9;
+            {
+                state_9 = pcg_next(state_7);
+            }
+            
+            // PcgHash(state_9) => (hash_8)
+            uint hash_8;
+            {
+                hash_8 = pcg_hash(state_9);
+            }
+            
+            // Combine(hash_3, hash_6, hash_8) => (out_value)
+            {
+                out_value.x = hash_3;
+                out_value.y = hash_6;
+                out_value.z = hash_8;
+            }
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > hash4 ivec4 1`] = `
+"uniform ivec4 value_1;
+
+uint pcg_mix(uint value) {
+  return value;
+}
+uint pcg_mix(uvec2 value) {
+  return value.x + 0x9e3779b9u * value.y;
+}
+uint pcg_mix(uvec3 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z;
+}
+uint pcg_mix(uvec4 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z + 0xc2b2ae35u * value.w;
+}
+
+uint pcg_next(uint state) {
+  return state * 747796405u + 2891336453u;
+}
+
+uint pcg_hash(uint state) {
+  uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (hash >> 22u) ^ hash;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoIvec4() => (value_1)
+        
+        // Hash4(value_1) => (out_value)
+        {
+            // PcgMix(value_1) => (state_5)
+            uint state_5;
+            {
+                uvec4 bits = uvec4(value_1);
+                state_5 = pcg_mix(bits);
+            }
+            
+            // PcgNext(state_5) => (state_4)
+            uint state_4;
+            {
+                state_4 = pcg_next(state_5);
+            }
+            
+            // PcgHash(state_4) => (hash_3)
+            uint hash_3;
+            {
+                hash_3 = pcg_hash(state_4);
+            }
+            
+            // PcgNext(state_4) => (state_7)
+            uint state_7;
+            {
+                state_7 = pcg_next(state_4);
+            }
+            
+            // PcgHash(state_7) => (hash_6)
+            uint hash_6;
+            {
+                hash_6 = pcg_hash(state_7);
+            }
+            
+            // PcgNext(state_7) => (state_9)
+            uint state_9;
+            {
+                state_9 = pcg_next(state_7);
+            }
+            
+            // PcgHash(state_9) => (hash_8)
+            uint hash_8;
+            {
+                hash_8 = pcg_hash(state_9);
+            }
+            
+            // PcgNext(state_9) => (state_11)
+            uint state_11;
+            {
+                state_11 = pcg_next(state_9);
+            }
+            
+            // PcgHash(state_11) => (hash_10)
+            uint hash_10;
+            {
+                hash_10 = pcg_hash(state_11);
+            }
+            
+            // Combine(hash_3, hash_6, hash_8, hash_10) => (out_value)
+            {
+                out_value.x = hash_3;
+                out_value.y = hash_6;
+                out_value.z = hash_8;
+                out_value.w = hash_10;
+            }
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > hashFloat 1`] = `
+"uniform int value_1;
+
+uint pcg_mix(uint value) {
+  return value;
+}
+uint pcg_mix(uvec2 value) {
+  return value.x + 0x9e3779b9u * value.y;
+}
+uint pcg_mix(uvec3 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z;
+}
+uint pcg_mix(uvec4 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z + 0xc2b2ae35u * value.w;
+}
+
+uint pcg_next(uint state) {
+  return state * 747796405u + 2891336453u;
+}
+
+uint pcg_hash(uint state) {
+  uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (hash >> 22u) ^ hash;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // HashFloat(value_1) => (out_value)
+        {
+            // Hash(value_1) => (hash_4)
+            uint hash_4;
+            {
+                // PcgMix(value_1) => (state_7)
+                uint state_7;
+                {
+                    uint bits = uint(value_1);
+                    state_7 = pcg_mix(bits);
+                }
+                
+                // PcgNext(state_7) => (state_6)
+                uint state_6;
+                {
+                    state_6 = pcg_next(state_7);
+                }
+                
+                // PcgHash(state_6) => (hash_4)
+                {
+                    hash_4 = pcg_hash(state_6);
+                }
+            }
+            
+            // Float(hash_4) => (float_3)
+            float float_3;
+            {
+                float_3 = float(hash_4);
+            }
+            
+            // Mul(float_3, 2.3283064365386963e-10) => (out_value)
+            {
+                out_value = float_3 * 2.3283064365386963e-10;
+            }
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > hashVec4 1`] = `
+"uniform int value_1;
+
+uint pcg_mix(uint value) {
+  return value;
+}
+uint pcg_mix(uvec2 value) {
+  return value.x + 0x9e3779b9u * value.y;
+}
+uint pcg_mix(uvec3 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z;
+}
+uint pcg_mix(uvec4 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z + 0xc2b2ae35u * value.w;
+}
+
+uint pcg_next(uint state) {
+  return state * 747796405u + 2891336453u;
+}
+
+uint pcg_hash(uint state) {
+  uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (hash >> 22u) ^ hash;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // HashVec4(value_1) => (out_value)
+        {
+            // Hash4(value_1) => (hash_4)
+            uvec4 hash_4;
+            {
+                // PcgMix(value_1) => (state_8)
+                uint state_8;
+                {
+                    uint bits = uint(value_1);
+                    state_8 = pcg_mix(bits);
+                }
+                
+                // PcgNext(state_8) => (state_7)
+                uint state_7;
+                {
+                    state_7 = pcg_next(state_8);
+                }
+                
+                // PcgHash(state_7) => (hash_6)
+                uint hash_6;
+                {
+                    hash_6 = pcg_hash(state_7);
+                }
+                
+                // PcgNext(state_7) => (state_10)
+                uint state_10;
+                {
+                    state_10 = pcg_next(state_7);
+                }
+                
+                // PcgHash(state_10) => (hash_9)
+                uint hash_9;
+                {
+                    hash_9 = pcg_hash(state_10);
+                }
+                
+                // PcgNext(state_10) => (state_12)
+                uint state_12;
+                {
+                    state_12 = pcg_next(state_10);
+                }
+                
+                // PcgHash(state_12) => (hash_11)
+                uint hash_11;
+                {
+                    hash_11 = pcg_hash(state_12);
+                }
+                
+                // PcgNext(state_12) => (state_14)
+                uint state_14;
+                {
+                    state_14 = pcg_next(state_12);
+                }
+                
+                // PcgHash(state_14) => (hash_13)
+                uint hash_13;
+                {
+                    hash_13 = pcg_hash(state_14);
+                }
+                
+                // Combine(hash_6, hash_9, hash_11, hash_13) => (hash_4)
+                {
+                    hash_4.x = hash_6;
+                    hash_4.y = hash_9;
+                    hash_4.z = hash_11;
+                    hash_4.w = hash_13;
+                }
+            }
+            
+            // Vec4(hash_4) => (vec4_3)
+            vec4 vec4_3;
+            {
+                vec4_3 = vec4(hash_4);
+            }
+            
+            // Mul(vec4_3, 2.3283064365386963e-10) => (out_value)
+            {
+                out_value = vec4_3 * 2.3283064365386963e-10;
+            }
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > imod 1`] = `
+"uniform int value_1;
+
+uniform int value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // DynoInt() => (value_2)
+        
+        // IMod(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 % value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > inverse mat2 1`] = `
+"uniform mat2 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat2() => (value_1)
+        
+        // Inverse(value_1) => (out_value)
+        {
+            out_value = inverse([object Object]);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > inverse mat3 1`] = `
+"uniform mat3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat3() => (value_1)
+        
+        // Inverse(value_1) => (out_value)
+        {
+            out_value = inverse([object Object]);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > inverse mat4 1`] = `
+"uniform mat4 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat4() => (value_1)
+        
+        // Inverse(value_1) => (out_value)
+        {
+            out_value = inverse([object Object]);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > isNan/isInf 1`] = `
+"uniform float value_4;
+
+uniform float value_5;
+
+uniform float value_8;
+
+uniform float value_12;
+
+uniform float value_13;
+
+uniform float value_16;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_4)
+        
+        // DynoFloat() => (value_5)
+        
+        // Div(value_4, value_5) => (quotient_3)
+        float quotient_3;
+        {
+            quotient_3 = value_4 / value_5;
+        }
+        
+        // IsNan(quotient_3) => (isNan_2)
+        bool isNan_2;
+        {
+            isNan_2 = isNan(quotient_3);
+        }
+        
+        // Int(isNan_2) => (int_1)
+        int int_1;
+        {
+            int_1 = int(isNan_2);
+        }
+        
+        // DynoFloat() => (value_8)
+        
+        // IsNan(value_8) => (isNan_7)
+        bool isNan_7;
+        {
+            isNan_7 = isNan(value_8);
+        }
+        
+        // Int(isNan_7) => (int_6)
+        int int_6;
+        {
+            int_6 = int(isNan_7);
+        }
+        
+        // DynoFloat() => (value_12)
+        
+        // DynoFloat() => (value_13)
+        
+        // Div(value_12, value_13) => (quotient_11)
+        float quotient_11;
+        {
+            quotient_11 = value_12 / value_13;
+        }
+        
+        // IsInf(quotient_11) => (isInf_10)
+        bool isInf_10;
+        {
+            isInf_10 = isInf(quotient_11);
+        }
+        
+        // Int(isInf_10) => (int_9)
+        int int_9;
+        {
+            int_9 = int(isInf_10);
+        }
+        
+        // DynoFloat() => (value_16)
+        
+        // IsInf(value_16) => (isInf_15)
+        bool isInf_15;
+        {
+            isInf_15 = isInf(value_16);
+        }
+        
+        // Int(isInf_15) => (int_14)
+        int int_14;
+        {
+            int_14 = int(isInf_15);
+        }
+        
+        // Combine(int_1, int_6, int_9, int_14) => (out_value)
+        {
+            out_value.x = int_1;
+            out_value.y = int_6;
+            out_value.z = int_9;
+            out_value.w = int_14;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > ivec3(vec3) 1`] = `
+"uniform vec3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // IVec3(value_1) => (out_value)
+        {
+            out_value = ivec3(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > length/distance/dot 1`] = `
+"uniform vec3 value_2;
+
+uniform vec2 value_4;
+
+uniform vec2 value_5;
+
+uniform vec3 value_7;
+
+uniform vec3 value_8;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_2)
+        
+        // Length(value_2) => (length_1)
+        float length_1;
+        {
+            length_1 = length(value_2);
+        }
+        
+        // DynoVec2() => (value_4)
+        
+        // DynoVec2() => (value_5)
+        
+        // Distance(value_4, value_5) => (distance_3)
+        float distance_3;
+        {
+            distance_3 = distance(value_4, value_5);
+        }
+        
+        // DynoVec3() => (value_7)
+        
+        // DynoVec3() => (value_8)
+        
+        // Dot(value_7, value_8) => (dot_6)
+        float dot_6;
+        {
+            dot_6 = dot(value_7, value_8);
+        }
+        
+        // Combine(length_1, distance_3, dot_6) => (out_value)
+        {
+            out_value.x = length_1;
+            out_value.y = distance_3;
+            out_value.z = dot_6;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > literal 1`] = `
+"
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        out_value = PI;
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > log/log2 1`] = `
+"uniform float value_2;
+
+uniform float value_4;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // Log(value_2) => (log_1)
+        float log_1;
+        {
+            log_1 = log(value_2);
+        }
+        
+        // DynoFloat() => (value_4)
+        
+        // Log2(value_4) => (log2_3)
+        float log2_3;
+        {
+            log2_3 = log2(value_4);
+        }
+        
+        // Combine(log_1, log2_3) => (out_value)
+        {
+            out_value.x = log_1;
+            out_value.y = log2_3;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > mat3(float) 1`] = `
+"uniform float value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_1)
+        
+        // Mat3(value_1) => (out_value)
+        {
+            out_value = mat3(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > mat3(mat4) 1`] = `
+"uniform mat4 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat4() => (value_1)
+        
+        // Mat3(value_1) => (out_value)
+        {
+            out_value = mat3(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > mat4(mat2) 1`] = `
+"uniform mat2 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat2() => (value_1)
+        
+        // Mat4(value_1) => (out_value)
+        {
+            out_value = mat4(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > max ivec3 1`] = `
+"uniform ivec3 value_1;
+
+uniform ivec3 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoIvec3() => (value_1)
+        
+        // DynoIvec3() => (value_2)
+        
+        // Max(value_1, value_2) => (out_value)
+        {
+            out_value = max(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > min vec3,float 1`] = `
+"uniform vec3 value_1;
+
+uniform float value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // Min(value_1, value_2) => (out_value)
+        {
+            out_value = min(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > mix bvec t 1`] = `
+"uniform vec3 value_1;
+
+uniform vec3 value_2;
+
+uniform bvec3 value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // DynoBvec3() => (value_3)
+        
+        // Mix(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = mix(value_1, value_2, value_3);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > mix float t 1`] = `
+"uniform vec3 value_1;
+
+uniform vec3 value_2;
+
+uniform float value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // DynoFloat() => (value_3)
+        
+        // Mix(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = mix(value_1, value_2, value_3);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > mod negative 1`] = `
+"uniform vec3 value_1;
+
+uniform float value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // Mod(value_1, value_2) => (out_value)
+        {
+            out_value = mod(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > modf 1`] = `
+"uniform vec2 value_2;
+
+uniform float value_4;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec2() => (value_2)
+        
+        // Modf(value_2) => (fract_1, integer_1)
+        vec2 fract_1;
+        vec2 integer_1;
+        {
+            fract_1 = modf(value_2, integer_1);
+        }
+        
+        // DynoFloat() => (value_4)
+        
+        // Mul(integer_1, value_4) => (product_3)
+        vec2 product_3;
+        {
+            product_3 = integer_1 * value_4;
+        }
+        
+        // Add(fract_1, product_3) => (out_value)
+        {
+            out_value = fract_1 + product_3;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > modifiers 1`] = `
+"struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+uniform float value_8;
+
+uniform vec4 value_9;
+
+uniform vec3 value_10;
+void main() {
+    // DynoBlock(gsplat) => (out_gsplat)
+    {
+        // SplitGsplat(gsplat) => (center_7)
+        vec3 center_7;
+        {
+            center_7 = gsplat.center;
+        }
+        
+        // DynoFloat() => (value_8)
+        
+        // DynoVec4() => (value_9)
+        
+        // DynoVec3() => (value_10)
+        
+        // TransformPosition(center_7, value_8, value_9, value_10) => (position_6)
+        vec3 position_6;
+        {
+            position_6 = center_7;
+            position_6 *= value_8;
+            position_6 = quatVec(value_9, position_6);
+            position_6 += value_10;
+        }
+        
+        // Split(position_6) => (z_5)
+        float z_5;
+        {
+            z_5 = position_6.z;
+        }
+        
+        // Neg(z_5) => (neg_4)
+        float neg_4;
+        {
+            neg_4 = -z_5;
+        }
+        
+        // NormalizedDepth(neg_4, 0.1, 10.0) => (depth_3)
+        float depth_3;
+        {
+            float clamped = clamp(neg_4, 0.1, 10.0);
+            depth_3 = (log2(clamped + 1.0) - log2(0.1 + 1.0)) / (log2(10.0 + 1.0) - log2(0.1 + 1.0));
+        }
+        
+        // Sub(1.0, depth_3) => (difference_2)
+        float difference_2;
+        {
+            difference_2 = 1.0 - depth_3;
+        }
+        
+        // Select(true, difference_2, depth_3) => (select_1)
+        float select_1;
+        {
+            select_1 = (true) ? (difference_2) : (depth_3);
+        }
+        
+        // CombineGsplat(gsplat, select_1, select_1, select_1) => (out_gsplat)
+        {
+            out_gsplat.flags = gsplat.flags;
+            out_gsplat.index = gsplat.index;
+            out_gsplat.center = gsplat.center;
+            out_gsplat.scales = gsplat.scales;
+            out_gsplat.quaternion = gsplat.quaternion;
+            out_gsplat.rgba = gsplat.rgba;
+            out_gsplat.rgba.r = select_1;
+            out_gsplat.rgba.g = select_1;
+            out_gsplat.rgba.b = select_1;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > modifiers 2`] = `
+"uniform float value_8;
+
+uniform vec4 value_9;
+
+uniform vec3 value_10;
+
+struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+vec3 gsplatNormal(vec3 scales, vec4 quaternion) {
+  float minScale = min(scales.x, min(scales.y, scales.z));
+  vec3 normal;
+  if (scales.z == minScale) {
+    normal = vec3(0.0, 0.0, 1.0);
+  } else if (scales.y == minScale) {
+    normal = vec3(0.0, 1.0, 0.0);
+  } else {
+    normal = vec3(1.0, 0.0, 0.0);
+  }
+  return quatVec(quaternion, normal);
+}
+void main() {
+    // DynoBlock(gsplat) => (out_gsplat)
+    {
+        // DynoFloat() => (value_8)
+        
+        // DynoVec4() => (value_9)
+        
+        // DynoVec3() => (value_10)
+        
+        // TransformGsplat(gsplat, value_8, value_9, value_10) => (gsplat_7)
+        Gsplat gsplat_7;
+        {
+            gsplat_7 = gsplat;
+            if (isGsplatActive(gsplat_7.flags)) {
+                gsplat_7.center *= value_8;
+                gsplat_7.center = quatVec(value_9, gsplat_7.center);
+                gsplat_7.center += value_10;
+                gsplat_7.scales *= value_8;
+                gsplat_7.quaternion = quatQuat(value_9, gsplat_7.quaternion);
+            }
+        }
+        
+        // SplitGsplat(gsplat_7) => (center_6)
+        vec3 center_6;
+        {
+            center_6 = gsplat_7.center;
+        }
+        
+        // GsplatNormal(gsplat_7) => (normal_11)
+        vec3 normal_11;
+        {
+            normal_11 = gsplatNormal(gsplat_7.scales, gsplat_7.quaternion);
+        }
+        
+        // Dot(center_6, normal_11) => (dot_5)
+        float dot_5;
+        {
+            dot_5 = dot(center_6, normal_11);
+        }
+        
+        // GreaterThanEqual(dot_5, 0.0) => (greaterThanEqual_4)
+        bool greaterThanEqual_4;
+        {
+            greaterThanEqual_4 = dot_5 >= 0.0;
+        }
+        
+        // GsplatNormal(gsplat) => (normal_13)
+        vec3 normal_13;
+        {
+            normal_13 = gsplatNormal(gsplat.scales, gsplat.quaternion);
+        }
+        
+        // Neg(normal_13) => (neg_12)
+        vec3 neg_12;
+        {
+            neg_12 = -normal_13;
+        }
+        
+        // Select(greaterThanEqual_4, neg_12, normal_13) => (select_3)
+        vec3 select_3;
+        {
+            select_3 = (greaterThanEqual_4) ? (neg_12) : (normal_13);
+        }
+        
+        // Mul(select_3, 0.5) => (product_2)
+        vec3 product_2;
+        {
+            product_2 = select_3 * 0.5;
+        }
+        
+        // Add(product_2, 0.5) => (sum_1)
+        vec3 sum_1;
+        {
+            sum_1 = product_2 + 0.5;
+        }
+        
+        // CombineGsplat(gsplat, sum_1) => (out_gsplat)
+        {
+            out_gsplat.flags = gsplat.flags;
+            out_gsplat.index = gsplat.index;
+            out_gsplat.center = gsplat.center;
+            out_gsplat.scales = gsplat.scales;
+            out_gsplat.quaternion = gsplat.quaternion;
+            out_gsplat.rgba = gsplat.rgba;
+            out_gsplat.rgba.rgb = sum_1;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > mul mat3*vec3 1`] = `
+"uniform mat3 value_1;
+
+uniform vec3 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // Mul(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 * value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > mul mat4*mat4 1`] = `
+"uniform mat4 value_1;
+
+uniform mat4 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat4() => (value_1)
+        
+        // DynoMat4() => (value_2)
+        
+        // Mul(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 * value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > neg 1`] = `
+"uniform vec3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // Neg(value_1) => (out_value)
+        {
+            out_value = -value_1;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > normalize 1`] = `
+"uniform vec3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // Normalize(value_1) => (out_value)
+        {
+            out_value = normalize(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > normalizedDepth 1`] = `
+"uniform float value_1;
+
+uniform float value_2;
+
+uniform float value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // DynoFloat() => (value_3)
+        
+        // NormalizedDepth(value_1, value_2, value_3) => (out_value)
+        {
+            float clamped = clamp(value_1, value_2, value_3);
+            out_value = (log2(clamped + 1.0) - log2(value_2 + 1.0)) / (log2(value_3 + 1.0) - log2(value_2 + 1.0));
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > not bool/bvec/int 1`] = `
+"uniform bool value_3;
+
+uniform bvec3 value_7;
+
+uniform int value_9;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoBool() => (value_3)
+        
+        // Not(value_3) => (not_2)
+        bool not_2;
+        {
+            not_2 = !value_3;
+        }
+        
+        // Int(not_2) => (int_1)
+        int int_1;
+        {
+            int_1 = int(not_2);
+        }
+        
+        // DynoBvec3() => (value_7)
+        
+        // Not(value_7) => (not_6)
+        bvec3 not_6;
+        {
+            not_6 = not(value_7);
+        }
+        
+        // Any(not_6) => (any_5)
+        bool any_5;
+        {
+            any_5 = any(not_6);
+        }
+        
+        // Int(any_5) => (int_4)
+        int int_4;
+        {
+            int_4 = int(any_5);
+        }
+        
+        // DynoInt() => (value_9)
+        
+        // Not(value_9) => (not_8)
+        int not_8;
+        {
+            not_8 = not(value_9);
+        }
+        
+        // Combine(int_1, int_4, not_8) => (out_value)
+        {
+            out_value.x = int_1;
+            out_value.y = int_4;
+            out_value.z = not_8;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > outer vec3,vec2 1`] = `
+"uniform vec3 value_1;
+
+uniform vec2 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec2() => (value_2)
+        
+        // Outer(value_1, value_2) => (out_value)
+        {
+            out_value = outerProduct(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > pack/unpack 1`] = `
+"uniform vec2 value_4;
+
+uniform vec2 value_8;
+
+uniform vec2 value_12;
+
+uniform vec2 value_15;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec2() => (value_4)
+        
+        // PackHalf2x16(value_4) => (uint_3)
+        uint uint_3;
+        {
+            uint_3 = packHalf2x16(value_4);
+        }
+        
+        // UnpackHalf2x16(uint_3) => (vec2_2)
+        vec2 vec2_2;
+        {
+            vec2_2 = unpackHalf2x16(uint_3);
+        }
+        
+        // Swizzle(vec2_2) => (swizzle_1)
+        float swizzle_1;
+        {
+            swizzle_1 = vec2_2.y;
+        }
+        
+        // DynoVec2() => (value_8)
+        
+        // PackSnorm2x16(value_8) => (uint_7)
+        uint uint_7;
+        {
+            uint_7 = packSnorm2x16(value_8);
+        }
+        
+        // UnpackSnorm2x16(uint_7) => (vec2_6)
+        vec2 vec2_6;
+        {
+            vec2_6 = unpackSnorm2x16(uint_7);
+        }
+        
+        // Swizzle(vec2_6) => (swizzle_5)
+        float swizzle_5;
+        {
+            swizzle_5 = vec2_6.x;
+        }
+        
+        // DynoVec2() => (value_12)
+        
+        // PackUnorm2x16(value_12) => (uint_11)
+        uint uint_11;
+        {
+            uint_11 = packUnorm2x16(value_12);
+        }
+        
+        // UnpackUnorm2x16(uint_11) => (vec2_10)
+        vec2 vec2_10;
+        {
+            vec2_10 = unpackUnorm2x16(uint_11);
+        }
+        
+        // Swizzle(vec2_10) => (swizzle_9)
+        float swizzle_9;
+        {
+            swizzle_9 = vec2_10.y;
+        }
+        
+        // DynoVec2() => (value_15)
+        
+        // PackHalf2x16(value_15) => (uint_14)
+        uint uint_14;
+        {
+            uint_14 = packHalf2x16(value_15);
+        }
+        
+        // Float(uint_14) => (float_13)
+        float float_13;
+        {
+            float_13 = float(uint_14);
+        }
+        
+        // Combine(swizzle_1, swizzle_5, swizzle_9, float_13) => (out_value)
+        {
+            out_value.x = swizzle_1;
+            out_value.y = swizzle_5;
+            out_value.z = swizzle_9;
+            out_value.w = float_13;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > pagedSplatTexCoord 1`] = `
+"uniform int value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // PagedSplatTexCoord(value_1) => (out_value)
+        {
+            out_value = pagedSplatTexCoord(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > pcg 1`] = `
+"uniform uint value_3;
+
+uint pcg_mix(uint value) {
+  return value;
+}
+uint pcg_mix(uvec2 value) {
+  return value.x + 0x9e3779b9u * value.y;
+}
+uint pcg_mix(uvec3 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z;
+}
+uint pcg_mix(uvec4 value) {
+  return value.x + 0x9e3779b9u * value.y + 0x85ebca6bu * value.z + 0xc2b2ae35u * value.w;
+}
+
+uint pcg_next(uint state) {
+  return state * 747796405u + 2891336453u;
+}
+
+uint pcg_hash(uint state) {
+  uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (hash >> 22u) ^ hash;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoUint() => (value_3)
+        
+        // PcgMix(value_3) => (state_2)
+        uint state_2;
+        {
+            uint bits = value_3;
+            state_2 = pcg_mix(bits);
+        }
+        
+        // PcgNext(state_2) => (state_1)
+        uint state_1;
+        {
+            state_1 = pcg_next(state_2);
+        }
+        
+        // PcgHash(state_1) => (out_value)
+        {
+            out_value = pcg_hash(state_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > pow/exp/exp2 1`] = `
+"uniform float value_2;
+
+uniform float value_3;
+
+uniform float value_5;
+
+uniform float value_7;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // DynoFloat() => (value_3)
+        
+        // Pow(value_2, value_3) => (power_1)
+        float power_1;
+        {
+            power_1 = pow(value_2, value_3);
+        }
+        
+        // DynoFloat() => (value_5)
+        
+        // Exp(value_5) => (exp_4)
+        float exp_4;
+        {
+            exp_4 = exp(value_5);
+        }
+        
+        // DynoFloat() => (value_7)
+        
+        // Exp2(value_7) => (exp2_6)
+        float exp2_6;
+        {
+            exp2_6 = exp2(value_7);
+        }
+        
+        // Combine(power_1, exp_4, exp2_6) => (out_value)
+        {
+            out_value.x = power_1;
+            out_value.y = exp_4;
+            out_value.z = exp2_6;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > projectH 1`] = `
+"uniform vec4 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec4() => (value_1)
+        
+        // ProjectH(value_1) => (out_value)
+        {
+            out_value = value_1.xyz / value_1.w;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > radians/degrees 1`] = `
+"uniform float value_2;
+
+uniform float value_4;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // Radians(value_2) => (radians_1)
+        float radians_1;
+        {
+            radians_1 = radians(value_2);
+        }
+        
+        // DynoFloat() => (value_4)
+        
+        // Degrees(value_4) => (degrees_3)
+        float degrees_3;
+        {
+            degrees_3 = degrees(value_4);
+        }
+        
+        // Combine(radians_1, degrees_3) => (out_value)
+        {
+            out_value.x = radians_1;
+            out_value.y = degrees_3;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > reflect 1`] = `
+"uniform vec3 value_1;
+
+uniform vec3 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // ReflectVec(value_1, value_2) => (out_value)
+        {
+            out_value = reflect(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > refract 1`] = `
+"uniform vec3 value_1;
+
+uniform vec3 value_2;
+
+uniform float value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // DynoFloat() => (value_3)
+        
+        // RefractVec(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = refract(value_1, value_2, value_3);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > remapIndex 1`] = `
+"uniform int value_1;
+
+uniform int value_2;
+
+uniform int value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // DynoInt() => (value_2)
+        
+        // DynoInt() => (value_3)
+        
+        // DynoRemapIndex(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = value_3 - value_1 + value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > round 1`] = `
+"uniform float value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_1)
+        
+        // Round(value_1) => (out_value)
+        {
+            out_value = round(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > select float 1`] = `
+"uniform bool value_1;
+
+uniform float value_2;
+
+uniform float value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoBool() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // DynoFloat() => (value_3)
+        
+        // Select(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = (value_1) ? (value_2) : (value_3);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > select mat2 1`] = `
+"uniform bool value_1;
+
+uniform mat2 value_2;
+
+uniform mat2 value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoBool() => (value_1)
+        
+        // DynoMat2() => (value_2)
+        
+        // DynoMat2() => (value_3)
+        
+        // Select(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = (value_1) ? (value_2) : (value_3);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > select vec3 1`] = `
+"uniform bool value_1;
+
+uniform vec3 value_2;
+
+uniform vec3 value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoBool() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // DynoVec3() => (value_3)
+        
+        // Select(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = (value_1) ? (value_2) : (value_3);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > shr ivec3 1`] = `
+"uniform ivec3 value_1;
+
+uniform ivec3 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoIvec3() => (value_1)
+        
+        // DynoIvec3() => (value_2)
+        
+        // Shr(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 >> value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > shr/shl 1`] = `
+"uniform int value_2;
+
+uniform int value_3;
+
+uniform int value_5;
+
+uniform int value_6;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_2)
+        
+        // DynoInt() => (value_3)
+        
+        // Shr(value_2, value_3) => (shr_1)
+        int shr_1;
+        {
+            shr_1 = value_2 >> value_3;
+        }
+        
+        // DynoInt() => (value_5)
+        
+        // DynoInt() => (value_6)
+        
+        // Shl(value_5, value_6) => (shl_4)
+        int shl_4;
+        {
+            shl_4 = value_5 << value_6;
+        }
+        
+        // Combine(shr_1, shl_4) => (out_value)
+        {
+            out_value.x = shr_1;
+            out_value.y = shl_4;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > sign 1`] = `
+"uniform vec3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // Sign(value_1) => (out_value)
+        {
+            out_value = sign(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > sin/cos/tan 1`] = `
+"uniform float value_2;
+
+uniform float value_4;
+
+uniform float value_6;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // Sin(value_2) => (sin_1)
+        float sin_1;
+        {
+            sin_1 = sin(value_2);
+        }
+        
+        // DynoFloat() => (value_4)
+        
+        // Cos(value_4) => (cos_3)
+        float cos_3;
+        {
+            cos_3 = cos(value_4);
+        }
+        
+        // DynoFloat() => (value_6)
+        
+        // Tan(value_6) => (tan_5)
+        float tan_5;
+        {
+            tan_5 = tan(value_6);
+        }
+        
+        // Combine(sin_1, cos_3, tan_5) => (out_value)
+        {
+            out_value.x = sin_1;
+            out_value.y = cos_3;
+            out_value.z = tan_5;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > sinh/cosh/tanh 1`] = `
+"uniform float value_2;
+
+uniform float value_4;
+
+uniform float value_6;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // Sinh(value_2) => (sinh_1)
+        float sinh_1;
+        {
+            sinh_1 = sinh(value_2);
+        }
+        
+        // DynoFloat() => (value_4)
+        
+        // Cosh(value_4) => (cosh_3)
+        float cosh_3;
+        {
+            cosh_3 = cosh(value_4);
+        }
+        
+        // DynoFloat() => (value_6)
+        
+        // Tanh(value_6) => (tanh_5)
+        float tanh_5;
+        {
+            tanh_5 = tanh(value_6);
+        }
+        
+        // Combine(sinh_1, cosh_3, tanh_5) => (out_value)
+        {
+            out_value.x = sinh_1;
+            out_value.y = cosh_3;
+            out_value.z = tanh_5;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > smoothstep 1`] = `
+"uniform float value_1;
+
+uniform float value_2;
+
+uniform vec3 value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // DynoVec3() => (value_3)
+        
+        // Smoothstep(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = smoothstep(value_1, value_2, value_3);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > splatTexCoord 1`] = `
+"uniform int value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // SplatTexCoord(value_1) => (out_value)
+        {
+            out_value = splatTexCoord(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > split/combine gsplat 1`] = `
+"uniform int value_5;
+
+uniform vec3 value_6;
+
+uniform vec3 value_7;
+
+uniform vec4 value_8;
+
+uniform vec4 value_9;
+
+struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+uniform float value_10;
+
+uniform float value_11;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_5)
+        
+        // DynoVec3() => (value_6)
+        
+        // DynoVec3() => (value_7)
+        
+        // DynoVec4() => (value_8)
+        
+        // DynoVec4() => (value_9)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, value_5, value_6, value_7, value_8, value_9) => (gsplat_4)
+        Gsplat gsplat_4;
+        {
+            gsplat_4.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_4.index = value_5;
+            gsplat_4.center = value_6;
+            gsplat_4.scales = value_7;
+            gsplat_4.quaternion = value_8;
+            gsplat_4.rgba = value_9;
+        }
+        
+        // DynoFloat() => (value_10)
+        
+        // DynoFloat() => (value_11)
+        
+        // CombineGsplat(gsplat_4, value_10, value_11) => (gsplat_3)
+        Gsplat gsplat_3;
+        {
+            gsplat_3.flags = gsplat_4.flags;
+            gsplat_3.index = gsplat_4.index;
+            gsplat_3.center = gsplat_4.center;
+            gsplat_3.scales = gsplat_4.scales;
+            gsplat_3.quaternion = gsplat_4.quaternion;
+            gsplat_3.rgba = gsplat_4.rgba;
+            gsplat_3.rgba.a = value_10;
+            gsplat_3.rgba.r = value_11;
+        }
+        
+        // SplitGsplat(gsplat_3) => (center_2, rgb_2, opacity_2)
+        vec3 center_2;
+        vec3 rgb_2;
+        float opacity_2;
+        {
+            center_2 = gsplat_3.center;
+            rgb_2 = gsplat_3.rgba.rgb;
+            opacity_2 = gsplat_3.rgba.a;
+        }
+        
+        // Add(center_2, rgb_2) => (sum_1)
+        vec3 sum_1;
+        {
+            sum_1 = center_2 + rgb_2;
+        }
+        
+        // ExtendVec(sum_1, opacity_2) => (out_value)
+        {
+            out_value = vec4(sum_1, opacity_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > split/swizzle 1`] = `
+"uniform vec4 value_2;
+
+uniform vec4 value_4;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec4() => (value_2)
+        
+        // Split(value_2) => (w_1, b_1, r_1)
+        float w_1;
+        float b_1;
+        float r_1;
+        {
+            w_1 = value_2.w;
+            r_1 = value_2.r;
+            b_1 = value_2.b;
+        }
+        
+        // DynoVec4() => (value_4)
+        
+        // Swizzle(value_4) => (swizzle_3)
+        float swizzle_3;
+        {
+            swizzle_3 = value_4.y;
+        }
+        
+        // Combine(w_1, b_1, swizzle_3, r_1) => (out_value)
+        {
+            out_value.x = w_1;
+            out_value.y = b_1;
+            out_value.z = swizzle_3;
+            out_value.w = r_1;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > sqr/sqrt/inversesqrt 1`] = `
+"uniform float value_2;
+
+uniform float value_4;
+
+uniform float value_6;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_2)
+        
+        // Sqr(value_2) => (sqr_1)
+        float sqr_1;
+        {
+            sqr_1 = value_2 * value_2;
+        }
+        
+        // DynoFloat() => (value_4)
+        
+        // Sqrt(value_4) => (sqrt_3)
+        float sqrt_3;
+        {
+            sqrt_3 = sqrt(value_4);
+        }
+        
+        // DynoFloat() => (value_6)
+        
+        // InverseSqrt(value_6) => (inversesqrt_5)
+        float inversesqrt_5;
+        {
+            inversesqrt_5 = inversesqrt(value_6);
+        }
+        
+        // Combine(sqr_1, sqrt_3, inversesqrt_5) => (out_value)
+        {
+            out_value.x = sqr_1;
+            out_value.y = sqrt_3;
+            out_value.z = inversesqrt_5;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > step 1`] = `
+"uniform vec3 value_1;
+
+uniform vec3 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // Step(value_1, value_2) => (out_value)
+        {
+            out_value = step(value_1, value_2);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > sub 1`] = `
+"uniform vec2 value_1;
+
+uniform vec2 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec2() => (value_1)
+        
+        // DynoVec2() => (value_2)
+        
+        // Sub(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 - value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > swizzle vec3 1`] = `
+"uniform vec4 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec4() => (value_1)
+        
+        // Swizzle(value_1) => (out_value)
+        {
+            out_value = value_1.wzx;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > transformDir 1`] = `
+"uniform vec3 value_1;
+
+uniform vec3 value_2;
+
+uniform vec4 value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // DynoVec4() => (value_3)
+        
+        // TransformDir(value_1, value_2, value_3) => (out_value)
+        {
+            out_value = value_1;
+            out_value *= value_2;
+            out_value = quatVec(value_3, out_value);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > transformGsplat 1`] = `
+"uniform int value_4;
+
+uniform vec3 value_5;
+
+uniform vec3 value_6;
+
+uniform vec4 value_7;
+
+uniform vec4 value_8;
+
+struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+
+uniform float value_9;
+
+uniform vec3 value_10;
+
+uniform vec4 value_11;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_4)
+        
+        // DynoVec3() => (value_5)
+        
+        // DynoVec3() => (value_6)
+        
+        // DynoVec4() => (value_7)
+        
+        // DynoVec4() => (value_8)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, value_4, value_5, value_6, value_7, value_8) => (gsplat_3)
+        Gsplat gsplat_3;
+        {
+            gsplat_3.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_3.index = value_4;
+            gsplat_3.center = value_5;
+            gsplat_3.scales = value_6;
+            gsplat_3.quaternion = value_7;
+            gsplat_3.rgba = value_8;
+        }
+        
+        // DynoFloat() => (value_9)
+        
+        // DynoVec3() => (value_10)
+        
+        // DynoVec4() => (value_11)
+        
+        // TransformGsplat(gsplat_3, value_9, value_10, value_11) => (gsplat_2)
+        Gsplat gsplat_2;
+        {
+            gsplat_2 = gsplat_3;
+            if (isGsplatActive(gsplat_2.flags)) {
+                gsplat_2.center *= value_9;
+                gsplat_2.center += value_10;
+                gsplat_2.scales *= value_9;
+                gsplat_2.rgba *= value_11;
+            }
+        }
+        
+        // SplitGsplat(gsplat_2) => (center_1, opacity_1)
+        vec3 center_1;
+        float opacity_1;
+        {
+            center_1 = gsplat_2.center;
+            opacity_1 = gsplat_2.rgba.a;
+        }
+        
+        // ExtendVec(center_1, opacity_1) => (out_value)
+        {
+            out_value = vec4(center_1, opacity_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > transformPos 1`] = `
+"uniform vec3 value_1;
+
+uniform float value_2;
+
+uniform vec4 value_3;
+
+uniform vec3 value_4;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec3() => (value_1)
+        
+        // DynoFloat() => (value_2)
+        
+        // DynoVec4() => (value_3)
+        
+        // DynoVec3() => (value_4)
+        
+        // TransformPosition(value_1, value_2, value_3, value_4) => (out_value)
+        {
+            out_value = value_1;
+            out_value *= value_2;
+            out_value = quatVec(value_3, out_value);
+            out_value += value_4;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > transformQuat 1`] = `
+"uniform vec4 value_1;
+
+uniform vec4 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec4() => (value_1)
+        
+        // DynoVec4() => (value_2)
+        
+        // TransformQuaternion(value_1, value_2) => (out_value)
+        {
+            out_value = value_1;
+            out_value = quatQuat(value_2, out_value);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > transpose 1`] = `
+"uniform mat3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat3() => (value_1)
+        
+        // Transpose(value_1) => (out_value)
+        {
+            out_value = transpose(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > uintToRgba8 1`] = `
+"uniform uint value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoUint() => (value_1)
+        
+        // UintToRgba8(value_1) => (out_value)
+        {
+            uvec4 uRgba = uvec4(value_1 & 0xffu, (value_1 >> 8u) & 0xffu, (value_1 >> 16u) & 0xffu, (value_1 >> 24u) & 0xffu);
+            out_value = vec4(uRgba) / 255.0;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > uniform array 1`] = `
+"uniform vec4 arr_1[3];
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoUniform() => (arr_1)
+        
+        // Dyno(arr_1) => (out_value)
+        {
+            out_value = arr_1[0] + arr_1[2];
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > uniform bool/bvec 1`] = `
+"uniform bool value_2;
+
+uniform bvec2 value_5;
+
+uniform bvec2 value_8;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoBool() => (value_2)
+        
+        // Int(value_2) => (int_1)
+        int int_1;
+        {
+            int_1 = int(value_2);
+        }
+        
+        // DynoBvec2() => (value_5)
+        
+        // Any(value_5) => (any_4)
+        bool any_4;
+        {
+            any_4 = any(value_5);
+        }
+        
+        // Int(any_4) => (int_3)
+        int int_3;
+        {
+            int_3 = int(any_4);
+        }
+        
+        // DynoBvec2() => (value_8)
+        
+        // All(value_8) => (all_7)
+        bool all_7;
+        {
+            all_7 = all(value_8);
+        }
+        
+        // Int(all_7) => (int_6)
+        int int_6;
+        {
+            int_6 = int(all_7);
+        }
+        
+        // Combine(int_1, int_3, int_6) => (out_value)
+        {
+            out_value.x = int_1;
+            out_value.y = int_3;
+            out_value.z = int_6;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > uniform index 1`] = `
+"uniform int value_1;
+
+uniform int value_3;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_1)
+        
+        // DynoBlock(value_1) => (out_value)
+        {
+            // DynoInt() => (value_3)
+            
+            // Add(value_1, value_3) => (out_value)
+            {
+                out_value = value_1 + value_3;
+            }
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > uniform mat2x3 1`] = `
+"uniform mat2x3 value_1;
+
+uniform vec2 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat2x3() => (value_1)
+        
+        // DynoVec2() => (value_2)
+        
+        // Mul(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 * value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > uniform mat3x2 1`] = `
+"uniform mat3x2 value_1;
+
+uniform vec3 value_2;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoMat3x2() => (value_1)
+        
+        // DynoVec3() => (value_2)
+        
+        // Mul(value_1, value_2) => (out_value)
+        {
+            out_value = value_1 * value_2;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > uvec3(ivec3) 1`] = `
+"uniform ivec3 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoIvec3() => (value_1)
+        
+        // UVec3(value_1) => (out_value)
+        {
+            out_value = uvec3(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > vec2(vec4) 1`] = `
+"uniform vec4 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoVec4() => (value_1)
+        
+        // Vec2(value_1) => (out_value)
+        {
+            out_value = vec2(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > vec3(float) 1`] = `
+"uniform float value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoFloat() => (value_1)
+        
+        // Vec3(value_1) => (out_value)
+        {
+            out_value = vec3(value_1);
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > vec4(uvec4) 1`] = `
+"uniform uvec4 value_1;
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoUvec4() => (value_1)
+        
+        // Vec4(value_1) => (out_value)
+        {
+            out_value = vec4(value_1);
+        }
+    }
+}
+"
+`;
