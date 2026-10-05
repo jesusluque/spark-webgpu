@@ -127,3 +127,16 @@ export {
 } from "./webgpu/WgpuSplatRenderer";
 export { KernelRegistry } from "./webgpu/KernelRegistry";
 export { UniformWriter } from "./webgpu/uniforms";
+export {
+  SplatAttributes,
+  type SplatAttributesOptions,
+  type AttribColorMode,
+  type PickResult,
+} from "./webgpu/attributes/SplatAttributes";
+export {
+  AttribPool,
+  type AttribFormat,
+  type AttributeSpec,
+  type LodMerge,
+} from "./webgpu/attributes/schema";
+export { PlyAttributeReader } from "./webgpu/attributes/plyAttributes";

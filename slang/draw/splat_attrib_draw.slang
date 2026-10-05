@@ -108,7 +108,7 @@ float3 shade(float3 rgb, float4 a, float4 b, uint splat) {
             n = -n;
         }
         float diffuse = max(dot(n, normalize(attribParams.light.xyz)), 0.0);
-        return rgb * (attribParams.light.w + (1.0 - attribParams.light.w) * diffuse) * 1.6;
+        return rgb * (attribParams.light.w + (1.0 - attribParams.light.w) * diffuse) * 1.3;
     }
     case COLOR_PROJECT:
         return saturate(attribParams.projectOffset.xyz + float3(
