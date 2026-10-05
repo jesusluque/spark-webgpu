@@ -24,6 +24,7 @@ import * as THREE from "three";
 import { GpuSorter } from "./GpuSorter";
 import type { GpuSplatSource } from "./GpuSplatSource";
 import { KernelRegistry } from "./KernelRegistry";
+import { type GpuCapabilities, capabilitiesOf } from "./capabilities";
 import { sortBackToFront } from "./cpuSort";
 import drawModule from "./generated/draw/splat_draw";
 import generateModule from "./generated/kernels/generate";
@@ -92,6 +93,8 @@ export class WgpuSplatRenderer {
   /** Counters for debugging and benchmarks. */
   readonly stats = { frames: 0, draws: 0, sorts: 0, drawn: 0, sortMs: 0 };
   options: Required<WgpuSplatRendererOptions>;
+  /** What the device allows; consulted for the sort path and sizes. */
+  readonly capabilities: GpuCapabilities;
 
   private capacity = 0;
   private accumulator: GPUBuffer | null = null;
@@ -135,6 +138,13 @@ export class WgpuSplatRenderer {
       focalAdjustment: 1,
       ...options,
     };
+    this.capabilities = capabilitiesOf(this.device);
+    if (this.options.sort === "gpu" && !this.capabilities.gpuSort) {
+      console.warn(
+        `WgpuSplatRenderer: GPU sort unavailable (${this.capabilities.gpuSortReason}); sorting on the CPU`,
+      );
+      this.options.sort = "cpu";
+    }
     this.drawUniform = this.device.createBuffer({
       label: "splat draw params",
       size: UniformWriter.for(drawModule).data.byteLength,
@@ -184,7 +194,16 @@ export class WgpuSplatRenderer {
 
   private ensureCapacity(total: number) {
     if (total <= this.capacity) return;
-    this.capacity = Math.max(total, Math.ceil(this.capacity * 1.5));
+    const { maxSplats } = this.capabilities;
+    if (total > maxSplats) {
+      throw new Error(
+        `WgpuSplatRenderer: ${total} splats is over this device's ${maxSplats} (maxStorageBufferBindingSize; see splatRequiredLimits)`,
+      );
+    }
+    this.capacity = Math.min(
+      Math.max(total, Math.ceil(this.capacity * 1.5)),
+      maxSplats,
+    );
     this.accumulator?.destroy();
     this.metric?.destroy();
     this.ordering?.destroy();

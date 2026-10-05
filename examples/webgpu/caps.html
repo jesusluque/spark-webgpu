@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  What this browser's WebGPU offers, and whether the things Spark relies on
+  work: adapter and device limits and features, the canvas format, and small
+  probes (drawIndirect from a buffer compute wrote, atomics, an rgba16float
+  target with depth, writeBuffer alignment, three's WebGPURenderer and its
+  RenderTarget texture usage). The result is in window.__caps.
+-->
+<head>
+  <meta charset="utf-8">
+  <title>Spark • WebGPU capabilities</title>
+  <style>
+    body { margin: 0; padding: 12px; background: #111; color: #ccc; font: 12px ui-monospace, monospace; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+
+<body>
+  <pre id="out">probing…</pre>
+  <script type="importmap">
+    { "imports": { "three": "../js/vendor/three/build/three.webgpu.js", "three/webgpu": "../js/vendor/three/build/three.webgpu.js", "@sparkjsdev/spark": "../../dist/spark.module.js" } }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { capabilitiesOf } from "@sparkjsdev/spark";
+
+    const out = document.getElementById("out");
+    const caps = { userAgent: navigator.userAgent, webgpu: !!navigator.gpu, probes: {} };
+    window.__caps = caps;
+
+    const limitsOf = (l) => {
+      const o = {};
+      for (const k in l) if (typeof l[k] === "number") o[k] = l[k];
+      return o;
+    };
+
+    async function probe(name, fn) {
+      try {
+        caps.probes[name] = await fn();
+      } catch (e) {
+        caps.probes[name] = { ok: false, error: String(e?.message ?? e) };
+      }
+    }
+
+    // Runs fn with a validation error scope, returning the error message or null.
+    async function scoped(device, fn) {
+      device.pushErrorScope("validation");
+      let thrown = null;
+      try {
+        await fn();
+      } catch (e) {
+        thrown = String(e?.message ?? e);
+      }
+      const err = await device.popErrorScope();
+      return thrown ?? err?.message ?? null;
+    }
+
+    async function run() {
+      if (!navigator.gpu) return;
+      caps.preferredCanvasFormat = navigator.gpu.getPreferredCanvasFormat();
+      caps.wgslLanguageFeatures = navigator.gpu.wgslLanguageFeatures ? [...navigator.gpu.wgslLanguageFeatures] : null;
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) return;
+      caps.adapterInfo = adapter.info ? { vendor: adapter.info.vendor, architecture: adapter.info.architecture, description: adapter.info.description } : null;
+      caps.adapterFeatures = [...adapter.features].sort();
+      caps.adapterLimits = limitsOf(adapter.limits);
+      const device = await adapter.requestDevice();
+      caps.deviceLimits = limitsOf(device.limits);
+      caps.spark = (({ features, limits, ...rest }) => rest)(capabilitiesOf(device));
+      caps.sparkAdapter = (({ features, limits, ...rest }) => rest)(capabilitiesOf(adapter));
+
+      await probe("canvasPremultiplied", async () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("webgpu");
+        const results = {};
+        for (const alphaMode of ["premultiplied", "opaque"]) {
+          for (const format of [caps.preferredCanvasFormat, "rgba8unorm", "rgba16float"]) {
+            const err = await scoped(device, () => ctx.configure({ device, format, alphaMode }));
+            results[`${format}/${alphaMode}`] = err ?? "ok";
+          }
+        }
+        return results;
+      });
+
+      // Compute writes indirect args and counts with atomics; a render pass
+      // into rgba16float with depth32float draws from them; read one pixel.
+      await probe("drawIndirectFromCompute", async () => {
+        const code = /* wgsl */ `
+          @group(0) @binding(0) var<storage, read_write> args : array<atomic<u32>, 4>;
+          var<workgroup> local : atomic<u32>;
+          @compute @workgroup_size(256) fn count(@builtin(local_invocation_index) i : u32) {
+            atomicAdd(&local, 1u);
+            workgroupBarrier();
+            if (i == 0u) {
+              atomicStore(&args[0], 3u);
+              atomicAdd(&args[1], select(0u, 1u, atomicLoad(&local) == 256u));
+            }
+          }
+          @vertex fn vs(@builtin(vertex_index) v : u32) -> @builtin(position) vec4f {
+            var p = array(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
+            return vec4f(p[v], 0.5, 1);
+          }
+          @fragment fn fs() -> @location(0) vec4f { return vec4f(0.25, 0.5, 0.75, 1); }`;
+        const module = device.createShaderModule({ code });
+        const args = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST });
+        const color = device.createTexture({ size: [4, 4], format: "rgba16float", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+        const depth = device.createTexture({ size: [4, 4], format: "depth32float", usage: GPUTextureUsage.RENDER_ATTACHMENT });
+        const readback = device.createBuffer({ size: 256 * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const err = await scoped(device, async () => {
+          const cp = device.createComputePipeline({ layout: "auto", compute: { module, entryPoint: "count" } });
+          const rp = device.createRenderPipeline({
+            layout: "auto",
+            vertex: { module, entryPoint: "vs" },
+            fragment: { module, entryPoint: "fs", targets: [{ format: "rgba16float", blend: { color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" }, alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" } } }] },
+            depthStencil: { format: "depth32float", depthWriteEnabled: false, depthCompare: "less-equal" },
+          });
+          const enc = device.createCommandEncoder();
+          const c = enc.beginComputePass();
+          c.setPipeline(cp);
+          c.setBindGroup(0, device.createBindGroup({ layout: cp.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: args } }] }));
+          c.dispatchWorkgroups(1);
+          c.end();
+          const r = enc.beginRenderPass({
+            colorAttachments: [{ view: color.createView(), loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }],
+            depthStencilAttachment: { view: depth.createView(), depthClearValue: 1, depthLoadOp: "clear", depthStoreOp: "store" },
+          });
+          r.setPipeline(rp);
+          r.drawIndirect(args, 0);
+          r.end();
+          enc.copyTextureToBuffer({ texture: color }, { buffer: readback, bytesPerRow: 256 }, [4, 4]);
+          device.queue.submit([enc.finish()]);
+        });
+        await readback.mapAsync(GPUMapMode.READ);
+        const px = Array.from(new Uint16Array(readback.getMappedRange().slice(0, 8)));
+        readback.unmap();
+        const half = (b) => ((b >> 10) & 31) === 0 ? 0 : 2 ** (((b >> 10) & 31) - 15) * (1 + (b & 1023) / 1024);
+        const rgba = px.map(half);
+        return { ok: !err && Math.abs(rgba[0] - 0.25) < 1e-3 && rgba[3] === 1, error: err, pixel: rgba };
+      });
+
+      await probe("writeBufferAlignment", async () => {
+        const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST });
+        const odd = await scoped(device, () => device.queue.writeBuffer(b, 0, new Uint8Array(6)));
+        const offset = await scoped(device, () => device.queue.writeBuffer(b, 2, new Uint8Array(4)));
+        const fine = await scoped(device, () => device.queue.writeBuffer(b, 4, new Uint8Array(8)));
+        return { size6: odd ?? "accepted", offset2: offset ?? "accepted", aligned: fine ?? "ok" };
+      });
+
+      await probe("storageTextureFormats", async () => {
+        const res = {};
+        for (const format of ["rgba16float", "rgba8unorm", "bgra8unorm", "rgba32float"]) {
+          const err = await scoped(device, () => device.createTexture({ size: [1, 1], format, usage: GPUTextureUsage.STORAGE_BINDING }));
+          res[format] = err ? "no" : "yes";
+        }
+        return res;
+      });
+
+      await probe("three", async () => {
+        const renderer = new THREE.WebGPURenderer();
+        renderer.setSize(64, 64);
+        document.body.appendChild(renderer.domElement);
+        await renderer.init();
+        const backend = renderer.backend;
+        const target = new THREE.RenderTarget(64, 64, { depthTexture: new THREE.DepthTexture(64, 64), type: THREE.HalfFloatType });
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x336699);
+        const camera = new THREE.PerspectiveCamera();
+        renderer.setRenderTarget(target);
+        renderer.render(scene, camera);
+        renderer.setRenderTarget(null);
+        renderer.render(scene, camera);
+        const tex = backend.get(target.texture)?.texture;
+        const depth = backend.get(target.depthTexture)?.texture;
+        const usage = (u) => Object.entries({ COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16 }).filter(([, b]) => u & b).map(([k]) => k);
+        const ctxConfig = backend.context?.getConfiguration?.();
+        return {
+          ok: !!backend.isWebGPUBackend,
+          revision: THREE.REVISION,
+          targetFormat: tex?.format,
+          targetUsage: tex && usage(tex.usage),
+          depthFormat: depth?.format,
+          canvas: ctxConfig ? { format: ctxConfig.format, alphaMode: ctxConfig.alphaMode, usage: usage(ctxConfig.usage) } : null,
+          deviceLimitsMatchDefault: backend.device.limits.maxStorageBufferBindingSize,
+        };
+      });
+    }
+
+    try {
+      await run();
+    } catch (e) {
+      caps.error = String(e?.message ?? e);
+    }
+    caps.done = true;
+    out.textContent = JSON.stringify(caps, null, 2);
+  </script>
+</body>
+
+</html>

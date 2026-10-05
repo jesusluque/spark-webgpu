@@ -128,3 +128,8 @@ export {
 export { KernelRegistry } from "./webgpu/KernelRegistry";
 export { UniformWriter } from "./webgpu/uniforms";
 export * as fx from "./webgpu/fx";
+export {
+  capabilitiesOf,
+  splatRequiredLimits,
+  type GpuCapabilities,
+} from "./webgpu/capabilities";
