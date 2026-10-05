@@ -68,8 +68,15 @@ export interface WgpuLodMesh extends WgpuLodMeshOptions {
   splats: LodSplats;
   object: THREE.Object3D;
   mesh: WgpuSplatMesh;
-  /** False: draw all of lodSplats (or nothing for paged) instead. */
+  /**
+   * False: draw the full-detail splats instead, as SplatMesh.enableLod
+   * (nothing when they weren't kept: load with nonLod: true, or paged).
+   */
   enableLod: boolean;
+  /** Source of the full-detail splats, built when LoD is first disabled. */
+  baseSource?: GpuSplatSource;
+  lodSource: GpuSplatSource;
+  lastIndices: Uint32Array;
 }
 
 interface TreeRecord {
@@ -170,6 +177,8 @@ export class WgpuLod {
       object,
       mesh,
       enableLod: true,
+      lodSource: source,
+      lastIndices: new Uint32Array(0),
     };
     // Draw nothing until the first traversal picks the splats.
     if (this.lodSplatsOf(lodMesh)) {
@@ -186,7 +195,8 @@ export class WgpuLod {
     this.meshes.splice(i, 1);
     this.renderer.remove(lodMesh.mesh);
     if (!(lodMesh.splats instanceof PagedSplats)) {
-      lodMesh.mesh.source.destroy();
+      lodMesh.lodSource.destroy();
+      lodMesh.baseSource?.destroy();
     }
     this.version += 1;
     // Release the tree once no other mesh draws the same splats.
@@ -206,12 +216,21 @@ export class WgpuLod {
   setEnableLod(lodMesh: WgpuLodMesh, enable: boolean) {
     if (lodMesh.enableLod === enable) return;
     lodMesh.enableLod = enable;
-    if (!enable) {
-      const paged = lodMesh.splats instanceof PagedSplats;
-      this.renderer.setLodIndices(
-        lodMesh.mesh,
-        paged ? new Uint32Array(0) : null,
-      );
+    // Without LoD splats the mesh draws in full either way.
+    if (!this.lodSplatsOf(lodMesh)) return;
+    const { splats, mesh } = lodMesh;
+    if (enable) {
+      mesh.source = lodMesh.lodSource;
+      this.renderer.setLodIndices(mesh, lodMesh.lastIndices);
+    } else if (!(splats instanceof PagedSplats) && splats.numSplats > 0) {
+      lodMesh.baseSource ??=
+        splats instanceof PackedSplats
+          ? GpuSplatSource.fromPackedSplats(this.renderer.device, splats)
+          : GpuSplatSource.fromExtSplats(this.renderer.device, splats);
+      mesh.source = lodMesh.baseSource;
+      this.renderer.setLodIndices(mesh, null);
+    } else {
+      this.renderer.setLodIndices(mesh, new Uint32Array(0));
     }
     this.version += 1;
   }
@@ -313,7 +332,7 @@ export class WgpuLod {
       }
       // The pool's SH buffer and the encoding appear with the first pages.
       if (m.splats instanceof PagedSplats && this.pager) {
-        m.mesh.source = this.pager.source(m.splats);
+        m.mesh.source = m.lodSource = this.pager.source(m.splats);
       }
     }
 
@@ -517,7 +536,8 @@ export class WgpuLod {
       const m = byId.get(id);
       // Removed or switched off while the traversal ran.
       if (!m || !this.meshes.includes(m) || !m.enableLod) continue;
-      this.renderer.setLodIndices(m.mesh, indices.subarray(0, numSplats));
+      m.lastIndices = indices.subarray(0, numSplats);
+      this.renderer.setLodIndices(m.mesh, m.lastIndices);
       total += numSplats;
     }
     this.stats.lodSplats = total;

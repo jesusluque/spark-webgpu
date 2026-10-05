@@ -127,7 +127,7 @@
       }, "createLod").name("Create LoD splats");
       gui.add(lod.options, "lodSplatCount", 10000, 600000, 10000).name("LoD splat count");
     } else {
-      const packed = new PackedSplats({ url: await getAssetFileURL(params.get("file") ?? "valley.spz"), lod: true });
+      const packed = new PackedSplats({ url: await getAssetFileURL(params.get("file") ?? "valley.spz"), lod: true, nonLod: true });
       const holder = new THREE.Object3D();
       holder.quaternion.set(1, 0, 0, 0);
       meshes.push(await lod.add(packed, holder));
