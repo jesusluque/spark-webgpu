@@ -5,8 +5,6 @@
 // AttribPool holds only plain data, so it survives postMessage from the
 // loader worker; AttribPool.from() restores the methods on the other side.
 
-import { fromHalf, toHalf } from "../../utils";
-
 export type AttribFormat =
   | "f32"
   | "f16"
@@ -113,6 +111,58 @@ export function decodeComponent(format: AttribFormat, bits: number): number {
 const F32 = new Float32Array(1);
 const U32 = new Uint32Array(F32.buffer);
 
+// Half floats without src/utils.ts, which would pull three.js into the
+// loader worker. Float16Array where the browser has it.
+const F16Array = (globalThis as { Float16Array?: Float32ArrayConstructor })
+  .Float16Array;
+const F16 = F16Array ? new F16Array(1) : null;
+const U16 = F16 ? new Uint16Array(F16.buffer) : null;
+
+export function toHalf(v: number): number {
+  if (F16 && U16) {
+    F16[0] = v;
+    return U16[0];
+  }
+  return toHalfJs(v);
+}
+
+/** toHalf without Float16Array: round to nearest even. */
+export function toHalfJs(v: number): number {
+  F32[0] = v;
+  const bits = U32[0];
+  const sign = (bits >>> 16) & 0x8000;
+  const exp = ((bits >>> 23) & 0xff) - 112;
+  const mant = bits & 0x7fffff;
+  if (exp >= 31) {
+    // Overflow to infinity; NaN stays NaN.
+    const nan = ((bits >>> 23) & 0xff) === 0xff && mant !== 0;
+    return sign | 0x7c00 | (nan ? 0x200 : 0);
+  }
+  if (exp <= 0) {
+    if (exp < -10) return sign;
+    const m = (mant | 0x800000) >>> (1 - exp);
+    return sign | ((m + 0xfff + ((m >>> 13) & 1)) >>> 13);
+  }
+  // Round to nearest even; a carry into the exponent is still correct.
+  return (
+    (sign | ((exp << 10) + ((mant + 0xfff + ((mant >>> 13) & 1)) >>> 13))) &
+    0xffff
+  );
+}
+
+export function fromHalf(h: number): number {
+  if (F16 && U16) {
+    U16[0] = h;
+    return F16[0];
+  }
+  const sign = h & 0x8000 ? -1 : 1;
+  const exp = (h >>> 10) & 0x1f;
+  const mant = h & 0x3ff;
+  if (exp === 0) return sign * mant * 2 ** -24;
+  if (exp === 31) return mant ? Number.NaN : sign * Number.POSITIVE_INFINITY;
+  return sign * (1 + mant / 1024) * 2 ** (exp - 15);
+}
+
 /** Where each attribute sits in a pool built from `specs`. */
 export interface PoolLayout {
   specs: AttributeSpec[];
@@ -184,19 +234,18 @@ export function packColumn(
   const per = attribWords(spec);
   const bytes = formatBytes(spec.format);
   const words = new Uint32Array(count * per);
-  if (bytes === 4) {
-    if (spec.format === "u32" && data instanceof Uint32Array) {
-      words.set(data.subarray(0, count * n));
-      return words;
-    }
-    if (spec.format === "f32") {
-      new Float32Array(words.buffer).set(
-        data instanceof Float32Array
-          ? data.subarray(0, count * n)
-          : Array.prototype.slice.call(data, 0, count * n),
-      );
-      return words;
-    }
+  // 32-bit formats: a typed-array copy (u32 only from integers, exact).
+  if (
+    spec.format === "f32" ||
+    (spec.format === "u32" && data instanceof Uint32Array)
+  ) {
+    const values = ArrayBuffer.isView(data)
+      ? (data as Float64Array).subarray(0, count * n)
+      : Array.prototype.slice.call(data, 0, count * n);
+    (spec.format === "f32" ? new Float32Array(words.buffer) : words).set(
+      values,
+    );
+    return words;
   }
   for (let i = 0; i < count; i++) {
     for (let c = 0; c < n; c++) {
