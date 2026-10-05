@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spark • WebGPU</title>
+  <style>
+    body { margin: 0; background: #000; color: #ccc; font: 13px system-ui, sans-serif; }
+    canvas { display: block; touch-action: none; }
+    #info { position: absolute; top: 8px; left: 8px; white-space: pre; }
+  </style>
+</head>
+
+<body>
+  <div id="info">Spark WebGPU · starting…</div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.webgpu.js",
+        "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GpuSplatSource, WgpuSplatRenderer, utils } from "@sparkjsdev/spark";
+
+    const info = document.getElementById("info");
+    const params = new URLSearchParams(location.search);
+    if (!navigator.gpu) {
+      info.textContent = "WebGPU is not available in this browser.";
+      throw new Error("no WebGPU");
+    }
+
+    const renderer = new THREE.WebGPURenderer();
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    await renderer.init();
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x101018);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 100);
+    camera.position.set(0, 1.2, 4);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    // An opaque cube intersecting the splats shows depth testing.
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), new THREE.MeshNormalMaterial());
+    cube.position.set(0.5, 0, 0.9);
+    scene.add(cube);
+
+    // The scene and the splats go into a target whose depth the splats test
+    // against; a full-screen quad then shows it with three's output transform.
+    const target = new THREE.RenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1), type: THREE.HalfFloatType });
+    const output = new THREE.QuadMesh(new THREE.MeshBasicNodeMaterial({ colorNode: THREE.TSL.texture(target.texture) }));
+    function resize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      target.setSize(size.x, size.y);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    // A procedural cloud: flat splats on a sphere shell, coloured by direction.
+    const count = Number(params.get("n") ?? 200000);
+    const a = new Uint32Array(count * 4);
+    const b = new Uint32Array(count * 4);
+    const up = new THREE.Vector3(0, 0, 1);
+    const dir = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    for (let i = 0; i < count; i++) {
+      const u = Math.random() * 2 - 1;
+      const t = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(1 - u * u);
+      dir.set(r * Math.cos(t), u, r * Math.sin(t));
+      q.setFromUnitVectors(up, dir);
+      const s = 0.015 + 0.01 * Math.random();
+      utils.encodeExtSplat([a, b], i, dir.x, dir.y, dir.z, s, s, s * 0.2, q.x, q.y, q.z, q.w,
+        0.85, 0.5 + 0.5 * dir.x, 0.5 + 0.5 * dir.y, 0.5 + 0.5 * dir.z);
+    }
+
+    const splats = new WgpuSplatRenderer(renderer, { depthTest: params.get("depth") !== "0" });
+    const holder = new THREE.Object3D();
+    splats.add(GpuSplatSource.fromExt(splats.device, a, b, count), holder);
+    window.__splats = splats;
+
+    let frames = 0;
+    let last = performance.now();
+    renderer.setAnimationLoop((time) => {
+      holder.rotation.y = time * 0.0002;
+      controls.update();
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+      splats.render(camera, target);
+      renderer.setRenderTarget(null);
+      output.render(renderer);
+      frames++;
+      const now = performance.now();
+      if (now - last > 500) {
+        const fps = (frames * 1000) / (now - last);
+        info.textContent = `Spark WebGPU · ${count.toLocaleString()} splats · ${fps.toFixed(0)} fps · CPU sort ${splats.stats.sortMs.toFixed(1)} ms`;
+        frames = 0;
+        last = now;
+        window.__sparkFrames = (window.__sparkFrames ?? 0) + 1;
+      }
+    });
+  </script>
+</body>
+
+</html>

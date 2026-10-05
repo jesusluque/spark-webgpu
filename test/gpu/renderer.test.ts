@@ -1,0 +1,182 @@
+// WgpuSplatRenderer end to end on Dawn: a stand-in for WebGPURenderer gives
+// it the device and an offscreen "canvas" texture.
+
+import * as THREE from "three";
+import { describe, expect, it } from "vitest";
+import { encodeExtSplat } from "../../src/utils";
+import {
+  GpuSplatSource,
+  WgpuSplatRenderer,
+} from "../../src/webgpu/WgpuSplatRenderer";
+import { device, readBack } from "./device";
+
+const W = 96;
+const H = 64;
+
+describe.skipIf(!device)("WgpuSplatRenderer", () => {
+  const d = device as GPUDevice;
+  const canvas = d.createTexture({
+    size: [W, H],
+    format: "bgra8unorm",
+    usage:
+      GPUTextureUsage.RENDER_ATTACHMENT |
+      GPUTextureUsage.COPY_SRC |
+      GPUTextureUsage.COPY_DST,
+  });
+  const fakeRenderer = {
+    backend: {
+      isWebGPUBackend: true,
+      device: d,
+      context: {
+        getCurrentTexture: () => canvas,
+      } as unknown as GPUCanvasContext,
+      get: () => undefined,
+    },
+  };
+
+  async function readCanvas(): Promise<Uint8Array> {
+    const bytesPerRow = 256 * Math.ceil((W * 4) / 256);
+    const buf = d.createBuffer({
+      size: bytesPerRow * H,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const enc = d.createCommandEncoder();
+    enc.copyTextureToBuffer({ texture: canvas }, { buffer: buf, bytesPerRow }, [
+      W,
+      H,
+    ]);
+    d.queue.submit([enc.finish()]);
+    await buf.mapAsync(GPUMapMode.READ);
+    const src = new Uint8Array(buf.getMappedRange());
+    const out = new Uint8Array(W * H * 4);
+    for (let y = 0; y < H; y++)
+      out.set(
+        src.subarray(y * bytesPerRow, y * bytesPerRow + W * 4),
+        y * W * 4,
+      );
+    buf.unmap();
+    buf.destroy();
+    return out;
+  }
+
+  function clearCanvas() {
+    const enc = d.createCommandEncoder();
+    enc
+      .beginRenderPass({
+        colorAttachments: [
+          {
+            view: canvas.createView(),
+            loadOp: "clear",
+            storeOp: "store",
+            clearValue: [0, 0, 0, 1],
+          },
+        ],
+      })
+      .end();
+    d.queue.submit([enc.finish()]);
+  }
+
+  it.each([false, true])(
+    "draws a splat sphere in front of a three.js camera (flat: %s)",
+    async (flat) => {
+      const count = 5000;
+      const a = new Uint32Array(count * 4);
+      const b = new Uint32Array(count * 4);
+      for (let i = 0; i < count; i++) {
+        // Fibonacci sphere.
+        const u = 1 - (2 * (i + 0.5)) / count;
+        const t = i * Math.PI * (3 - Math.sqrt(5));
+        const r = Math.sqrt(1 - u * u);
+        const [x, y, z] = [r * Math.cos(t), u, r * Math.sin(t)];
+        // Flat splats tangent to the sphere, as in examples/webgpu.
+        const q = flat
+          ? new THREE.Quaternion().setFromUnitVectors(
+              new THREE.Vector3(0, 0, 1),
+              new THREE.Vector3(x, y, z),
+            )
+          : new THREE.Quaternion();
+        const sz = flat ? 0.01 : 0.05;
+        encodeExtSplat(
+          [a, b],
+          i,
+          x,
+          y,
+          z,
+          0.05,
+          0.05,
+          sz,
+          q.x,
+          q.y,
+          q.z,
+          q.w,
+          0.9,
+          1,
+          0.2,
+          0.2,
+        );
+      }
+      const splats = new WgpuSplatRenderer(fakeRenderer as never, {
+        depthTest: false,
+      });
+      splats.add(GpuSplatSource.fromExt(d, a, b, count));
+
+      const camera = new THREE.PerspectiveCamera(60, W / H, 0.05, 100);
+      camera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+      camera.updateProjectionMatrix();
+      camera.position.set(0, 0, 4);
+      camera.lookAt(0, 0, 0);
+      camera.updateMatrixWorld();
+
+      // Frame 1 generates and starts the sort readback; frame 2 draws.
+      for (let frame = 0; frame < 3; frame++) {
+        clearCanvas();
+        splats.render(camera);
+        await d.queue.onSubmittedWorkDone();
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      const px = await readCanvas();
+      let lit = 0;
+      for (let i = 0; i < W * H; i++) if (px[i * 4 + 2] > 40) lit++; // red (bgra)
+      const centre = ((H / 2) * W + W / 2) * 4;
+      if (process.env.ASCII) {
+        // biome-ignore lint/suspicious/noExplicitAny: debugging internals
+        const sp = splats as any;
+        const metric = new Float32Array(await readBack(sp.metric));
+        const ordering = new Uint32Array(await readBack(sp.ordering));
+        const acc = new Uint32Array(await readBack(sp.accumulator));
+        const finite = metric.slice(0, count).filter(Number.isFinite).length;
+        console.log(
+          "drawCount",
+          sp.drawCount,
+          "finite",
+          finite,
+          "metric0..4",
+          JSON.stringify(Array.from(metric.slice(0, 5))),
+        );
+        console.log(
+          "ordering0..9",
+          JSON.stringify(Array.from(ordering.slice(0, 10))),
+          "max",
+          Math.max(...ordering.slice(0, sp.drawCount)),
+        );
+        const zeroSplats = Array.from(
+          { length: count },
+          (_, i) => acc[8 * i] | acc[8 * i + 1] | acc[8 * i + 2],
+        ).filter((v) => v === 0).length;
+        console.log("accumulator zero centers", zeroSplats);
+      }
+      if (process.env.ASCII) {
+        for (let y = 0; y < H; y += 2) {
+          let row = "";
+          for (let x = 0; x < W; x++)
+            row += px[(y * W + x) * 4 + 2] > 40 ? "#" : ".";
+          console.log(row);
+        }
+      }
+      expect(lit).toBeGreaterThan(W * H * 0.08);
+      expect(px[centre + 2]).toBeGreaterThan(100);
+      expect(px[0 + 2]).toBeLessThan(10); // corner stays clear
+      splats.dispose();
+    },
+  );
+});

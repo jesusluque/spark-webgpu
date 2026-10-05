@@ -118,3 +118,12 @@ export {
   type PortalPair,
   DISK_PORTAL_FRAGMENT_SHADER,
 } from "./SparkPortals";
+
+export {
+  WgpuSplatRenderer,
+  GpuSplatSource,
+  type WgpuSplatMesh,
+  type WgpuSplatRendererOptions,
+} from "./webgpu/WgpuSplatRenderer";
+export { KernelRegistry } from "./webgpu/KernelRegistry";
+export { UniformWriter } from "./webgpu/uniforms";
