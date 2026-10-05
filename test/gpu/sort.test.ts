@@ -57,3 +57,47 @@ describe.skipIf(!device)("GpuSorter", () => {
     },
   );
 });
+
+describe.skipIf(!device)("GpuSorter with fewer key bits", () => {
+  const registry = new KernelRegistry(device as GPUDevice);
+  const sorter = new GpuSorter(registry);
+
+  it.each([16, 24] as const)(
+    "sorts stably on the top %i bits",
+    async (bits) => {
+      const n = 300_000;
+      const m = metrics(n, 77);
+      const d = device as GPUDevice;
+      const enc = d.createCommandEncoder();
+      const pass = enc.beginComputePass();
+      sorter.encode(pass, storage(m), n, bits);
+      pass.end();
+      registry.submit(enc.finish());
+
+      // CPU reference: finite metrics, stable by the truncated inverted key.
+      const u = new Uint32Array(m.buffer);
+      const idx = Array.from({ length: n }, (_, i) => i).filter((i) =>
+        Number.isFinite(m[i]),
+      );
+      const key = (i: number) =>
+        Math.min(~u[i] >>> 0, 0xfffffffe) >>> (32 - bits);
+      idx.sort((a, b) => key(a) - key(b) || a - b);
+
+      const got = new Uint32Array(await readBack(sorter.ordering)).subarray(
+        0,
+        idx.length,
+      );
+      expect(new Uint32Array(await readBack(sorter.drawArgs))[1]).toBe(
+        idx.length,
+      );
+      let firstBad = -1;
+      for (let i = 0; i < idx.length; i++) {
+        if (got[i] !== idx[i]) {
+          firstBad = i;
+          break;
+        }
+      }
+      expect(firstBad).toBe(-1);
+    },
+  );
+});

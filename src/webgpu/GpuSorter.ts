@@ -10,7 +10,6 @@ import { UniformWriter } from "./uniforms";
 const TILE = 128 * 8;
 const SCAN_CHUNK = 512;
 const BINS = 16;
-const PASSES = 8;
 
 function storage(device: GPUDevice, bytes: number, label: string, extra = 0) {
   return device.createBuffer({
@@ -68,8 +67,18 @@ export class GpuSorter {
     } while (size > 1);
   }
 
-  /** Records the sort of `metric[0..count)` into `pass`. */
-  encode(pass: GPUComputePassEncoder, metric: GPUBuffer, count: number) {
+  /**
+   * Records the sort of `metric[0..count)` into `pass`, on the top `bits` of
+   * the key (16, 24 or 32: 4, 6 or 8 passes; even, so the result lands in
+   * `ordering`). Dropping low bits only merges splats whose metrics differ
+   * by less than 2^-7 (16) or 2^-15 (24) relative.
+   */
+  encode(
+    pass: GPUComputePassEncoder,
+    metric: GPUBuffer,
+    count: number,
+    bits: 16 | 24 | 32 = 32,
+  ) {
     this.ensure(count);
     this.device.queue.writeBuffer(
       this.drawArgs,
@@ -96,10 +105,11 @@ export class GpuSorter {
       uniforms: sortParams(0),
     });
 
-    for (let p = 0; p < PASSES; p++) {
+    const passes = bits / 4;
+    for (let p = 0; p < passes; p++) {
       const src = p & 1;
       const dst = src ^ 1;
-      const uniforms = sortParams(4 * p);
+      const uniforms = sortParams(32 - bits + 4 * p);
       get("radixHistogram").dispatch(pass, {
         grid: [numBlocks * 128],
         buffers: { keysIn: this.keys[src], blockHist: this.scanLevels[0] },

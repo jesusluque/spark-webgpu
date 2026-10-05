@@ -176,6 +176,12 @@ describe.skipIf(!device)("WgpuSplatRenderer", () => {
       expect(lit).toBeGreaterThan(W * H * 0.08);
       expect(px[centre + 2]).toBeGreaterThan(100);
       expect(px[0 + 2]).toBeLessThan(10); // corner stays clear
+      // Three frames from the same camera: one generate, then redraws.
+      expect(splats.stats.generated).toBe(1);
+      camera.position.x += 0.1;
+      camera.updateMatrixWorld();
+      splats.render(camera);
+      expect(splats.stats.generated).toBe(2);
       splats.dispose();
     },
   );

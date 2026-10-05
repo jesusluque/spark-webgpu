@@ -65,6 +65,17 @@ export interface WgpuSplatRendererOptions {
    * indirect count. "cpu": metric readback and a JS radix sort, a frame behind.
    */
   sort?: "gpu" | "cpu";
+  /**
+   * Key bits the GPU sort orders by: 32 (exact), 24 or 16 (4 passes; merges
+   * splats within 2^-7 relative distance). Default 32.
+   */
+  sortBits?: 16 | 24 | 32;
+  /**
+   * Regenerate and re-sort every frame even when nothing moved. Off by
+   * default: like SparkRenderer, an unchanged frame redraws the last order.
+   * Turn on (or call markDirty()) for splats animated on the GPU.
+   */
+  alwaysGenerate?: boolean;
   maxStdDev?: number;
   minPixelRadius?: number;
   maxPixelRadius?: number;
@@ -91,7 +102,15 @@ export class WgpuSplatRenderer {
   readonly registry: KernelRegistry;
   readonly meshes: WgpuSplatMesh[] = [];
   /** Counters for debugging and benchmarks. */
-  readonly stats = { frames: 0, draws: 0, sorts: 0, drawn: 0, sortMs: 0 };
+  readonly stats = {
+    frames: 0,
+    draws: 0,
+    sorts: 0,
+    drawn: 0,
+    sortMs: 0,
+    /** Frames that ran generate and the GPU sort (the rest redrew). */
+    generated: 0,
+  };
   options: Required<WgpuSplatRendererOptions>;
   /** What the device allows; consulted for the sort path and sizes. */
   readonly capabilities: GpuCapabilities;
@@ -101,6 +120,9 @@ export class WgpuSplatRenderer {
   private metric: GPUBuffer | null = null;
   private ordering: GPUBuffer | null = null;
   private sorter: GpuSorter;
+  // What the last generate saw; an identical frame skips generate and sort.
+  private lastSignature: number[] = [];
+  private dirty = true;
   private drawUniform: GPUBuffer;
   private pipelines = new Map<string, ReflectedRenderPipeline>();
   private emptyBuffer: GPUBuffer;
@@ -127,6 +149,8 @@ export class WgpuSplatRenderer {
       depthTest: true,
       sortRadial: true,
       sort: "gpu",
+      sortBits: 32,
+      alwaysGenerate: false,
       maxStdDev: Math.sqrt(8),
       minPixelRadius: 0,
       maxPixelRadius: 512,
@@ -216,6 +240,37 @@ export class WgpuSplatRenderer {
     this.ordering = createStorage(this.device, this.capacity * 4, "ordering");
     this.drawCount = 0;
     this.drawVersion = -1;
+    this.dirty = true;
+  }
+
+  /** Forces the next render to regenerate and re-sort. */
+  markDirty() {
+    this.dirty = true;
+  }
+
+  // True when the camera, a mesh transform or colour, the mesh set or the
+  // sort settings changed since the last generate.
+  private changedSince(camera: THREE.Camera, total: number): boolean {
+    const sig: number[] = [
+      total,
+      this.mappingVersion,
+      this.options.sortBits,
+      this.options.sortRadial ? 1 : 0,
+      ...camera.matrixWorld.elements,
+      ...camera.projectionMatrix.elements,
+    ];
+    for (const m of this.meshes) {
+      m.object.updateMatrixWorld();
+      sig.push(...m.object.matrixWorld.elements, ...m.recolor.toArray());
+    }
+    const same =
+      !this.dirty &&
+      !this.options.alwaysGenerate &&
+      sig.length === this.lastSignature.length &&
+      sig.every((v, i) => v === this.lastSignature[i]);
+    this.lastSignature = sig;
+    this.dirty = false;
+    return !same;
   }
 
   /**
@@ -238,15 +293,24 @@ export class WgpuSplatRenderer {
     );
 
     const encoder = this.device.createCommandEncoder({ label: "splats" });
-    this.generate(encoder, cameraPos, cameraDir);
     if (this.options.sort === "gpu") {
-      const pass = encoder.beginComputePass({ label: "sort" });
-      this.sorter.encode(pass, this.metric as GPUBuffer, total);
-      pass.end();
+      if (this.changedSince(camera, total)) {
+        this.generate(encoder, cameraPos, cameraDir);
+        const pass = encoder.beginComputePass({ label: "sort" });
+        this.sorter.encode(
+          pass,
+          this.metric as GPUBuffer,
+          total,
+          this.options.sortBits,
+        );
+        pass.end();
+        this.stats.generated += 1;
+      }
       this.draw(encoder, camera, target, total);
       this.registry.submit(encoder.finish());
       return;
     }
+    this.generate(encoder, cameraPos, cameraDir);
     this.draw(encoder, camera, target);
     const version = this.mappingVersion;
     const readback = this.sortPending ? null : this.copyMetric(encoder, total);
