@@ -127,3 +127,4 @@ export {
 } from "./webgpu/WgpuSplatRenderer";
 export { KernelRegistry } from "./webgpu/KernelRegistry";
 export { UniformWriter } from "./webgpu/uniforms";
+export * as fx from "./webgpu/fx";
