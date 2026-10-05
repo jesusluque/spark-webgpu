@@ -50,6 +50,8 @@ interface Compiled {
   program: WgslDynoProgram;
   module: KernelModule;
   layouts: TextureLayouts;
+  /** What the last refresh saw: uniform bytes and texture versions. */
+  state?: { uniforms: Uint8Array; textures: number[] };
 }
 
 function chain(modifiers: GsplatModifier[]): Dyno<IOTypes, IOTypes> {
@@ -95,6 +97,31 @@ export class DynoKernels {
         (dyno.generator ||
           dyno.objectModifiers?.length ||
           dyno.worldModifiers?.length),
+    );
+  }
+
+  /**
+   * Runs the dyno updaters and reports whether the splats it makes may have
+   * changed since the last call: a new graph, other uniform values or a
+   * texture update. A renderer that skips unchanged frames regenerates then.
+   */
+  changed(owner: object, dyno: WgpuDyno): boolean {
+    const before = this.compiled.get(owner);
+    const compiled = this.compile(owner, dyno);
+    const { program } = compiled;
+    program.update();
+    const uniforms = new Uint8Array(program.packUniforms());
+    const textures = program.backend.textures.map(
+      (t) => (t.uniform.value as THREE.Texture | undefined)?.version ?? -1,
+    );
+    const last = compiled.state;
+    compiled.state = { uniforms, textures };
+    return (
+      before !== compiled ||
+      !last ||
+      last.uniforms.length !== uniforms.length ||
+      last.uniforms.some((b, i) => b !== uniforms[i]) ||
+      last.textures.some((v, i) => v !== textures[i])
     );
   }
 

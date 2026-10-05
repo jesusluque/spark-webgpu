@@ -111,6 +111,7 @@ export class WgpuSplatRenderer {
   private emptyBuffer: GPUBuffer;
   private dynoKernels: DynoKernels;
   private lastTime = performance.now() / 1000;
+  private dynoDirty = false;
 
   // Sort state: a readback in flight, and the order last uploaded.
   private sortPending = false;
@@ -174,6 +175,21 @@ export class WgpuSplatRenderer {
     this.meshes.push(mesh);
     this.mappingVersion += 1;
     return mesh;
+  }
+
+  /**
+   * Whether any mesh's dyno output may differ from the last call (new graph,
+   * uniform values or textures), after running the dyno updaters: frames
+   * that skip unchanged generates must still generate when this is true.
+   */
+  dynoChanged(): boolean {
+    let changed = false;
+    for (const mesh of this.meshes) {
+      if (DynoKernels.active(mesh.dyno)) {
+        changed = this.dynoKernels.changed(mesh, mesh.dyno) || changed;
+      }
+    }
+    return changed;
   }
 
   /** `numSplats` splats made by a dyno generator (SplatGenerator-style). */
@@ -251,6 +267,9 @@ export class WgpuSplatRenderer {
     for (const mesh of this.meshes) {
       mesh.dyno?.update?.({ camera, object: mesh.object, time, deltaTime });
     }
+    // Generate-skipping frames must regenerate when this is set (dyno
+    // uniforms animated by time, edited SDFs...).
+    this.dynoDirty = this.dynoChanged();
 
     const encoder = this.device.createCommandEncoder({ label: "splats" });
     this.generate(encoder, cameraPos, cameraDir);

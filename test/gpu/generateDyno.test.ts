@@ -357,4 +357,24 @@ describe.skipIf(!device)("generate.slang with dyno", () => {
       expect(splat(i).opacity).toBeCloseTo(1, 2);
     }
   });
+
+  it("reports when a dyno's uniforms change", () => {
+    const t = d.dynoFloat(0);
+    const mod = d.dynoBlock(
+      { gsplat: d.Gsplat },
+      { gsplat: d.Gsplat },
+      ({ gsplat }) => ({
+        gsplat: d.combineGsplat({ gsplat: gsplat as never, opacity: t }),
+      }),
+    );
+    const owner = {};
+    const dyno = { objectModifiers: [mod] };
+    expect(kernels.changed(owner, dyno)).toBe(true);
+    expect(kernels.changed(owner, dyno)).toBe(false);
+    t.value = 0.5;
+    expect(kernels.changed(owner, dyno)).toBe(true);
+    expect(kernels.changed(owner, dyno)).toBe(false);
+    dyno.objectModifiers = [mod, mod];
+    expect(kernels.changed(owner, dyno)).toBe(true);
+  });
 });
