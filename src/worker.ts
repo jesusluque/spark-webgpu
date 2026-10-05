@@ -20,6 +20,10 @@ import init_wasm, {
   get_lod_tree_level,
 } from "spark-rs";
 import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
+import {
+  setLodAttribs,
+  withLodAttribs,
+} from "./webgpu/attributes/lodAttributes";
 import { PlyAttributeReader } from "./webgpu/attributes/plyAttributes";
 
 const rpcHandlers = {
@@ -360,6 +364,7 @@ async function loadPackedSplats(
     `Loaded ${initialSplats} splats. Starting ${lodName} LoD build...`,
   );
 
+  const lodAttribs = setLodAttribs(decoded, ply.finish());
   const lodStart = performance.now();
   if (lod === "quality") {
     const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.25));
@@ -375,7 +380,11 @@ async function loadPackedSplats(
   );
 
   const lodPacked = decoded.to_packedsplats_lod();
-  result.lodSplats = toPackedResult(lodPacked as DecodedPackedResult);
+  result.lodSplats = withLodAttribs(
+    toPackedResult(lodPacked as DecodedPackedResult),
+    decoded,
+    lodAttribs,
+  );
   return result as
     | (PackedResult & { lodSplats: PackedResult })
     | { lodSplats: PackedResult };
@@ -526,6 +535,7 @@ async function loadExtSplats(
     `Loaded ${initialSplats} splats. Starting ${lodName} LoD build...`,
   );
 
+  const lodAttribs = setLodAttribs(decoded, ply.finish());
   const lodStart = performance.now();
   if (lod === "quality") {
     const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.75));
@@ -541,7 +551,11 @@ async function loadExtSplats(
   );
 
   const lodPacked = decoded.to_extsplats_lod();
-  result.lodSplats = toExtResult(lodPacked as DecodedExtResult);
+  result.lodSplats = withLodAttribs(
+    toExtResult(lodPacked as DecodedExtResult),
+    decoded,
+    lodAttribs,
+  );
   return result as
     | (ExtResult & { lodSplats: ExtResult })
     | { lodSplats: ExtResult };

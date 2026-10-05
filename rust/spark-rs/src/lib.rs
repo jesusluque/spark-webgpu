@@ -1,6 +1,7 @@
 
 use std::cell::RefCell;
-use js_sys::{Array, Float32Array, Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
+use js_sys::{Array, Float32Array, Float64Array, Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
+use spark_lib::attrib::{AttribArray, AttribSpec, LodMerge};
 use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatEncoding, SplatFileType, SplatGetter};
 #[cfg(all(feature = "spz", feature = "gsplat"))]
 use spark_lib::spz::SpzEncoder;
@@ -215,6 +216,19 @@ impl GsplatArray {
 #[wasm_bindgen]
 #[cfg(feature = "gsplat")]
 impl GsplatArray {
+    /// Sets extra per-Gaussian attributes, carried through LOD
+    /// (src/webgpu/attributes): specs [{name, format, components, lodMerge}],
+    /// one Float64Array of values per attribute.
+    pub fn set_attribs(&mut self, specs: JsValue, columns: Array) -> Result<(), JsValue> {
+        self.inner.attribs = attribs_from_js(specs, &columns, self.inner.len())?;
+        Ok(())
+    }
+
+    /// The attributes' values, merged and ordered like the splats.
+    pub fn get_attribs(&self) -> Array {
+        attribs_to_js(&self.inner.attribs)
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -330,6 +344,37 @@ impl GsplatArray {
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsAttribSpec {
+    name: String,
+    format: String,
+    components: usize,
+    lod_merge: Option<String>,
+}
+
+fn attribs_from_js(specs: JsValue, columns: &Array, count: usize) -> Result<AttribArray, JsValue> {
+    let specs: Vec<JsAttribSpec> = serde_wasm_bindgen::from_value(specs)?;
+    let mut attribs = AttribArray::new();
+    for (k, spec) in specs.into_iter().enumerate() {
+        let lod_merge = spec.lod_merge.as_deref().unwrap_or("weightedMean");
+        let Some(lod_merge) = LodMerge::parse(lod_merge) else {
+            return Err(JsValue::from(format!("attribute {}: unknown lodMerge {}", spec.name, lod_merge)));
+        };
+        let values = Float64Array::new(&columns.get(k as u32)).to_vec();
+        if values.len() != count * spec.components {
+            return Err(JsValue::from(format!("attribute {}: {} values for {} splats", spec.name, values.len(), count)));
+        }
+        let spec = AttribSpec { name: spec.name, format: spec.format, components: spec.components, lod_merge };
+        attribs.add(spec, values).map_err(|err| JsValue::from(err.to_string()))?;
+    }
+    Ok(attribs)
+}
+
+fn attribs_to_js(attribs: &AttribArray) -> Array {
+    attribs.columns.iter().map(|col| JsValue::from(Float64Array::from(&col[..]))).collect()
+}
+
 #[wasm_bindgen]
 #[cfg(feature = "gsplat")]
 pub fn decode_to_gsplatarray(file_type: Option<String>, path_name: Option<String>) -> Result<ChunkDecoder, JsValue> {
@@ -398,6 +443,19 @@ impl CsplatArray {
 #[wasm_bindgen]
 #[cfg(feature = "csplat")]
 impl CsplatArray {
+    /// Sets extra per-Gaussian attributes, carried through LOD
+    /// (src/webgpu/attributes): specs [{name, format, components, lodMerge}],
+    /// one Float64Array of values per attribute.
+    pub fn set_attribs(&mut self, specs: JsValue, columns: Array) -> Result<(), JsValue> {
+        self.inner.attribs = attribs_from_js(specs, &columns, self.inner.len())?;
+        Ok(())
+    }
+
+    /// The attributes' values, merged and ordered like the splats.
+    pub fn get_attribs(&self) -> Array {
+        attribs_to_js(&self.inner.attribs)
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }

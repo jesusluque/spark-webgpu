@@ -160,6 +160,7 @@ export class PlyAttributeReader {
   private count = 0;
   private next = 0;
   private groups: Group[] = [];
+  private result: AttribPool | null | undefined;
 
   push = (chunk: Uint8Array) => {
     if (!this.active || chunk.length === 0) return;
@@ -255,6 +256,11 @@ export class PlyAttributeReader {
   }
 
   finish(): AttribPool | null {
+    if (this.result === undefined) this.result = this.build();
+    return this.result;
+  }
+
+  private build(): AttribPool | null {
     if (!this.active || this.groups.length === 0 || this.next < this.count) {
       return null;
     }
