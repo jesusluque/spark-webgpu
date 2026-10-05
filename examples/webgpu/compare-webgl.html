@@ -16,7 +16,7 @@
     import { getAssetFileURL } from "../js/get-asset-url.js";
     import { bench, setupCompare, syntheticPacked, waitSettled } from "./compare.js";
 
-    const { file, n, lod, rad, lodSplatCount, pose, size, options } = setupCompare();
+    const { file, n, lod, rad, lodSplatCount, pose, size, options, ext } = setupCompare();
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(size.w, size.h);
     document.body.appendChild(renderer.domElement);
@@ -28,7 +28,7 @@
       ? new SplatMesh({ packedSplats: new PackedSplats({ packedArray: syntheticPacked(utils, n), numSplats: n }) })
       : rad
         ? new SplatMesh({ url: rad, paged: true })
-        : new SplatMesh({ url: await getAssetFileURL(file), lod });
+        : new SplatMesh({ url: await getAssetFileURL(file), lod, extSplats: ext, covSplats: options.covSplats });
     pose(mesh);
     scene.add(mesh);
     await mesh.initialized;

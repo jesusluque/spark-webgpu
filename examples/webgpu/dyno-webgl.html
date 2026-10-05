@@ -24,7 +24,7 @@
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
     // accumExtSplats: float colours and alpha as WgpuSplatRenderer keeps them (?packed for 8-bit).
-    scene.add(new spark.SparkRenderer({ renderer, accumExtSplats: !location.search.includes("packed") }));
+    scene.add(new spark.SparkRenderer({ renderer, accumExtSplats: !location.search.includes("packed"), covSplats: params.cov }));
     const built = await buildScene({ THREE, spark, getAssetFileURL, params });
     const object = built.mesh ?? built.generator;
     scene.add(object);

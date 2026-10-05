@@ -31,11 +31,13 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
-    const splats = new WgpuSplatRenderer(renderer);
+    const splats = new WgpuSplatRenderer(renderer, { covSplats: params.cov });
     const built = await buildScene({ THREE, spark, getAssetFileURL, params });
     if (built.mesh) {
       await built.mesh.initialized;
-      const source = GpuSplatSource.fromPackedSplats(splats.device, built.mesh.packedSplats);
+      const source = built.mesh.extSplats
+        ? GpuSplatSource.fromExtSplats(splats.device, built.mesh.extSplats)
+        : GpuSplatSource.fromPackedSplats(splats.device, built.mesh.packedSplats);
       splats.add(source, built.mesh, splatMeshDyno(built.mesh));
     } else {
       const { generator } = built;

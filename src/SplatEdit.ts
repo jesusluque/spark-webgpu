@@ -1115,6 +1115,29 @@ function applyCovSplatRgbaDisplaceEdits(
         }
       `);
     },
+    wgsl: {
+      globals: () => [wgslDefineSdfArray, wgslDefineEdit],
+      statements: ({ inputs, outputs }) => {
+        const { sdfArray, numEdits, rgbaDisplaceEdits } = inputs;
+        const { covsplat } = outputs;
+        const sdfTexture = wgslStructTexture(sdfArray as string, "sdfTexture");
+        return unindentLines(/* wgsl */ `
+          ${covsplat} = ${inputs.covsplat};
+          if (isCovSplatActive(${covsplat}.flags)) {
+            var center = ${covsplat}.center;
+            var rgba = ${covsplat}.rgba;
+            for (var editIndex = 0; editIndex < ${numEdits}; editIndex++) {
+              applyPackedRgbaDisplaceEdit(
+                ${rgbaDisplaceEdits}[editIndex], ${sdfTexture}, ${sdfArray}.numSdfs,
+                &center, &rgba
+              );
+            }
+            ${covsplat}.center = center;
+            ${covsplat}.rgba = rgba;
+          }
+        `);
+      },
+    },
   });
   return dyno.outputs.covsplat;
 }

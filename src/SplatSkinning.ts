@@ -631,6 +631,133 @@ export const defineApplyCovSplatLBSkinning = /*@__PURE__*/ unindent(/* glsl */ `
   }
 `);
 
+// WGSL versions of the two above (see wgslApplyGsplatSkinning).
+export const wgslApplyCovSplatDQSkinning = /*@__PURE__*/ unindent(/* wgsl */ `
+  fn applyCovSplatDQSkinning(
+    numSplats: i32, numBones: i32,
+    skinTexture: texture_2d_array<u32>, boneTexture: texture_2d<f32>,
+    splatIndex: i32, center: ptr<function, vec3f>,
+    xxyyzz: ptr<function, vec3f>, xyxzyz: ptr<function, vec3f>
+  ) {
+    if ((splatIndex < 0) || (splatIndex >= numSplats)) {
+      return;
+    }
+
+    let coord = splatTexCoord(splatIndex);
+    let skinData = textureLoad(skinTexture, coord.xy, coord.z, 0);
+    let weights = vec4f(skinData & vec4u(0xffu)) / 255.0;
+    let boneIndices = (skinData >> vec4u(8u)) & vec4u(0xffu);
+
+    var quat = vec4f(0.0);
+    var dual = vec4f(0.0);
+    for (var i = 0; i < 4; i++) {
+      if (weights[i] > 0.0) {
+        let boneIndex = i32(boneIndices[i]);
+        var boneQuat = vec4f(0.0, 0.0, 0.0, 1.0);
+        var boneDual = vec4f(0.0);
+        if (boneIndex < numBones) {
+          boneQuat = textureLoad(boneTexture, vec2i(0, boneIndex), 0);
+          boneDual = textureLoad(boneTexture, vec2i(1, boneIndex), 0);
+        }
+        if ((i > 0) && (dot(quat, boneQuat) < 0.0)) {
+          boneQuat = -boneQuat;
+          boneDual = -boneDual;
+        }
+        quat += weights[i] * boneQuat;
+        dual += weights[i] * boneDual;
+      }
+    }
+
+    let norm = length(quat);
+    quat /= norm;
+    dual /= norm;
+    let translate = vec3f(
+      2.0 * (-dual.w * quat.x + dual.x * quat.w - dual.y * quat.z + dual.z * quat.y),
+      2.0 * (-dual.w * quat.y + dual.x * quat.z + dual.y * quat.w - dual.z * quat.x),
+      2.0 * (-dual.w * quat.z - dual.x * quat.y + dual.y * quat.x + dual.z * quat.w)
+    );
+    let basis = quaternionToMatrix(quat);
+
+    *center = quatVec(quat, *center) + translate;
+    let cov = basis * covSplatMatrix(*xxyyzz, *xyxzyz) * transpose(basis);
+    *xxyyzz = vec3f(cov[0][0], cov[1][1], cov[2][2]);
+    *xyxzyz = vec3f(cov[0][1], cov[0][2], cov[1][2]);
+  }
+`);
+
+export const wgslApplyCovSplatLBSkinning = /*@__PURE__*/ unindent(/* wgsl */ `
+  fn applyCovSplatLBSkinning(
+    numSplats: i32, numBones: i32,
+    skinTexture: texture_2d_array<u32>, boneTexture: texture_2d<f32>,
+    splatIndex: i32, center: ptr<function, vec3f>,
+    xxyyzz: ptr<function, vec3f>, xyxzyz: ptr<function, vec3f>
+  ) {
+    if ((splatIndex < 0) || (splatIndex >= numSplats)) {
+      return;
+    }
+
+    let coord = splatTexCoord(splatIndex);
+    let skinData = textureLoad(skinTexture, coord.xy, coord.z, 0);
+    let weights = vec4f(skinData & vec4u(0xffu)) / 255.0;
+    let boneIndices = (skinData >> vec4u(8u)) & vec4u(0xffu);
+
+    var basis = mat3x3f();
+    var offset = vec3f(0.0);
+    for (var i = 0; i < 4; i++) {
+      if (weights[i] > 0.0) {
+        let boneIndex = i32(boneIndices[i]);
+        if (boneIndex < numBones) {
+          let v0 = textureLoad(boneTexture, vec2i(0, boneIndex), 0);
+          let v1 = textureLoad(boneTexture, vec2i(1, boneIndex), 0);
+          let v2 = textureLoad(boneTexture, vec2i(2, boneIndex), 0);
+          basis += weights[i] * mat3x3f(v0.x, v0.y, v0.z, v0.w, v1.x, v1.y, v1.z, v1.w, v2.x);
+          offset += weights[i] * v2.yzw;
+        }
+      }
+    }
+
+    *center = basis * *center + offset;
+    let cov = basis * covSplatMatrix(*xxyyzz, *xyxzyz) * transpose(basis);
+    *xxyyzz = vec3f(cov[0][0], cov[1][1], cov[2][2]);
+    *xyxzyz = vec3f(cov[0][1], cov[0][2], cov[1][2]);
+  }
+`);
+
+// The WGSL statements both cov skinnings share: fn is the function above.
+function wgslCovSkinning(fn: string, globals: string) {
+  return {
+    globals: () => [globals],
+    statements: ({
+      inputs,
+      outputs,
+    }: {
+      inputs: Record<string, unknown>;
+      outputs: Record<string, unknown>;
+    }) => {
+      const skinning = inputs.skinning as string;
+      const covsplat = outputs.covsplat as string;
+      const skinTexture = wgslStructTexture(skinning, "skinTexture");
+      const boneTexture = wgslStructTexture(skinning, "boneTexture");
+      return unindentLines(/* wgsl */ `
+        ${covsplat} = ${inputs.covsplat};
+        if (isCovSplatActive(${covsplat}.flags)) {
+          var center = ${covsplat}.center;
+          var xxyyzz = ${covsplat}.xxyyzz;
+          var xyxzyz = ${covsplat}.xyxzyz;
+          ${fn}(
+            ${skinning}.numSplats, ${skinning}.numBones,
+            ${skinTexture}, ${boneTexture},
+            ${covsplat}.index, &center, &xxyyzz, &xyxzyz
+          );
+          ${covsplat}.center = center;
+          ${covsplat}.xxyyzz = xxyyzz;
+          ${covsplat}.xyxzyz = xyxzyz;
+        }
+      `);
+    },
+  };
+}
+
 function applyCovSplatDQSkinning(
   covsplat: DynoVal<typeof CovSplat>,
   skinning: DynoVal<typeof GsplatSkinning>,
@@ -657,6 +784,10 @@ function applyCovSplatDQSkinning(
         }
       `);
     },
+    wgsl: wgslCovSkinning(
+      "applyCovSplatDQSkinning",
+      wgslApplyCovSplatDQSkinning,
+    ),
   });
   return dyno.outputs.covsplat;
 }
@@ -687,6 +818,10 @@ function applyCovSplatLBSkinning(
         }
       `);
     },
+    wgsl: wgslCovSkinning(
+      "applyCovSplatLBSkinning",
+      wgslApplyCovSplatLBSkinning,
+    ),
   });
   return dyno.outputs.covsplat;
 }

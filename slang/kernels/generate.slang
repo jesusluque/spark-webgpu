@@ -19,6 +19,7 @@ import core.packed;
 import core.ext;
 import core.sh;
 import core.dyno_hooks;
+import core.cov;
 
 static const uint GEN_SRC_EXT = 1u;      // source is ext (else packed)
 static const uint GEN_OUT_EXT = 2u;      // accumulator is ext (else packed)
@@ -26,6 +27,9 @@ static const uint GEN_USE_LOD = 4u;      // remap through lodIndices
 static const uint GEN_LOD_OPACITY = 8u;  // packed source stores alpha / 2
 static const uint GEN_SORT_RADIAL = 16u; // radial metric (else along viewDir)
 static const uint GEN_DYNO_SOURCE = 256u; // dynoSource generates the splats
+static const uint GEN_OUT_COV = 512u;    // accumulator holds covariance splats
+static const uint GEN_COV_TRANSFORM = 1024u; // covBasis transforms the CovSplat
+                                         // (else the similarity, before it)
 
 struct GenerateParams {
     uint numSplats;   // output splats for this mesh (the LOD count when LOD is on)
@@ -47,6 +51,9 @@ struct GenerateParams {
     float4 viewCenter;      // camera position in world space (sort metric)
     float4 viewDir;         // camera forward in world space (z sort)
     float4 outOrigin;       // subtracted from centers before writing (packed)
+    float4 covBasis0;       // object to world linear part, columns
+    float4 covBasis1;       // (GEN_COV_TRANSFORM)
+    float4 covBasis2;
 };
 
 StructuredBuffer<uint4> src;
@@ -98,16 +105,36 @@ void generate(uint3 tid: SV_DispatchThreadID) {
     }
 
     float metric = INFINITY;
+    bool cov = hasFlag(GEN_OUT_COV);
+    CovSplat c;
+    c.flags = 0u;
     if (isActive(s.flags)) {
         s.rgba.rgb += shColor(index, s.center);
         s = dynoObjectModifier(s);
 
-        float scale = params.translateScale.w;
-        s.center = quatVec(params.rotate, s.center * scale) + params.translateScale.xyz;
-        s.scales *= scale;
-        s.quaternion = quatQuat(params.rotate, s.quaternion);
-        s.rgba *= params.recolor;
-        s = dynoWorldModifier(s);
+        if (cov && hasFlag(GEN_COV_TRANSFORM)) {
+            // The full linear transform, as SplatMesh.constructCovGenerator.
+            c = dynoCovObjectModifier(gsplatToCovSplat(s));
+            float3x3 basis = transpose(float3x3(params.covBasis0.xyz, params.covBasis1.xyz, params.covBasis2.xyz));
+            c = transformCovSplat(c, basis, params.translateScale.xyz);
+            c.rgba *= params.recolor;
+            c = dynoCovWorldModifier(c);
+            s.center = c.center;
+            s.flags = c.flags;
+        } else {
+            float scale = params.translateScale.w;
+            s.center = quatVec(params.rotate, s.center * scale) + params.translateScale.xyz;
+            s.scales *= scale;
+            s.quaternion = quatQuat(params.rotate, s.quaternion);
+            s.rgba *= params.recolor;
+            s = dynoWorldModifier(s);
+            if (cov && isActive(s.flags)) {
+                // A Gsplat pipeline into a covariance accumulator.
+                c = dynoCovWorldModifier(dynoCovObjectModifier(gsplatToCovSplat(s)));
+                s.center = c.center;
+                s.flags = c.flags;
+            }
+        }
 
         float3 rel = s.center - params.viewCenter.xyz;
         metric = hasFlag(GEN_SORT_RADIAL) ? length(rel) : dot(rel, params.viewDir.xyz) + 100.0;
@@ -121,13 +148,24 @@ void generate(uint3 tid: SV_DispatchThreadID) {
         uint4 a = uint4(0u);
         uint4 b = uint4(0u);
         if (isActive(s.flags)) {
-            packSplatExt(a, b, center, s.scales, s.quaternion, s.rgba);
+            if (cov) {
+                packSplatExtCov(a, b, center, c.rgba, c.xxyyzz, c.xyxzyz);
+            } else {
+                packSplatExt(a, b, center, s.scales, s.quaternion, s.rgba);
+            }
         }
         outSplats[2u * o] = a;
         outSplats[2u * o + 1u] = b;
     } else {
         // The packed accumulator keeps alpha / 2 so LOD opacity can reach 2.
-        float4 rgba = float4(s.rgba.rgb, 0.5 * s.rgba.a);
-        outSplats[o] = isActive(s.flags) ? packSplat(center, s.scales, s.quaternion, rgba) : uint4(0u);
+        uint4 p = uint4(0u);
+        if (isActive(s.flags)) {
+            if (cov) {
+                p = packSplatCov(center, float4(c.rgba.rgb, 0.5 * c.rgba.a), c.xxyyzz, c.xyxzyz);
+            } else {
+                p = packSplat(center, s.scales, s.quaternion, float4(s.rgba.rgb, 0.5 * s.rgba.a));
+            }
+        }
+        outSplats[o] = p;
     }
 }

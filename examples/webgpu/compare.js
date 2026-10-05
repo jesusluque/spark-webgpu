@@ -9,7 +9,10 @@
 //   ?count=<n>           lodSplatCount for both renderers
 //   ?focalDistance=&apertureAngle=&covSplats=1&enable2DGS=1
 //                        renderer options for both (SparkRenderer and
-//                        WgpuSplatRenderer take the same names)
+//                        WgpuSplatRenderer take the same names; covSplats
+//                        loads the file as cov ExtSplats meshes on WebGL)
+//   ?ext=1               load the file as ExtSplats (both backends)
+//   ?scale=x,y,z         non-uniform object scale (needs covSplats)
 // Both pages expose window.__bench(frames): renders that many frames as fast
 // as possible, each waited on until the GPU finishes, with the object
 // turning a little every frame so both backends regenerate and re-sort.
@@ -30,8 +33,10 @@ export function setupCompare() {
     w: Number(params.get("w") ?? 800),
     h: Number(params.get("h") ?? 600),
   };
+  const scale = params.get("scale")?.split(",").map(Number);
   // The pose examples/hello-world gives the butterfly, without the spin.
   const pose = (object) => {
+    if (scale) object.scale.set(...scale);
     if (n) {
       object.position.set(0, 0, -3);
       return;
@@ -49,10 +54,11 @@ export function setupCompare() {
   for (const key of ["focalDistance", "apertureAngle"]) {
     if (params.has(key)) options[key] = Number(params.get(key));
   }
-  for (const key of ["covSplats", "enable2DGS"]) {
+  for (const key of ["covSplats", "enable2DGS", "accumExtSplats"]) {
     if (params.has(key)) options[key] = params.get(key) === "1";
   }
-  return { file, n, lod, rad, lodSplatCount, size, pose, options };
+  const ext = params.get("ext") === "1" || options.covSplats === true;
+  return { file, n, lod, rad, lodSplatCount, size, pose, options, ext };
 }
 
 // A deterministic cloud of n splats in a 2-unit ball, packed as PackedSplats.

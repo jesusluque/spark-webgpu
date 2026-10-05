@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Covariance splats on WebGPU (WgpuSplatRenderer covSplats, as
+  SparkRenderer covSplats): the butterfly squashed and stretched by a
+  non-uniform, sheared object matrix, which scales + quaternions can't carry.
+  Untick "covSplats" to see the similarity-transform fallback. Parity with
+  WebGL: compare-webgl.html / compare-webgpu.html ?covSplats=1&scale=1.6,0.4,1
+-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Covariance splats (WebGPU)</title>
+  <style>body { margin: 0; background: #000; } canvas { display: block; touch-action: none; }</style>
+</head>
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.webgpu.js",
+        "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { ExtSplats, GpuSplatSource, WgpuSplatRenderer } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
+
+    const params = new URLSearchParams(location.search);
+    const renderer = new THREE.WebGPURenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    await renderer.init();
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 3);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const splats = new WgpuSplatRenderer(renderer, { covSplats: true });
+    const ext = new ExtSplats({ url: await getAssetFileURL("butterfly.spz") });
+    await ext.initialized;
+    // The object's matrix is set by hand each frame: scale and shear.
+    const butterfly = new THREE.Object3D();
+    butterfly.matrixAutoUpdate = false;
+    splats.add(GpuSplatSource.fromExtSplats(splats.device, ext), butterfly);
+    window.__splats = splats;
+
+    const settings = { covSplats: true, stretch: 0.6, shear: 0.5, animate: !params.has("t") };
+    const gui = new GUI({ title: "Covariance splats" });
+    gui.add(settings, "covSplats").onChange((v) => { splats.options.covSplats = v; });
+    gui.add(settings, "stretch", 0, 1, 0.01);
+    gui.add(settings, "shear", -1, 1, 0.01);
+    gui.add(settings, "animate");
+
+    const flip = new THREE.Matrix4().makeRotationX(Math.PI);
+    const deform = new THREE.Matrix4();
+    let frames = 0;
+    renderer.setAnimationLoop((ms) => {
+      const t = settings.animate ? ms / 1000 : Number(params.get("t") ?? 1);
+      const k = settings.stretch * Math.sin(t);
+      deform.set(
+        1 + k, settings.shear * Math.sin(0.7 * t), 0, 0,
+        0, 1 - 0.5 * k, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1,
+      );
+      butterfly.matrix.multiplyMatrices(deform, flip);
+      butterfly.matrixWorldNeedsUpdate = true;
+      controls.update();
+      renderer.render(scene, camera);
+      splats.render(camera);
+      if (++frames === 30) window.__ready = true;
+    });
+  </script>
+</body>
+</html>
