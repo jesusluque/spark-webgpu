@@ -23,6 +23,7 @@
 import * as THREE from "three";
 import type { ExtSplats } from "../ExtSplats";
 import type { PackedSplats } from "../PackedSplats";
+import { GpuSorter } from "./GpuSorter";
 import { KernelRegistry } from "./KernelRegistry";
 import drawModule from "./generated/draw/splat_draw";
 import generateModule from "./generated/kernels/generate";
@@ -209,6 +210,11 @@ export interface WgpuSplatRendererOptions {
   /** Test against the render target's depthTexture, if it has one (default true). */
   depthTest?: boolean;
   sortRadial?: boolean;
+  /**
+   * "gpu" (default): radix sort on the GPU in the same frame, drawn with an
+   * indirect count. "cpu": metric readback and a JS radix sort, a frame behind.
+   */
+  sort?: "gpu" | "cpu";
   maxStdDev?: number;
   minPixelRadius?: number;
   maxPixelRadius?: number;
@@ -242,6 +248,7 @@ export class WgpuSplatRenderer {
   private accumulator: GPUBuffer | null = null;
   private metric: GPUBuffer | null = null;
   private ordering: GPUBuffer | null = null;
+  private sorter: GpuSorter;
   private drawUniform: GPUBuffer;
   private pipelines = new Map<string, ReflectedRenderPipeline>();
   private emptyBuffer: GPUBuffer;
@@ -263,9 +270,11 @@ export class WgpuSplatRenderer {
     }
     this.device = renderer.backend.device;
     this.registry = new KernelRegistry(this.device);
+    this.sorter = new GpuSorter(this.registry);
     this.options = {
       depthTest: true,
       sortRadial: true,
+      sort: "gpu",
       maxStdDev: Math.sqrt(8),
       minPixelRadius: 0,
       maxPixelRadius: 512,
@@ -362,6 +371,14 @@ export class WgpuSplatRenderer {
 
     const encoder = this.device.createCommandEncoder({ label: "splats" });
     this.generate(encoder, cameraPos, cameraDir);
+    if (this.options.sort === "gpu") {
+      const pass = encoder.beginComputePass({ label: "sort" });
+      this.sorter.encode(pass, this.metric as GPUBuffer, total);
+      pass.end();
+      this.draw(encoder, camera, target, total);
+      this.registry.submit(encoder.finish());
+      return;
+    }
     this.draw(encoder, camera, target);
     const version = this.mappingVersion;
     const readback = this.sortPending ? null : this.copyMetric(encoder, total);
@@ -543,8 +560,13 @@ export class WgpuSplatRenderer {
     encoder: GPUCommandEncoder,
     camera: THREE.Camera,
     renderTarget?: THREE.RenderTarget,
+    gpuSorted?: number,
   ) {
-    if (this.drawVersion !== this.mappingVersion || this.drawCount === 0)
+    const gpu = gpuSorted !== undefined;
+    if (
+      !gpu &&
+      (this.drawVersion !== this.mappingVersion || this.drawCount === 0)
+    )
       return;
     const { color: target, depth, linear } = this.resolveTarget(renderTarget);
     const size = { x: target.width, y: target.height };
@@ -593,7 +615,7 @@ export class WgpuSplatRenderer {
 
     const rp = this.pipeline(target.format, depthFormat);
     const groups = createBindGroups(this.device, rp, {
-      ordering: this.ordering as GPUBuffer,
+      ordering: gpu ? this.sorter.ordering : (this.ordering as GPUBuffer),
       splats: this.accumulator as GPUBuffer,
       params: this.drawUniform,
     });
@@ -614,9 +636,13 @@ export class WgpuSplatRenderer {
     });
     pass.setPipeline(rp.pipeline);
     groups.forEach((g, i) => pass.setBindGroup(i, g));
-    pass.draw(4, this.drawCount);
+    if (gpu) {
+      pass.drawIndirect(this.sorter.drawArgs, 0);
+    } else {
+      pass.draw(4, this.drawCount);
+    }
     this.stats.draws += 1;
-    this.stats.drawn = this.drawCount;
+    this.stats.drawn = gpu ? (gpuSorted as number) : this.drawCount;
     pass.end();
   }
 
@@ -627,6 +653,7 @@ export class WgpuSplatRenderer {
     this.ordering?.destroy();
     this.drawUniform.destroy();
     this.emptyBuffer.destroy();
+    this.sorter.destroy();
     this.registry.destroy();
   }
 }

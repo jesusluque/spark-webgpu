@@ -28,7 +28,7 @@
       ? new PackedSplats({ packedArray: syntheticPacked(utils, n), numSplats: n })
       : new PackedSplats({ url: await getAssetFileURL(file) });
     await packed.initialized;
-    const splats = new WgpuSplatRenderer(renderer);
+    const splats = new WgpuSplatRenderer(renderer, { sort: new URLSearchParams(location.search).get("sort") ?? "gpu" });
     const holder = new THREE.Object3D();
     pose(holder);
     splats.add(GpuSplatSource.fromPackedSplats(splats.device, packed), holder);
