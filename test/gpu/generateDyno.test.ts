@@ -3,7 +3,21 @@
 
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
+import {
+  SplatEdit,
+  SplatEditRgbaBlendMode,
+  SplatEditSdf,
+  SplatEditSdfType,
+  SplatEdits,
+} from "../../src/SplatEdit";
+import { SplatTransformer } from "../../src/SplatGenerator";
+import type { SplatMesh } from "../../src/SplatMesh";
+import { SplatSkinning } from "../../src/SplatSkinning";
 import * as d from "../../src/dyno";
+import { snowBox } from "../../src/generators/snow";
+import { staticBox } from "../../src/generators/static";
+import { makeDepthColorModifier } from "../../src/modifiers/depthColor";
+import { makeNormalColorModifier } from "../../src/modifiers/normalColor";
 import { decodeExtSplat, encodeExtSplat } from "../../src/utils";
 import { KernelRegistry } from "../../src/webgpu/KernelRegistry";
 import { DynoKernels, type WgpuDyno } from "../../src/webgpu/dyno/DynoKernels";
@@ -219,5 +233,128 @@ describe.skipIf(!device)("generate.slang with dyno", () => {
     expect(
       rb.splat(5).center.distanceTo(toWorld(new THREE.Vector3(0.05, 4, -2))),
     ).toBeLessThan(1e-3);
+  });
+
+  it("applies SplatEdit SDFs (world modifier)", async () => {
+    const edits = new SplatEdits({ maxEdits: 1, maxSdfs: 1 });
+    const edit = new SplatEdit({
+      rgbaBlendMode: SplatEditRgbaBlendMode.MULTIPLY,
+    });
+    const sdf = new SplatEditSdf({
+      type: SplatEditSdfType.SPHERE,
+      radius: 0.3,
+      color: new THREE.Color(1, 0, 0),
+      displace: new THREE.Vector3(0, 0.5, 0),
+    });
+    sdf.position.copy(toWorld(new THREE.Vector3(1.28, 1, -2)));
+    edits.update([{ edit, sdfs: [sdf] }]);
+    const worldModifier = d.dynoBlock(
+      { gsplat: d.Gsplat },
+      { gsplat: d.Gsplat },
+      ({ gsplat }) => ({ gsplat: edits.modify(gsplat as never) }),
+    );
+    const { splat } = await run({}, { worldModifiers: [worldModifier] });
+    for (const i of [120, 128, 136]) {
+      const s = splat(i);
+      const e = toWorld(new THREE.Vector3(i * 0.01, 1, -2)).add(
+        new THREE.Vector3(0, 0.5, 0),
+      );
+      expect(s.color.g).toBeCloseTo(0, 2);
+      expect(s.color.r).toBeCloseTo(0.25, 2);
+      expect(s.center.distanceTo(e)).toBeLessThan(1e-3);
+    }
+    for (const i of [0, 100, 160]) {
+      expect(splat(i).color.g).toBeCloseTo(0.5, 2);
+    }
+  });
+
+  it("applies SplatSkinning (object modifier)", async () => {
+    const skinning = new SplatSkinning({
+      mesh: {} as SplatMesh,
+      numSplats: N,
+      numBones: 2,
+    });
+    const identity = new THREE.Quaternion();
+    const origin = new THREE.Vector3();
+    skinning.setRestQuatPos(0, identity, origin);
+    skinning.setRestQuatPos(1, identity, origin);
+    const lift = new THREE.Vector3(0, 0, 1);
+    const turn = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 0, 1),
+      Math.PI / 2,
+    );
+    skinning.setBoneQuatPos(0, identity, lift);
+    skinning.setBoneQuatPos(1, turn, origin);
+    for (let i = 0; i < N; i++) {
+      skinning.setSplatBones(
+        i,
+        new THREE.Vector4(i % 2, 0, 0, 0),
+        new THREE.Vector4(1, 0, 0, 0),
+      );
+    }
+    skinning.skinTexture.needsUpdate = true;
+    skinning.updateBones();
+    const objectModifier = d.dynoBlock(
+      { gsplat: d.Gsplat },
+      { gsplat: d.Gsplat },
+      ({ gsplat }) => ({ gsplat: skinning.modify(gsplat as never) }),
+    );
+    const { splat } = await run({}, { objectModifiers: [objectModifier] });
+    for (const i of [0, 1, 50, 51]) {
+      const c = new THREE.Vector3(i * 0.01, 1, -2);
+      const skinned =
+        i % 2 ? c.clone().applyQuaternion(turn) : c.clone().add(lift);
+      expect(splat(i).center.distanceTo(toWorld(skinned))).toBeLessThan(1e-3);
+    }
+  });
+
+  it("compiles Spark's modifiers and generators", async () => {
+    const view = new SplatTransformer();
+    view.updateFromMatrix(new THREE.Matrix4());
+    const noise = staticBox({
+      box: new THREE.Box3(
+        new THREE.Vector3(-1, -1, -1),
+        new THREE.Vector3(1, 1, 1),
+      ),
+      cells: new THREE.Vector3(8, 8, 4),
+      dotScale: 0.01,
+    });
+    const { snow } = snowBox({});
+    for (const dyno of [
+      {
+        worldModifiers: [
+          makeDepthColorModifier(
+            view,
+            d.dynoFloat(1),
+            d.dynoFloat(10),
+            d.dynoBool(false),
+          ),
+          makeNormalColorModifier(view),
+        ],
+      },
+      { generator: noise.generator },
+      { generator: snow.generator },
+    ]) {
+      const { kernel } = kernels.prepare({}, dyno);
+      const info = await registry
+        .shaderModule(kernel.module)
+        .getCompilationInfo();
+      expect(info.messages.filter((m) => m.type === "error")).toEqual([]);
+    }
+    // The static generator's grid, inside its box.
+    noise.frameUpdate?.({ object: noise, time: 1 } as never);
+    const { splat } = await run(
+      {},
+      { generator: noise.generator },
+      DYNO_SOURCE,
+    );
+    for (const i of [0, 77, 255]) {
+      const c = splat(i).center.clone().sub(translate);
+      c.applyQuaternion(rotate.clone().invert()).divideScalar(scale);
+      expect(
+        Math.max(Math.abs(c.x), Math.abs(c.y), Math.abs(c.z)),
+      ).toBeLessThan(1.001);
+      expect(splat(i).opacity).toBeCloseTo(1, 2);
+    }
   });
 });

@@ -19,8 +19,11 @@ import {
   DynoUniform,
   type DynoVal,
   Gsplat,
+  registerWgslGlobal,
+  registerWgslStruct,
   unindent,
   unindentLines,
+  wgslStructTexture,
 } from "./dyno";
 import { getTextureSize, newArray } from "./utils";
 
@@ -396,6 +399,69 @@ export const defineApplyGsplatSkinning = /*@__PURE__*/ unindent(/* glsl */ `
   }
 `);
 
+// WGSL version of defineApplyGsplatSkinning, for WebGPU (src/dyno/wgsl):
+// inout parameters become pointers and the textures are the GsplatSkinning
+// uniform's own bindings (wgslStructTexture).
+export const wgslApplyGsplatSkinning = /*@__PURE__*/ unindent(/* wgsl */ `
+  fn applyGsplatSkinning(
+    numSplats: i32, numBones: i32,
+    skinTexture: texture_2d_array<u32>, boneTexture: texture_2d<f32>,
+    splatIndex: i32, center: ptr<function, vec3f>, quaternion: ptr<function, vec4f>
+  ) {
+    if ((splatIndex < 0) || (splatIndex >= numSplats)) {
+      return;
+    }
+
+    let coord = splatTexCoord(splatIndex);
+    let skinData = textureLoad(skinTexture, coord.xy, coord.z, 0);
+    let weights = vec4f(skinData & vec4u(0xffu)) / 255.0;
+    let boneIndices = (skinData >> vec4u(8u)) & vec4u(0xffu);
+
+    var quat = vec4f(0.0);
+    var dual = vec4f(0.0);
+    for (var i = 0; i < 4; i++) {
+      if (weights[i] > 0.0) {
+        let boneIndex = i32(boneIndices[i]);
+        var boneQuat = vec4f(0.0, 0.0, 0.0, 1.0);
+        var boneDual = vec4f(0.0);
+        if (boneIndex < numBones) {
+          boneQuat = textureLoad(boneTexture, vec2i(0, boneIndex), 0);
+          boneDual = textureLoad(boneTexture, vec2i(1, boneIndex), 0);
+        }
+
+        if ((i > 0) && (dot(quat, boneQuat) < 0.0)) {
+          // Flip sign if next blend is pointing in the opposite direction
+          boneQuat = -boneQuat;
+          boneDual = -boneDual;
+        }
+        quat += weights[i] * boneQuat;
+        dual += weights[i] * boneDual;
+      }
+    }
+
+    // Normalize dual quaternion
+    let norm = length(quat);
+    quat /= norm;
+    dual /= norm;
+    let translate = vec3f(
+      2.0 * (-dual.w * quat.x + dual.x * quat.w - dual.y * quat.z + dual.z * quat.y),
+      2.0 * (-dual.w * quat.y + dual.x * quat.z + dual.y * quat.w - dual.z * quat.x),
+      2.0 * (-dual.w * quat.z - dual.x * quat.y + dual.y * quat.x + dual.z * quat.w)
+    );
+
+    *center = quatVec(quat, *center) + translate;
+    *quaternion = quatQuat(quat, *quaternion);
+  }
+`);
+
+registerWgslGlobal(defineGsplatSkinning, "");
+registerWgslStruct(GsplatSkinning, {
+  numSplats: "int",
+  numBones: "int",
+  skinTexture: "usampler2DArray",
+  boneTexture: "sampler2D",
+});
+
 function applyGsplatSkinning(
   gsplat: DynoVal<typeof Gsplat>,
   skinning: DynoVal<typeof GsplatSkinning>,
@@ -421,6 +487,30 @@ function applyGsplatSkinning(
           );
         }
       `);
+    },
+    wgsl: {
+      globals: () => [wgslApplyGsplatSkinning],
+      statements: ({ inputs, outputs }) => {
+        const skinning = inputs.skinning as string;
+        const { gsplat } = outputs;
+        const skinTexture = wgslStructTexture(skinning, "skinTexture");
+        const boneTexture = wgslStructTexture(skinning, "boneTexture");
+        return unindentLines(/* wgsl */ `
+          ${gsplat} = ${inputs.gsplat};
+          if (isGsplatActive(${gsplat}.flags)) {
+            // Two pointers into one struct would alias: skin copies.
+            var center = ${gsplat}.center;
+            var quaternion = ${gsplat}.quaternion;
+            applyGsplatSkinning(
+              ${skinning}.numSplats, ${skinning}.numBones,
+              ${skinTexture}, ${boneTexture},
+              ${gsplat}.index, &center, &quaternion
+            );
+            ${gsplat}.center = center;
+            ${gsplat}.quaternion = quaternion;
+          }
+        `);
+      },
     },
   });
   return dyno.outputs.gsplat;

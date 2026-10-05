@@ -108,6 +108,28 @@ export class DynoKernels {
     return { kernel: this.registry.get(module, this.entry), bindings };
   }
 
+  // A WGSL error only shows as an invalid pipeline: say where it is, which
+  // matters most for hand-written dyno WGSL.
+  private reportErrors(module: KernelModule) {
+    const lines = module.wgsl.split("\n");
+    this.registry
+      .shaderModule(module)
+      .getCompilationInfo()
+      .then((info) => {
+        const errors = info.messages
+          .filter((m) => m.type === "error")
+          .map(
+            (m) =>
+              `${m.lineNum}:${m.linePos} ${m.message}\n    ${lines[m.lineNum - 1]?.trim()}`,
+          );
+        if (errors.length) {
+          console.error(
+            `${module.name}: dyno WGSL errors\n${errors.join("\n")}`,
+          );
+        }
+      });
+  }
+
   private compile(owner: object, dyno: WgpuDyno): Compiled {
     const graphs = graphsOf(dyno);
     const cached = this.compiled.get(owner);
@@ -156,6 +178,7 @@ export class DynoKernels {
         layouts,
       );
       this.modules.set(key, module);
+      this.reportErrors(module);
     }
     const compiled = { graphs, program, module, layouts };
     this.compiled.set(owner, compiled);

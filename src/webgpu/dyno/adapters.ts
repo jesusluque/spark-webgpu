@@ -1,6 +1,13 @@
 // WgpuDyno views of Spark's dyno users, so their graphs run on WebGPU with
 // the per-frame context SparkRenderer would otherwise update.
 
+import {
+  type SplatEdit,
+  type SplatEditSdf,
+  SplatEdits,
+  isSplatEdit,
+  isSplatEditSdf,
+} from "../../SplatEdit";
 import type { GsplatModifier, SplatGenerator } from "../../SplatGenerator";
 import type { SplatMesh } from "../../SplatMesh";
 import { type Dyno, type IOTypes, dynoBlock } from "../../dyno/base";
@@ -8,37 +15,51 @@ import { Gsplat } from "../../dyno/splats";
 import type { WgpuDyno, WgpuDynoFrame } from "./DynoKernels";
 
 // A modifier per wrapped object, so the graph keeps its identity across
-// frames and isn't recompiled.
-const wrapped = new WeakMap<object, GsplatModifier>();
+// frames and isn't recompiled, until `version` (what its graph is built
+// from) changes.
+const wrapped = new WeakMap<
+  object,
+  { version: unknown; modifier: GsplatModifier }
+>();
 function asModifier(
   owner: object,
+  version: unknown,
   modify: (g: Dyno<IOTypes, IOTypes>) => unknown,
 ): GsplatModifier {
-  let m = wrapped.get(owner);
-  if (!m) {
-    m = dynoBlock({ gsplat: Gsplat }, { gsplat: Gsplat }, ({ gsplat }) => ({
-      gsplat: modify(gsplat as never) as never,
-    }));
-    wrapped.set(owner, m);
-  }
-  return m;
+  const cached = wrapped.get(owner);
+  if (cached && cached.version === version) return cached.modifier;
+  const modifier = dynoBlock(
+    { gsplat: Gsplat },
+    { gsplat: Gsplat },
+    ({ gsplat }) => ({ gsplat: modify(gsplat as never) as never }),
+  );
+  wrapped.set(owner, { version, modifier });
+  return modifier;
 }
 
 /**
  * A SplatMesh's dyno pipeline on WebGPU: skinning and objectModifiers in
  * object space, SDF edits and worldModifiers in world space, as in
  * SplatMesh.constructGenerator, with its dyno context (time, transforms,
- * worldToView...) updated each frame. Pass it to WgpuSplatRenderer.add with
- * the mesh as the object. Modifier changes are picked up without
- * updateGenerator().
+ * worldToView...) and SplatEdits updated each frame. Pass it to
+ * WgpuSplatRenderer.add with the mesh as the object. Modifier changes are
+ * picked up without updateGenerator(). `globalEdits` are SplatEdits outside
+ * the mesh that apply to it (SparkRenderer finds those in the scene).
  */
-export function splatMeshDyno(mesh: SplatMesh): WgpuDyno {
+export function splatMeshDyno(
+  mesh: SplatMesh,
+  { globalEdits }: { globalEdits?: () => SplatEdit[] } = {},
+): WgpuDyno {
   return {
     get objectModifiers() {
       const mods = [...(mesh.objectModifiers ?? [])];
       const skinning = mesh.skinning;
       if (skinning) {
-        mods.unshift(asModifier(skinning, (g) => skinning.modify(g as never)));
+        mods.unshift(
+          asModifier(skinning, skinning.uniform, (g) =>
+            skinning.modify(g as never),
+          ),
+        );
       }
       return mods;
     },
@@ -46,14 +67,48 @@ export function splatMeshDyno(mesh: SplatMesh): WgpuDyno {
       const mods = [...(mesh.worldModifiers ?? [])];
       const edits = mesh.rgbaDisplaceEdits;
       if (edits) {
-        mods.unshift(asModifier(edits, (g) => edits.modify(g as never)));
+        // Growing the edit capacity replaces the edits uniform array.
+        mods.unshift(
+          asModifier(edits, edits.dynoEdits, (g) => edits.modify(g as never)),
+        );
       }
       return mods;
     },
     update(frame: WgpuDynoFrame) {
       updateSplatMeshContext(mesh, frame);
+      updateSplatMeshEdits(mesh, globalEdits?.() ?? []);
     },
   };
+}
+
+/** The SplatEdits part of SplatMesh.update: gathers edits and their SDFs. */
+export function updateSplatMeshEdits(
+  mesh: SplatMesh,
+  globalEdits: SplatEdit[],
+) {
+  if (!mesh.editable) return;
+  const edits = (mesh.edits ?? []).concat(globalEdits);
+  if (!mesh.edits) {
+    mesh.traverseVisible((node) => {
+      if (isSplatEdit(node)) edits.push(node);
+    });
+  }
+  edits.sort((a, b) => a.ordering - b.ordering);
+  const editsSdfs = edits.map((edit) => {
+    if (edit.sdfs != null) return { edit, sdfs: edit.sdfs };
+    const sdfs: SplatEditSdf[] = [];
+    edit.traverseVisible((node) => {
+      if (isSplatEditSdf(node)) sdfs.push(node);
+    });
+    return { edit, sdfs };
+  });
+  if (editsSdfs.length > 0 && !mesh.rgbaDisplaceEdits) {
+    mesh.rgbaDisplaceEdits = new SplatEdits({
+      maxEdits: editsSdfs.length,
+      maxSdfs: editsSdfs.reduce((n, e) => n + e.sdfs.length, 0),
+    });
+  }
+  mesh.rgbaDisplaceEdits?.update(editsSdfs);
 }
 
 /** The dyno uniforms SplatMesh.update sets, for WebGPU frames. */

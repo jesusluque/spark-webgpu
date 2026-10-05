@@ -336,6 +336,7 @@ export class WgslBackend implements DynoBackend {
       }
       if (mapped) result.push(mapped);
     }
-    return result;
+    // A GLSL global and its WGSL version may both be listed.
+    return [...new Set(result)];
   }
 }

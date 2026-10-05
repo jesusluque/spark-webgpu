@@ -7,8 +7,11 @@ import {
   DynoUniform,
   type DynoVal,
   Gsplat,
+  registerWgslGlobal,
+  registerWgslStruct,
   unindent,
   unindentLines,
+  wgslStructTexture,
 } from "./dyno";
 
 // Spark provides the ability to apply "edits" to Gsplats as part of the standard
@@ -804,6 +807,208 @@ export const defineEdit = unindent(/* glsl */ `
   }
 `);
 
+// WGSL versions of defineSdfArray and defineEdit, for WebGPU
+// (src/dyno/wgsl): out parameters become a returned struct or pointers, and
+// the SdfArray's texture is its own binding (wgslStructTexture).
+
+export const wgslDefineSdfArray = /*@__PURE__*/ unindent(/* wgsl */ `
+  struct UnpackedSdf {
+    flags: u32,
+    center: vec3f,
+    quaternion: vec4f,
+    scale: vec3f,
+    sizes: vec4f,
+    values: array<vec4f, 4>,
+  }
+
+  fn unpackSdfArray(sdfTexture: texture_2d<u32>, sdfIndex: i32, numValues: i32) -> UnpackedSdf {
+    var sdf: UnpackedSdf;
+    var temp = textureLoad(sdfTexture, vec2i(0, sdfIndex), 0);
+    sdf.flags = temp.w;
+    sdf.center = bitcast<vec3f>(temp.xyz);
+    sdf.quaternion = bitcast<vec4f>(textureLoad(sdfTexture, vec2i(1, sdfIndex), 0));
+    sdf.scale = bitcast<vec3f>(textureLoad(sdfTexture, vec2i(2, sdfIndex), 0).xyz);
+    sdf.sizes = bitcast<vec4f>(textureLoad(sdfTexture, vec2i(3, sdfIndex), 0));
+    for (var i = 0; i < numValues; i++) {
+      sdf.values[i] = bitcast<vec4f>(textureLoad(sdfTexture, vec2i(4 + i, sdfIndex), 0));
+    }
+    return sdf;
+  }
+
+  const SDF_FLAG_TYPE: u32 = 0xFFu;
+  const SDF_FLAG_INVERT: u32 = 1u << 8u;
+
+  const SDF_TYPE_ALL: u32 = 0u;
+  const SDF_TYPE_PLANE: u32 = 1u;
+  const SDF_TYPE_SPHERE: u32 = 2u;
+  const SDF_TYPE_BOX: u32 = 3u;
+  const SDF_TYPE_ELLIPSOID: u32 = 4u;
+  const SDF_TYPE_CYLINDER: u32 = 5u;
+  const SDF_TYPE_CAPSULE: u32 = 6u;
+  const SDF_TYPE_INFINITE_CONE: u32 = 7u;
+
+  fn evaluateSdfArray(
+    sdfTexture: texture_2d<u32>, numSdfs: i32, sdfFirst: i32, sdfCount: i32, pos: vec3f,
+    smoothK: f32, numValues: i32, outValues: ptr<function, array<vec4f, 4>>
+  ) -> f32 {
+    let inf = dyno_inf();
+    var distanceAccum = select(0.0, inf, smoothK == 0.0);
+    var maxExp = -inf;
+    for (var i = 0; i < numValues; i++) {
+      (*outValues)[i] = vec4f(0.0);
+    }
+
+    let sdfLast = min(sdfFirst + sdfCount, numSdfs);
+    for (var index = sdfFirst; index < sdfLast; index++) {
+      let sdf = unpackSdfArray(sdfTexture, index, numValues);
+      let sizes = sdf.sizes;
+      var sdfPos = quatVec(sdf.quaternion, pos * sdf.scale) + sdf.center;
+
+      var distance = 0.0;
+      switch (sdf.flags & SDF_FLAG_TYPE) {
+        case SDF_TYPE_ALL: {
+          distance = -inf;
+        }
+        case SDF_TYPE_PLANE: {
+          distance = sdfPos.z;
+        }
+        case SDF_TYPE_SPHERE: {
+          distance = length(sdfPos) - sizes.w;
+        }
+        case SDF_TYPE_BOX: {
+          let q = abs(sdfPos) - sizes.xyz + sizes.w;
+          distance = length(max(q, vec3f(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - sizes.w;
+        }
+        case SDF_TYPE_ELLIPSOID: {
+          let k0 = length(sdfPos / sizes.xyz);
+          let k1 = length(sdfPos / dot(sizes.xyz, sizes.xyz));
+          distance = k0 * (k0 - 1.0) / k1;
+        }
+        case SDF_TYPE_CYLINDER: {
+          let d = abs(vec2f(length(sdfPos.xz), sdfPos.y)) - sizes.wy;
+          distance = min(max(d.x, d.y), 0.0) + length(max(d, vec2f(0.0)));
+        }
+        case SDF_TYPE_CAPSULE: {
+          sdfPos.y -= clamp(sdfPos.y, -0.5 * sizes.y, 0.5 * sizes.y);
+          distance = length(sdfPos) - sizes.w;
+        }
+        case SDF_TYPE_INFINITE_CONE: {
+          let angle = 0.25 * PI * sizes.w;
+          let c = vec2f(sin(angle), cos(angle));
+          let q = vec2f(length(sdfPos.xy), -sdfPos.z);
+          let d = length(q - c * max(dot(q, c), 0.0));
+          distance = d * select(1.0, -1.0, (q.x * c.y - q.y * c.x) < 0.0);
+        }
+        default: {}
+      }
+
+      if ((sdf.flags & SDF_FLAG_INVERT) != 0u) {
+        distance = -distance;
+      }
+
+      if (smoothK == 0.0) {
+        if (distance < distanceAccum) {
+          distanceAccum = distance;
+          for (var i = 0; i < numValues; i++) {
+            (*outValues)[i] = sdf.values[i];
+          }
+        }
+      } else {
+        let scaledDistance = -distance / smoothK;
+        if (scaledDistance > maxExp) {
+          let scale = exp(maxExp - scaledDistance);
+          distanceAccum *= scale;
+          for (var i = 0; i < numValues; i++) {
+            (*outValues)[i] *= scale;
+          }
+          maxExp = scaledDistance;
+        }
+
+        let weight = exp(scaledDistance - maxExp);
+        distanceAccum += weight;
+        for (var i = 0; i < numValues; i++) {
+          (*outValues)[i] += weight * sdf.values[i];
+        }
+      }
+    }
+
+    if (smoothK == 0.0) {
+      return distanceAccum;
+    }
+    // Very distant SDFs may result in 0 accumulation
+    if (distanceAccum == 0.0) {
+      return inf;
+    }
+    for (var i = 0; i < numValues; i++) {
+      (*outValues)[i] /= distanceAccum;
+    }
+    return (-log(distanceAccum) - maxExp) * smoothK;
+  }
+
+  fn modulateSdfArray(
+    sdfTexture: texture_2d<u32>, numSdfs: i32, sdfFirst: i32, sdfCount: i32, pos: vec3f,
+    smoothK: f32, numValues: i32, values: ptr<function, array<vec4f, 4>>,
+    softEdge: f32, invert: bool
+  ) -> f32 {
+    var distance = evaluateSdfArray(sdfTexture, numSdfs, sdfFirst, sdfCount, pos, smoothK, numValues, values);
+    if (invert) {
+      distance = -distance;
+    }
+    if (softEdge == 0.0) {
+      return select(0.0, 1.0, distance < 0.0);
+    }
+    return clamp(-distance / softEdge + 0.5, 0.0, 1.0);
+  }
+`);
+
+export const wgslDefineEdit = /*@__PURE__*/ unindent(/* wgsl */ `
+  const EDIT_FLAG_BLEND: u32 = 0xFFu;
+  const EDIT_BLEND_MULTIPLY: u32 = 0u;
+  const EDIT_BLEND_SET_RGB: u32 = 1u;
+  const EDIT_BLEND_ADD_RGBA: u32 = 2u;
+  const EDIT_FLAG_INVERT: u32 = 0x100u;
+
+  fn applyPackedRgbaDisplaceEdit(
+    packedEdit: vec4u, sdfTexture: texture_2d<u32>, numSdfs: i32,
+    pos: ptr<function, vec3f>, rgba: ptr<function, vec4f>
+  ) {
+    let rgbaBlendMode = packedEdit.x & EDIT_FLAG_BLEND;
+    let invert = (packedEdit.x & EDIT_FLAG_INVERT) != 0u;
+    let sdfFirst = i32(packedEdit.y & 0xFFFFu);
+    let sdfCount = i32(packedEdit.y >> 16u);
+    let softEdge = bitcast<f32>(packedEdit.z);
+    let sdfSmooth = bitcast<f32>(packedEdit.w);
+
+    var values: array<vec4f, 4>;
+    let modulate = modulateSdfArray(sdfTexture, numSdfs, sdfFirst, sdfCount, *pos, sdfSmooth, 2, &values, softEdge, invert);
+    let sdfRgba = values[0];
+    let sdfDisplaceScale = values[1];
+
+    var blended: vec4f;
+    switch (rgbaBlendMode) {
+      case EDIT_BLEND_MULTIPLY: {
+        blended = *rgba * sdfRgba;
+      }
+      case EDIT_BLEND_SET_RGB: {
+        blended = vec4f(sdfRgba.rgb, (*rgba).a * sdfRgba.a);
+      }
+      case EDIT_BLEND_ADD_RGBA: {
+        blended = *rgba + sdfRgba;
+      }
+      default: {
+        // Debug output if blend mode not set
+        blended = vec4f(fract(*pos), 1.0);
+      }
+    }
+    *rgba = mix(*rgba, blended, modulate);
+    *pos += sdfDisplaceScale.xyz * modulate;
+  }
+`);
+
+registerWgslGlobal(defineSdfArray, wgslDefineSdfArray);
+registerWgslGlobal(defineEdit, wgslDefineEdit);
+registerWgslStruct(SdfArray, { numSdfs: "int", sdfTexture: "usampler2D" });
+
 function applyGsplatRgbaDisplaceEdits(
   gsplat: DynoVal<typeof Gsplat>,
   sdfArray: DynoVal<typeof SdfArray>,
@@ -842,6 +1047,30 @@ function applyGsplatRgbaDisplaceEdits(
           }
         }
       `);
+    },
+    wgsl: {
+      globals: () => [wgslDefineSdfArray, wgslDefineEdit],
+      statements: ({ inputs, outputs }) => {
+        const { sdfArray, numEdits, rgbaDisplaceEdits } = inputs;
+        const { gsplat } = outputs;
+        const sdfTexture = wgslStructTexture(sdfArray as string, "sdfTexture");
+        return unindentLines(/* wgsl */ `
+          ${gsplat} = ${inputs.gsplat};
+          if (isGsplatActive(${gsplat}.flags)) {
+            // Two pointers into one struct would alias: edit copies.
+            var center = ${gsplat}.center;
+            var rgba = ${gsplat}.rgba;
+            for (var editIndex = 0; editIndex < ${numEdits}; editIndex++) {
+              applyPackedRgbaDisplaceEdit(
+                ${rgbaDisplaceEdits}[editIndex], ${sdfTexture}, ${sdfArray}.numSdfs,
+                &center, &rgba
+              );
+            }
+            ${gsplat}.center = center;
+            ${gsplat}.rgba = rgba;
+          }
+        `);
+      },
     },
   });
   return dyno.outputs.gsplat;
