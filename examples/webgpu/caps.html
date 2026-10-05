@@ -6,6 +6,10 @@
   probes (drawIndirect from a buffer compute wrote, atomics, an rgba16float
   target with depth, writeBuffer alignment, three's WebGPURenderer and its
   RenderTarget texture usage). The result is in window.__caps.
+    ?pages=fx.html|index.html  also load these pages in a frame and record
+                               whether they rendered and what they logged
+    ?report=<url>              POST the result there (for a browser that
+                               cannot be automated)
 -->
 <head>
   <meta charset="utf-8">
@@ -191,8 +195,48 @@
     } catch (e) {
       caps.error = String(e?.message ?? e);
     }
+    // Other pages, each in a frame: whether it became ready, its #info line,
+    // and what it logged once loaded (errors while loading leave it unready).
+    const params = new URLSearchParams(location.search);
+    const pages = (params.get("pages") ?? "").split("|").filter(Boolean);
+    caps.pages = {};
+    for (const page of pages) {
+      const frame = document.createElement("iframe");
+      frame.style.cssText = "width:640px;height:400px;border:0;display:block";
+      frame.src = page;
+      document.body.appendChild(frame);
+      const log = [];
+      await new Promise((r) => frame.addEventListener("load", r, { once: true }));
+      const w = frame.contentWindow;
+      for (const level of ["error", "warn"]) {
+        const orig = w.console[level].bind(w.console);
+        w.console[level] = (...a) => { log.push(`[${level}] ${a.map(String).join(" ")}`); orig(...a); };
+      }
+      w.addEventListener("error", (e) => log.push(`[pageerror] ${e.message}`));
+      w.addEventListener("unhandledrejection", (e) => log.push(`[rejection] ${e.reason?.message ?? e.reason}`));
+      let ready = false;
+      for (let t = 0; t < 120 && !ready; t++) {
+        ready = !!(w.__ready || (w.__sparkFrames ?? 0) >= 2);
+        if (!ready) await new Promise((r) => setTimeout(r, 250));
+      }
+      const device = w.__splats?.device;
+      device?.addEventListener("uncapturederror", (e) => log.push(`[gpu] ${e.error.message}`));
+      await new Promise((r) => setTimeout(r, 1500));
+      caps.pages[page] = {
+        ready,
+        info: w.document.querySelector("#info")?.textContent ?? null,
+        stats: w.__splats?.stats ?? null,
+        fxValues: w.__fx ? Object.fromEntries(w.__fx.values) : null,
+        log,
+      };
+    }
     caps.done = true;
     out.textContent = JSON.stringify(caps, null, 2);
+    const report = params.get("report");
+    if (report) {
+      // text/plain and no-cors: no preflight, the receiver only needs the body.
+      fetch(report, { method: "POST", mode: "no-cors", body: JSON.stringify(caps) }).catch(() => {});
+    }
   </script>
 </body>
 
