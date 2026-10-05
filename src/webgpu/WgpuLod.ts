@@ -247,6 +247,12 @@ export class WgpuLod {
     return this.pager;
   }
 
+  // Page uploads write into existing pool buffers, which a renderer that
+  // skips unchanged frames can't see (markDirty is on the integrated branch).
+  private markRendererDirty() {
+    (this.renderer as { markDirty?: () => void }).markDirty?.();
+  }
+
   private setDirty() {
     this.options.onDirty?.();
   }
@@ -332,7 +338,9 @@ export class WgpuLod {
       }
       // The pool's SH buffer and the encoding appear with the first pages.
       if (m.splats instanceof PagedSplats && this.pager) {
-        m.mesh.source = m.lodSource = this.pager.source(m.splats);
+        const source = this.pager.source(m.splats);
+        if (source.numSh !== m.lodSource.numSh) this.markRendererDirty();
+        m.mesh.source = m.lodSource = source;
       }
     }
 
@@ -546,6 +554,7 @@ export class WgpuLod {
     if (!pager) return;
     // Pages land in the pool in the same task as the indices that use them.
     pager.processUploads();
+    this.markRendererDirty();
 
     const paged = lodMeshes
       .filter((m) => m.splats instanceof PagedSplats)
