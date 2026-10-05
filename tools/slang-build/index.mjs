@@ -111,8 +111,8 @@ export function reflect(json) {
     name: e.name,
     stage: e.stage,
     workgroupSize: e.threadGroupSize ?? null,
-    // Bindings this entry actually uses, so a pipeline can skip the rest.
-    uses: (e.bindings ?? []).filter((x) => x.binding?.used).map((x) => x.name),
+    // Filled in by compileOne from the entry's own WGSL.
+    uses: [],
   }));
   return { entries, bindings };
 }
@@ -124,26 +124,61 @@ function kernelModuleImport(rel) {
   return path.relative(from, to).split(path.sep).join("/");
 }
 
-function compileOne(slangc, file) {
+function slangc(exe, file, entries, wgslPath, jsonPath) {
+  const args = [file, "-target", "wgsl", "-I", SLANG_DIR];
+  for (const e of entries) args.push("-entry", e.name, "-stage", e.stage);
+  args.push("-o", wgslPath);
+  if (jsonPath) args.push("-reflection-json", jsonPath);
+  try {
+    execFileSync(exe, args, { stdio: ["ignore", "pipe", "pipe"] });
+  } catch (err) {
+    const msg = `${err.stdout ?? ""}${err.stderr ?? ""}`;
+    throw new Error(`slangc failed on ${path.relative(ROOT, file)}:\n${msg}`);
+  }
+  return fs.readFileSync(wgslPath, "utf8");
+}
+
+// "group:binding" of every resource a WGSL module declares.
+const BINDING_RE =
+  /@(binding|group)\((\d+)\)\s*@(binding|group)\((\d+)\)\s*var/g;
+
+export function declaredBindings(wgsl) {
+  const out = new Set();
+  for (const m of wgsl.matchAll(BINDING_RE)) {
+    const v = { [m[1]]: m[2], [m[3]]: m[4] };
+    out.add(`${v.group}:${v.binding}`);
+  }
+  return out;
+}
+
+function compileOne(exe, file) {
   const source = fs.readFileSync(file, "utf8");
   const entries = findEntries(source);
   if (entries.length === 0) return null;
 
   const rel = path.relative(SLANG_DIR, file).replace(/\.slang$/, "");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "slang-build-"));
-  const wgslPath = path.join(tmp, "out.wgsl");
   const jsonPath = path.join(tmp, "out.json");
-  const args = [file, "-target", "wgsl", "-I", SLANG_DIR];
-  for (const e of entries) args.push("-entry", e.name, "-stage", e.stage);
-  args.push("-o", wgslPath, "-reflection-json", jsonPath);
-  try {
-    execFileSync(slangc, args, { stdio: ["ignore", "pipe", "pipe"] });
-  } catch (err) {
-    const msg = `${err.stdout ?? ""}${err.stderr ?? ""}`;
-    throw new Error(`slangc failed on ${path.relative(ROOT, file)}:\n${msg}`);
-  }
-  const wgsl = fs.readFileSync(wgslPath, "utf8");
+  const wgsl = slangc(exe, file, entries, path.join(tmp, "out.wgsl"), jsonPath);
   const reflection = reflect(JSON.parse(fs.readFileSync(jsonPath, "utf8")));
+
+  // slangc's reflection does not always say which bindings an entry uses,
+  // but compiled alone an entry's WGSL declares only those.
+  for (const entry of reflection.entries) {
+    const own =
+      entries.length === 1
+        ? wgsl
+        : slangc(
+            exe,
+            file,
+            [entries.find((e) => e.name === entry.name)],
+            path.join(tmp, `${entry.name}.wgsl`),
+          );
+    const declared = declaredBindings(own);
+    entry.uses = reflection.bindings
+      .filter((b) => declared.has(`${b.group}:${b.binding}`))
+      .map((b) => b.name);
+  }
   fs.rmSync(tmp, { recursive: true, force: true });
 
   const ts = [
@@ -163,8 +198,8 @@ function compileOne(slangc, file) {
 }
 
 export function buildAll({ check = false, log = console.log } = {}) {
-  const slangc = findSlangc();
-  if (!slangc) {
+  const exe = findSlangc();
+  if (!exe) {
     throw new Error(
       "slangc not found: set SLANGC or SLANG_ROOT, or install to ~/tools/slang/bin",
     );
@@ -172,7 +207,7 @@ export function buildAll({ check = false, log = console.log } = {}) {
   const stale = [];
   let count = 0;
   for (const file of listSlang(SLANG_DIR)) {
-    const out = compileOne(slangc, file);
+    const out = compileOne(exe, file);
     if (!out) continue;
     count += 1;
     const dest = path.join(OUT_DIR, `${out.rel}.ts`);

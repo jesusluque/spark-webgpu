@@ -23,6 +23,27 @@ RWStructuredBuffer<uint4> encoded;
 RWStructuredBuffer<float4> decoded;
 ConstantBuffer<CodecParams> params;
 
+// Decodes splats the CPU encoded (src/utils.ts setPackedSplat and
+// encodeExtSplat), laid out in `encoded` as codecRoundTrip writes them.
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void codecDecode(uint3 tid: SV_DispatchThreadID) {
+    uint i = tid.x;
+    if (i >= params.count) {
+        return;
+    }
+    Gsplat gp = readPackedSplat(encoded[3 * i], int(i));
+    decoded[8 * i + 0] = float4(gp.center, float(gp.flags));
+    decoded[8 * i + 1] = float4(gp.scales, 0.0);
+    decoded[8 * i + 2] = gp.quaternion;
+    decoded[8 * i + 3] = gp.rgba;
+    Gsplat ge = readExtSplat(encoded[3 * i + 1], encoded[3 * i + 2], int(i));
+    decoded[8 * i + 4] = float4(ge.center, float(ge.flags));
+    decoded[8 * i + 5] = float4(ge.scales, 0.0);
+    decoded[8 * i + 6] = ge.quaternion;
+    decoded[8 * i + 7] = ge.rgba;
+}
+
 // SH: per case, view direction + numSh, shMax, packed sh1 (xy), sh2, sh3,
 // then ext sh1, sh2, sh3a, sh3b. Output: packed rgb, ext rgb.
 StructuredBuffer<float4> shDirs;

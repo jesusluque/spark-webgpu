@@ -14,7 +14,12 @@ export const reflection = {
         16,
         1
       ],
-      "uses": []
+      "uses": [
+        "src",
+        "mesh",
+        "dst",
+        "params"
+      ]
     },
     {
       "name": "pinBlur",
@@ -24,7 +29,11 @@ export const reflection = {
         16,
         1
       ],
-      "uses": []
+      "uses": [
+        "src",
+        "dst",
+        "params"
+      ]
     }
   ],
   "bindings": [

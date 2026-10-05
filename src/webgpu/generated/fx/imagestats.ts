@@ -14,7 +14,11 @@ export const reflection = {
         16,
         1
       ],
-      "uses": []
+      "uses": [
+        "src",
+        "sums",
+        "params"
+      ]
     },
     {
       "name": "statsFold",
@@ -24,7 +28,10 @@ export const reflection = {
         16,
         1
       ],
-      "uses": []
+      "uses": [
+        "sums",
+        "params"
+      ]
     },
     {
       "name": "statsCopy",
@@ -34,7 +41,11 @@ export const reflection = {
         16,
         1
       ],
-      "uses": []
+      "uses": [
+        "src",
+        "dst",
+        "params"
+      ]
     }
   ],
   "bindings": [

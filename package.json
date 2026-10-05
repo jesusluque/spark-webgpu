@@ -43,6 +43,7 @@
     "site:serve": "node scripts/serve-site.js site",
     "start": "npm run dev",
     "test": "vitest run --reporter=dot --dir test/unit",
+    "test:gpu": "vitest run --dir test/gpu",
     "test:browser": "playwright test -c test/browser/playwright.config.ts",
     "test:browser:update": "playwright test -c test/browser/playwright.config.ts --update-snapshots",
     "test:rust": "cargo test --locked --manifest-path rust/Cargo.toml --workspace",
@@ -68,7 +69,8 @@
     "vite": "^8.3.0",
     "vite-plugin-arraybuffer": "^0.1.4",
     "vite-plugin-glsl": "^1.6.1",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.1",
+    "webgpu": "^0.6.2"
   },
   "peerDependencies": {
     "three": ">=0.180.0"

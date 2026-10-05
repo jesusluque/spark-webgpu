@@ -14,7 +14,10 @@ export const reflection = {
         16,
         1
       ],
-      "uses": []
+      "uses": [
+        "dst",
+        "params"
+      ]
     },
     {
       "name": "checkerBoardMain",
@@ -24,7 +27,10 @@ export const reflection = {
         16,
         1
       ],
-      "uses": []
+      "uses": [
+        "dst",
+        "params"
+      ]
     },
     {
       "name": "colorBarsMain",
@@ -34,7 +40,10 @@ export const reflection = {
         16,
         1
       ],
-      "uses": []
+      "uses": [
+        "dst",
+        "params"
+      ]
     },
     {
       "name": "colorWheelMain",
@@ -44,7 +53,10 @@ export const reflection = {
         16,
         1
       ],
-      "uses": []
+      "uses": [
+        "dst",
+        "params"
+      ]
     }
   ],
   "bindings": [
