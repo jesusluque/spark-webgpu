@@ -16,7 +16,7 @@ import type {
 import { type SplatMesh, maybeInjectSplatRgba } from "../../SplatMesh";
 import { type Dyno, type IOTypes, dynoBlock } from "../../dyno/base";
 import { CovSplat, Gsplat, splitGsplat } from "../../dyno/splats";
-import { dynoConst } from "../../dyno/value";
+import { DynoBool } from "../../dyno/uniforms";
 import type { WgpuDyno, WgpuDynoFrame } from "./DynoKernels";
 
 // A modifier per wrapped object, so the graph keeps its identity across
@@ -62,19 +62,31 @@ function asCovModifier(
   return modifier;
 }
 
+// Per mesh: whether it is drawn through LOD this frame (WgpuDynoFrame.lod).
+const lodFlags = new WeakMap<SplatMesh, DynoBool<string>>();
+function lodFlag(mesh: SplatMesh) {
+  let flag = lodFlags.get(mesh);
+  if (!flag) {
+    flag = new DynoBool({ value: false });
+    lodFlags.set(mesh, flag);
+  }
+  return flag;
+}
+
 // SplatMesh.splatRgba, the baked colours that replace the source's, as the
 // first object modifier. By source index: meshes drawn through LOD leave it
-// out (as SparkRenderer does with LoD on).
+// out, as SparkRenderer does.
 function splatRgbaModifiers(mesh: SplatMesh): GsplatModifier[] {
   const rgba = mesh.splatRgba;
   if (!rgba) return [];
   return [
-    asModifier(rgba, rgba.dyno, (g) =>
+    // Keyed by the mesh's flag: meshes may share an RgbaArray.
+    asModifier(lodFlag(mesh), rgba.dyno, (g) =>
       maybeInjectSplatRgba(
         g as never,
         rgba.dyno,
         splitGsplat(g as never).outputs.index,
-        dynoConst("bool", false),
+        lodFlag(mesh),
       ),
     ),
   ];
@@ -202,6 +214,7 @@ export function updateSplatMeshEdits(
 /** The dyno uniforms SplatMesh.update sets, for WebGPU frames. */
 export function updateSplatMeshContext(mesh: SplatMesh, frame: WgpuDynoFrame) {
   const { context } = mesh;
+  lodFlag(mesh).value = frame.lod ?? false;
   context.time.value = frame.time;
   context.deltaTime.value = frame.deltaTime;
   (mesh.constructor as typeof SplatMesh).dynoTime.value = frame.time;

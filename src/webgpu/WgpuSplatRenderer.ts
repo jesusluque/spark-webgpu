@@ -426,7 +426,13 @@ export class WgpuSplatRenderer {
     const deltaTime = time - this.lastTime;
     this.lastTime = time;
     for (const mesh of this.meshes) {
-      mesh.dyno?.update?.({ camera, object: mesh.object, time, deltaTime });
+      mesh.dyno?.update?.({
+        camera,
+        object: mesh.object,
+        time,
+        deltaTime,
+        lod: mesh.lodIndices != null,
+      });
     }
     // Generate-skipping frames must regenerate when this is set (dyno
     // uniforms animated by time, edited SDFs...).

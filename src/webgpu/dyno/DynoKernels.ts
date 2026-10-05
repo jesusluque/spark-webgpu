@@ -25,6 +25,8 @@ export interface WgpuDynoFrame {
   /** Seconds, from performance.now(). */
   time: number;
   deltaTime: number;
+  /** The mesh is drawn through LOD indices (its source is the LoD tree). */
+  lod?: boolean;
 }
 
 /**
