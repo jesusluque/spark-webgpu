@@ -138,3 +138,16 @@ export {
   splatMeshDyno,
 } from "./webgpu/dyno/adapters";
 export type { WgpuDyno, WgpuDynoFrame } from "./webgpu/dyno/DynoKernels";
+export {
+  SplatAttributes,
+  type SplatAttributesOptions,
+  type AttribColorMode,
+  type PickResult,
+} from "./webgpu/attributes/SplatAttributes";
+export {
+  AttribPool,
+  type AttribFormat,
+  type AttributeSpec,
+  type LodMerge,
+} from "./webgpu/attributes/schema";
+export { PlyAttributeReader } from "./webgpu/attributes/plyAttributes";

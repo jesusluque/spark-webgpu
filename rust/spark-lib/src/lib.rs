@@ -1,5 +1,6 @@
 
 pub mod tsplat;
+pub mod attrib;
 #[cfg(feature = "gsplat")]
 pub mod gsplat;
 #[cfg(feature = "csplat")]

@@ -76,11 +76,23 @@ struct VertexOut {
     nointerpolation uint splatIndex : TEXCOORD2;
 };
 
+// VertexOut without semantics, for the stage functions below: slangc gives
+// every field of a semantic struct location 0 when it is not an entry's own
+// input or output.
+struct SplatVertex {
+    float4 position;
+    float4 rgba;
+    float2 splatUv;
+    float adjustedStdDev;
+    uint splatIndex;
+};
+
 static const float2 CORNERS[4] = { float2(-1.0, -1.0), float2(1.0, -1.0), float2(-1.0, 1.0), float2(1.0, 1.0) };
 
-[shader("vertex")]
-VertexOut splatVertex(uint vertexId: SV_VertexID, uint instanceId: SV_InstanceID) {
-    VertexOut o;
+// The stages as plain functions, for draw variants to call (slangc hangs
+// calling an entry point from another).
+SplatVertex computeSplatVertex(uint vertexId, uint instanceId) {
+    SplatVertex o;
     // Outside the clip volume, so the quad is dropped if we return early.
     o.position = float4(0.0, 0.0, 2.0, 1.0);
     o.rgba = float4(0.0);
@@ -253,8 +265,7 @@ VertexOut splatVertex(uint vertexId: SV_VertexID, uint instanceId: SV_InstanceID
     return o;
 }
 
-[shader("fragment")]
-float4 splatFragment(VertexOut v) : SV_Target {
+float4 computeSplatFragment(SplatVertex v) {
     float4 rgba = v.rgba;
     float z2 = dot(v.splatUv, v.splatUv);
     if (z2 > v.adjustedStdDev * v.adjustedStdDev) {
@@ -274,4 +285,15 @@ float4 splatFragment(VertexOut v) : SV_Target {
         rgba.rgb = srgbToLinear(rgba.rgb);
     }
     return hasFlag(DRAW_PREMULTIPLIED) ? float4(rgba.rgb * rgba.a, rgba.a) : rgba;
+}
+
+[shader("vertex")]
+VertexOut splatVertex(uint vertexId: SV_VertexID, uint instanceId: SV_InstanceID) {
+    SplatVertex s = computeSplatVertex(vertexId, instanceId);
+    return { s.position, s.rgba, s.splatUv, s.adjustedStdDev, s.splatIndex };
+}
+
+[shader("fragment")]
+float4 splatFragment(VertexOut v) : SV_Target {
+    return computeSplatFragment({ v.position, v.rgba, v.splatUv, v.adjustedStdDev, v.splatIndex });
 }

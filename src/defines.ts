@@ -90,6 +90,8 @@ export type PackedExtra = {
   readonly sh3Codes?: Uint32Array;
   readonly lodTree?: Uint32Array;
   readonly radMeta?: RadMeta;
+  /** Per-Gaussian attributes, an AttribPool (src/webgpu/attributes). */
+  readonly attribs?: object;
 };
 
 export type PackedResult = {
@@ -109,6 +111,8 @@ export type ExtExtra = {
   readonly sh3Codes?: [Uint32Array, Uint32Array];
   readonly lodTree?: Uint32Array;
   readonly radMeta?: RadMeta;
+  /** Per-Gaussian attributes, an AttribPool (src/webgpu/attributes). */
+  readonly attribs?: object;
 };
 
 export type ExtResult = {

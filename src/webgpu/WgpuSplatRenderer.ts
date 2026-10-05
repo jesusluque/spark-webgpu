@@ -95,6 +95,41 @@ export interface WgpuSplatRendererOptions {
   focalAdjustment?: number;
 }
 
+/** A mesh's output range in the accumulator this frame. */
+export interface SplatMeshRange {
+  mesh: WgpuSplatMesh;
+  base: number;
+  count: number;
+}
+
+export interface SplatDrawContext {
+  colorTarget: GPUColorTargetState;
+  depthStencil?: GPUDepthStencilState;
+  width: number;
+  height: number;
+}
+
+/** A draw pipeline replacing the default one, with its extra resources. */
+export interface SplatDrawVariant {
+  pipeline: ReflectedRenderPipeline;
+  /** Bindings besides ordering, splats and params. */
+  buffers: Record<string, GPUBuffer>;
+  /** Color attachments after the main one (null for unused targets). */
+  attachments: (GPURenderPassColorAttachment | null)[];
+}
+
+/**
+ * Optional work around the core passes, e.g. per-Gaussian attributes
+ * (src/webgpu/attributes): extra compute after generate, a draw variant.
+ */
+export interface SplatRendererStage {
+  generate?(
+    encoder: GPUCommandEncoder,
+    ranges: readonly SplatMeshRange[],
+  ): void;
+  draw?(context: SplatDrawContext): SplatDrawVariant | null;
+}
+
 interface WebGPURendererLike {
   backend: {
     isWebGPUBackend?: boolean;
@@ -122,6 +157,7 @@ export class WgpuSplatRenderer {
   options: Required<WgpuSplatRendererOptions>;
   /** What the device allows; consulted for the sort path and sizes. */
   readonly capabilities: GpuCapabilities;
+  readonly stages: SplatRendererStage[] = [];
 
   private capacity = 0;
   private accumulator: GPUBuffer | null = null;
@@ -304,7 +340,11 @@ export class WgpuSplatRenderer {
     ];
     for (const m of this.meshes) {
       m.object.updateMatrixWorld();
-      sig.push(...m.object.matrixWorld.elements, ...m.recolor.toArray());
+      sig.push(
+        ...m.object.matrixWorld.elements,
+        ...m.recolor.toArray(),
+        m.source.version,
+      );
     }
     const same =
       !this.dirty &&
@@ -349,7 +389,7 @@ export class WgpuSplatRenderer {
     const encoder = this.device.createCommandEncoder({ label: "splats" });
     if (this.options.sort === "gpu") {
       if (this.changedSince(camera, total)) {
-        this.generate(encoder, cameraPos, cameraDir);
+        this.generateAll(encoder, cameraPos, cameraDir);
         const pass = encoder.beginComputePass({ label: "sort" });
         this.sorter.encode(
           pass,
@@ -364,7 +404,7 @@ export class WgpuSplatRenderer {
       this.registry.submit(encoder.finish());
       return;
     }
-    this.generate(encoder, cameraPos, cameraDir);
+    this.generateAll(encoder, cameraPos, cameraDir);
     this.draw(encoder, camera, target);
     const version = this.mappingVersion;
     const readback = this.sortPending ? null : this.copyMetric(encoder, total);
@@ -407,6 +447,25 @@ export class WgpuSplatRenderer {
       depth,
       linear: target.texture.colorSpace !== THREE.SRGBColorSpace,
     };
+  }
+
+  // generate, then the stages that follow it (attribute gathering...), on
+  // every frame that regenerates.
+  private generateAll(
+    encoder: GPUCommandEncoder,
+    cameraPos: THREE.Vector3,
+    cameraDir: THREE.Vector3,
+  ) {
+    this.generate(encoder, cameraPos, cameraDir);
+    if (this.stages.length) {
+      let base = 0;
+      const ranges = this.meshes.map((mesh) => {
+        const count = this.meshCount(mesh);
+        base += count;
+        return { mesh, base: base - count, count };
+      });
+      for (const s of this.stages) s.generate?.(encoder, ranges);
+    }
   }
 
   private generate(
@@ -525,6 +584,26 @@ export class WgpuSplatRenderer {
     }
   }
 
+  private pipelineStates(
+    format: GPUTextureFormat,
+    depthFormat: GPUTextureFormat | null,
+  ): { colorTarget: GPUColorTargetState; depthStencil?: GPUDepthStencilState } {
+    const blend: GPUBlendState = {
+      color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+      alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+    };
+    return {
+      colorTarget: { format, blend },
+      depthStencil: depthFormat
+        ? {
+            format: depthFormat,
+            depthWriteEnabled: false,
+            depthCompare: "less-equal",
+          }
+        : undefined,
+    };
+  }
+
   private pipeline(
     format: GPUTextureFormat,
     depthFormat: GPUTextureFormat | null,
@@ -532,21 +611,15 @@ export class WgpuSplatRenderer {
     const key = `${format}/${depthFormat}`;
     let p = this.pipelines.get(key);
     if (!p) {
-      const blend: GPUBlendState = {
-        color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
-        alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
-      };
+      const { colorTarget, depthStencil } = this.pipelineStates(
+        format,
+        depthFormat,
+      );
       p = createReflectedRenderPipeline(this.device, drawModule, {
         vertex: "splatVertex",
         fragment: "splatFragment",
-        targets: [{ format, blend }],
-        depthStencil: depthFormat
-          ? {
-              format: depthFormat,
-              depthWriteEnabled: false,
-              depthCompare: "less-equal",
-            }
-          : undefined,
+        targets: [colorTarget],
+        depthStencil,
       });
       this.pipelines.set(key, p);
     }
@@ -610,16 +683,27 @@ export class WgpuSplatRenderer {
     });
     this.device.queue.writeBuffer(this.drawUniform, 0, params.data);
 
-    const rp = this.pipeline(target.format, depthFormat);
+    let variant: SplatDrawVariant | null = null;
+    for (const s of this.stages) {
+      variant ??=
+        s.draw?.({
+          ...this.pipelineStates(target.format, depthFormat),
+          width: size.x,
+          height: size.y,
+        }) ?? null;
+    }
+    const rp = variant?.pipeline ?? this.pipeline(target.format, depthFormat);
     const groups = createBindGroups(this.device, rp, {
       ordering: gpu ? this.sorter.ordering : (this.ordering as GPUBuffer),
       splats: this.accumulator as GPUBuffer,
       params: this.drawUniform,
+      ...variant?.buffers,
     });
     const pass = encoder.beginRenderPass({
       label: "splats",
       colorAttachments: [
         { view: target.createView(), loadOp: "load", storeOp: "store" },
+        ...(variant?.attachments ?? []),
       ],
       depthStencilAttachment: depthView
         ? {

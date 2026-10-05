@@ -3,10 +3,23 @@
 
 import type { ExtSplats } from "../ExtSplats";
 import type { PackedSplats } from "../PackedSplats";
+import {
+  type AttribFormat,
+  AttribPool,
+  type AttributeSpec,
+} from "./attributes/schema";
 import { upload } from "./gpuBuffers";
 
 /** Splats on the GPU in the layout kernels/generate.slang reads. */
 export class GpuSplatSource {
+  /** Extra per-Gaussian attributes (src/webgpu/attributes), if any. */
+  attribs: AttribPool | null = null;
+  /**
+   * Bumped by setAttribute, so renderers regenerate. Changes made straight
+   * on the AttribPool need renderer.markDirty() instead.
+   */
+  version = 0;
+
   constructor(
     readonly format: "packed" | "ext",
     readonly count: number,
@@ -99,7 +112,7 @@ export class GpuSplatSource {
     if (!splats.packedArray) throw new Error("PackedSplats has no data");
     const e = splats.splatEncoding;
     const extra = splats.extra as Record<string, Uint32Array | undefined>;
-    return GpuSplatSource.fromPacked(
+    const source = GpuSplatSource.fromPacked(
       device,
       splats.packedArray,
       splats.numSplats,
@@ -112,6 +125,8 @@ export class GpuSplatSource {
         lodOpacity: e.lodOpacity,
       },
     );
+    source.attribs = attribsOf(splats.extra);
+    return source;
   }
 
   /** From a loaded ExtSplats (await extSplats.initialized first). */
@@ -119,16 +134,45 @@ export class GpuSplatSource {
     const [a, b] = splats.extArrays;
     const extra = splats.extra as Record<string, Uint32Array | undefined>;
     const sh3 = extra.sh3a && extra.sh3b;
-    return GpuSplatSource.fromExt(device, a, b, splats.numSplats, {
+    const source = GpuSplatSource.fromExt(device, a, b, splats.numSplats, {
       sh1: extra.sh1,
       sh2: extra.sh1 ? extra.sh2 : undefined,
       sh3a: sh3 ? extra.sh3a : undefined,
       sh3b: sh3 ? extra.sh3b : undefined,
     });
+    source.attribs = attribsOf(splats.extra);
+    return source;
+  }
+
+  /**
+   * Adds or replaces a per-Gaussian attribute from `count * components`
+   * values (see AttribPool.setAttribute); toDraw makes it readable when drawn.
+   */
+  setAttribute(
+    name: string,
+    data: ArrayLike<number>,
+    format?: AttribFormat,
+    components = 1,
+    options: Partial<
+      Omit<AttributeSpec, "name" | "format" | "components">
+    > = {},
+  ): AttributeSpec {
+    this.attribs ??= new AttribPool(this.count);
+    this.version += 1;
+    return this.attribs.setAttribute(name, data, format, components, options);
   }
 
   destroy() {
     this.src.destroy();
     this.sh?.destroy();
   }
+}
+
+// extra.attribs as loaded (a plain object after the worker's postMessage).
+function attribsOf(extra: Record<string, unknown>): AttribPool | null {
+  const a = extra.attribs as AttribPool | undefined;
+  if (!a) return null;
+  const pool = AttribPool.from(a);
+  extra.attribs = pool;
+  return pool;
 }
