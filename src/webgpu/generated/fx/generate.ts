@@ -77,147 +77,205 @@ export const reflection = {
         {
           "name": "dstWidth",
           "offset": 0,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstHeight",
           "offset": 4,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstStride",
           "offset": 8,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "originX",
           "offset": 12,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "originY",
           "offset": 16,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "frameX1",
           "offset": 20,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "frameY1",
           "offset": 24,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "frameX2",
           "offset": 28,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "frameY2",
           "offset": 32,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "pad0",
           "offset": 36,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "pad1",
           "offset": 40,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "pad2",
           "offset": 44,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "colour",
           "offset": 48,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "checker0",
           "offset": 64,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "checker1",
           "offset": 80,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "checker2",
           "offset": 96,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "checker3",
           "offset": 112,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "lineColour",
           "offset": 128,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "boxSize",
           "offset": 144,
-          "size": 8
+          "size": 8,
+          "scalar": "float32",
+          "components": 2
         },
         {
           "name": "lineWidth",
           "offset": 152,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "barLevel",
           "offset": 156,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "centreSaturation",
           "offset": 160,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "edgeSaturation",
           "offset": 164,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "centreValue",
           "offset": 168,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "edgeValue",
           "offset": 172,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "wheelGamma",
           "offset": 176,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "rotate",
           "offset": 180,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "pad3",
           "offset": 184,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "pad4",
           "offset": 188,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         }
       ]
     }

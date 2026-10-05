@@ -54,92 +54,128 @@ export const reflection = {
         {
           "name": "srcWidth",
           "offset": 0,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcHeight",
           "offset": 4,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcStride",
           "offset": 8,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcOffsetX",
           "offset": 12,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "srcOffsetY",
           "offset": 16,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "dstWidth",
           "offset": 20,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstHeight",
           "offset": 24,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstStride",
           "offset": 28,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "hasMask",
           "offset": 32,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "maskWidth",
           "offset": 36,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "maskHeight",
           "offset": 40,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "maskStride",
           "offset": 44,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "maskOffsetX",
           "offset": 48,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "maskOffsetY",
           "offset": 52,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "maskInvert",
           "offset": 56,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "premult",
           "offset": 60,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "premultChannel",
           "offset": 64,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "mix",
           "offset": 68,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         }
       ]
     }

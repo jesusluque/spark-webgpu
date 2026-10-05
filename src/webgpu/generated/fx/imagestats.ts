@@ -80,82 +80,114 @@ export const reflection = {
         {
           "name": "srcWidth",
           "offset": 0,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcHeight",
           "offset": 4,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcStride",
           "offset": 8,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "rows",
           "offset": 12,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "x1",
           "offset": 16,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "y1",
           "offset": 20,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "x2",
           "offset": 24,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "y2",
           "offset": 28,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstWidth",
           "offset": 32,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstHeight",
           "offset": 36,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstStride",
           "offset": 40,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcOffsetX",
           "offset": 44,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "srcOffsetY",
           "offset": 48,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "pad0",
           "offset": 52,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "pad1",
           "offset": 56,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "pad2",
           "offset": 60,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         }
       ]
     }

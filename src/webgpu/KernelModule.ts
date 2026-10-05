@@ -10,6 +10,11 @@ export interface UniformField {
   readonly name: string;
   readonly offset: number;
   readonly size: number;
+  /** "float32", "uint32" or "int32" for scalars, vectors and matrices. */
+  readonly scalar?: string;
+  readonly components?: number;
+  /** Set instead of scalar for structs and arrays, which can't be packed by name. */
+  readonly kind?: string;
 }
 
 export interface BindingReflection {

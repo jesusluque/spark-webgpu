@@ -54,82 +54,114 @@ export const reflection = {
         {
           "name": "width",
           "offset": 0,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "height",
           "offset": 4,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "aStride",
           "offset": 8,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "bStride",
           "offset": 12,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstStride",
           "offset": 16,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "aOffsetX",
           "offset": 20,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "aOffsetY",
           "offset": 24,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "bOffsetX",
           "offset": 28,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "bOffsetY",
           "offset": 32,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "aWidth",
           "offset": 36,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "aHeight",
           "offset": 40,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "bWidth",
           "offset": 44,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "bHeight",
           "offset": 48,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "operation",
           "offset": 52,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "screenAlpha",
           "offset": 56,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "pad0",
           "offset": 60,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         }
       ]
     }

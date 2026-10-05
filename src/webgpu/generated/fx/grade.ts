@@ -54,97 +54,135 @@ export const reflection = {
         {
           "name": "width",
           "offset": 0,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "height",
           "offset": 4,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcStride",
           "offset": 8,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstStride",
           "offset": 12,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "blackPoint",
           "offset": 16,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "whitePoint",
           "offset": 32,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "black",
           "offset": 48,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "white",
           "offset": 64,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "multiply",
           "offset": 80,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "offset",
           "offset": 96,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "gamma",
           "offset": 112,
-          "size": 16
+          "size": 16,
+          "scalar": "float32",
+          "components": 4
         },
         {
           "name": "clampBlack",
           "offset": 128,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "clampWhite",
           "offset": 132,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "reverse",
           "offset": 136,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "wantClip",
           "offset": 140,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcOffsetX",
           "offset": 144,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "srcOffsetY",
           "offset": 148,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "srcWidth",
           "offset": 152,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcHeight",
           "offset": 156,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         }
       ]
     }

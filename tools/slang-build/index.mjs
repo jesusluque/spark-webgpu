@@ -77,6 +77,22 @@ function scalarBytes(t) {
   return 0;
 }
 
+// Scalar type and component count of a uniform field, for packing by name.
+function fieldType(t) {
+  if (!t) return {};
+  if (t.kind === "scalar") return { scalar: t.scalarType, components: 1 };
+  if (t.kind === "vector") {
+    return { scalar: t.elementType?.scalarType, components: t.elementCount };
+  }
+  if (t.kind === "matrix") {
+    return {
+      scalar: t.elementType?.scalarType,
+      components: t.rowCount * t.columnCount,
+    };
+  }
+  return { kind: t.kind };
+}
+
 export function reflect(json) {
   const bindings = [];
   for (const p of json.parameters ?? []) {
@@ -97,6 +113,7 @@ export function reflect(json) {
         name: f.name,
         offset: f.binding?.offset ?? 0,
         size: f.binding?.size ?? 0,
+        ...fieldType(f.type),
       }));
     } else if (t.kind === "resource" && t.baseShape === "byteAddressBuffer") {
       entry.kind = t.access === "readWrite" ? "storage" : "read-only-storage";

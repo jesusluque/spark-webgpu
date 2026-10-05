@@ -46,102 +46,142 @@ export const reflection = {
         {
           "name": "width",
           "offset": 0,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "height",
           "offset": 4,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcStride",
           "offset": 8,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstStride",
           "offset": 12,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcX1",
           "offset": 16,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "srcY1",
           "offset": 20,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "srcWidth",
           "offset": 24,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "srcHeight",
           "offset": 28,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "dstX1",
           "offset": 32,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "dstY1",
           "offset": 36,
-          "size": 4
+          "size": 4,
+          "scalar": "int32",
+          "components": 1
         },
         {
           "name": "m0",
           "offset": 40,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "m1",
           "offset": 44,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "m2",
           "offset": 48,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "m3",
           "offset": 52,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "m4",
           "offset": 56,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "m5",
           "offset": 60,
-          "size": 4
+          "size": 4,
+          "scalar": "float32",
+          "components": 1
         },
         {
           "name": "filter",
           "offset": 64,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "blackOutside",
           "offset": 68,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "doClamp",
           "offset": 72,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         },
         {
           "name": "pad0",
           "offset": 76,
-          "size": 4
+          "size": 4,
+          "scalar": "uint32",
+          "components": 1
         }
       ]
     }
