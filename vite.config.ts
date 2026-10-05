@@ -3,6 +3,7 @@ import path from "node:path";
 import { defineConfig } from "vite";
 import arraybuffer from "vite-plugin-arraybuffer";
 import glsl from "vite-plugin-glsl";
+import { slangBuild } from "./tools/slang-build/index.mjs";
 
 const sparkRsDirectory = "rust/spark-rs/pkg";
 if (!fs.existsSync(sparkRsDirectory) && !process.env.VITEST) {
@@ -48,6 +49,7 @@ export default defineConfig(({ mode }) => {
       glsl({
         include: ["**/*.glsl"],
       }),
+      slangBuild(),
 
       {
         name: "serve-node-modules-alias",

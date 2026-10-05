@@ -23,6 +23,8 @@
     "build:production": "vite build --mode production",
     "build:types": "tsc",
     "build:wasm": "node rust/build_wasm.js",
+    "build:slang": "node tools/slang-build/index.mjs",
+    "check:slang": "node tools/slang-build/index.mjs --check",
     "build:watch": "onchange 'src/**/*.{ts,glsl}' -- npm run build:dev",
     "build-lod": "cargo run --manifest-path rust/build-lod/Cargo.toml --release --",
     "clean": "rm -rf dist/ && rm -rf node_modules/ && rm -rf rust/target/ && rm -rf rust/spark-rs/pkg/ && npm run assets:clean",
