@@ -4,10 +4,13 @@
 
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
+import { RgbaArray } from "../../src/RgbaArray";
 import { CovSplatTransformer } from "../../src/SplatGenerator";
+import { maybeInjectSplatRgba } from "../../src/SplatMesh";
 import { SplatSkinning, SplatSkinningMode } from "../../src/SplatSkinning";
 import { dynoBlock } from "../../src/dyno/base";
-import { CovSplat } from "../../src/dyno/splats";
+import { CovSplat, Gsplat, splitGsplat } from "../../src/dyno/splats";
+import { dynoConst } from "../../src/dyno/value";
 import { encodeExtSplat } from "../../src/utils";
 import {
   GpuSplatSource,
@@ -278,6 +281,40 @@ describe.skipIf(!device)("WgpuSplatRenderer features", () => {
     const diff = meanDiff(projected, flat2d);
     expect(diff).toBeGreaterThan(0);
     expect(diff).toBeLessThan(4);
+  });
+
+  it("replaces colours from an RgbaArray (SplatMesh.splatRgba)", async () => {
+    const list = grid();
+    // Pure blue for every splat but the last row, past the array's count.
+    const count = list.length - 13;
+    const array = new Uint8Array(count * 4);
+    for (let i = 0; i < count; i++) array.set([0, 0, 255, 204], 4 * i);
+    const rgba = new RgbaArray({ array, count });
+    const modifier = dynoBlock(
+      { gsplat: Gsplat },
+      { gsplat: Gsplat },
+      ({ gsplat }) => ({
+        gsplat: maybeInjectSplatRgba(
+          gsplat as never,
+          rgba.dyno,
+          splitGsplat(gsplat as never).outputs.index,
+          dynoConst("bool", false),
+        ),
+      }),
+    );
+    const px = await render(list, {}, undefined, {
+      objectModifiers: [modifier],
+    });
+    let blue = 0;
+    let other = 0;
+    for (let i = 0; i < W * H; i++) {
+      const [r, g, b] = [px[4 * i], px[4 * i + 1], px[4 * i + 2]];
+      if (b > 40 && r < 5 && g < 5) blue++;
+      else if (r + g > 40) other++;
+    }
+    expect(blue).toBeGreaterThan(W * H * 0.1);
+    expect(other).toBeGreaterThan(0); // the last row keeps its colours
+    expect(other).toBeLessThan(blue / 4);
   });
 
   it("depth of field blurs splats off the focal plane", async () => {

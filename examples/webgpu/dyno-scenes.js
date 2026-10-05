@@ -10,6 +10,8 @@
 //   ?scene=snow     generators.snowBox
 //   ?scene=skin     the butterfly flapping by linear-blend SplatSkinning
 //                   (covariance splats)
+//   ?scene=rgba     the butterfly recoloured by SplatMesh.splatRgba (an
+//                   RgbaArray of channel-swapped colours)
 //   &cov=1          covariance splats: an ExtSplats mesh with covSplats, and
 //                   the renderer's covSplats (implied by scene=skin)
 //   &t=<seconds>    a fixed time for screenshots; animates when absent
@@ -378,6 +380,15 @@ export async function buildScene({ THREE, spark, getAssetFileURL, params }) {
       box.position.set(-0.35, -0.2, 0);
       edit.add(sphere, box);
       mesh.add(edit);
+    } else if (params.scene === "rgba") {
+      await mesh.initialized;
+      const splats = mesh.extSplats ?? mesh.packedSplats;
+      const array = new Uint8Array(splats.numSplats * 4);
+      splats.forEachSplat((i, _center, _scales, _quat, opacity, color) => {
+        const b = (v) => Math.round(Math.min(1, Math.max(0, v)) * 255);
+        array.set([b(color.b), b(color.r), b(color.g), b(opacity)], 4 * i);
+      });
+      mesh.splatRgba = new spark.RgbaArray({ array });
     } else if (params.scene === "skin") {
       await mesh.initialized;
       const skin = skinWings(THREE, spark, mesh);

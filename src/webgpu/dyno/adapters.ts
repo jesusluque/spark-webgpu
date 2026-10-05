@@ -13,9 +13,10 @@ import type {
   GsplatModifier,
   SplatGenerator,
 } from "../../SplatGenerator";
-import type { SplatMesh } from "../../SplatMesh";
+import { type SplatMesh, maybeInjectSplatRgba } from "../../SplatMesh";
 import { type Dyno, type IOTypes, dynoBlock } from "../../dyno/base";
-import { CovSplat, Gsplat } from "../../dyno/splats";
+import { CovSplat, Gsplat, splitGsplat } from "../../dyno/splats";
+import { dynoConst } from "../../dyno/value";
 import type { WgpuDyno, WgpuDynoFrame } from "./DynoKernels";
 
 // A modifier per wrapped object, so the graph keeps its identity across
@@ -61,6 +62,24 @@ function asCovModifier(
   return modifier;
 }
 
+// SplatMesh.splatRgba, the baked colours that replace the source's, as the
+// first object modifier. By source index: meshes drawn through LOD leave it
+// out (as SparkRenderer does with LoD on).
+function splatRgbaModifiers(mesh: SplatMesh): GsplatModifier[] {
+  const rgba = mesh.splatRgba;
+  if (!rgba) return [];
+  return [
+    asModifier(rgba, rgba.dyno, (g) =>
+      maybeInjectSplatRgba(
+        g as never,
+        rgba.dyno,
+        splitGsplat(g as never).outputs.index,
+        dynoConst("bool", false),
+      ),
+    ),
+  ];
+}
+
 /**
  * A SplatMesh's dyno pipeline on WebGPU: skinning and objectModifiers in
  * object space, SDF edits and worldModifiers in world space, as in
@@ -91,7 +110,7 @@ export function splatMeshDyno(
           ),
         );
       }
-      return mods;
+      return [...splatRgbaModifiers(mesh), ...mods];
     },
     get worldModifiers() {
       const mods = [...(mesh.worldModifiers ?? [])];
@@ -117,7 +136,7 @@ function covSplatMeshDyno(
 ): WgpuDyno {
   return {
     get objectModifiers() {
-      return mesh.objectModifiers ?? [];
+      return [...splatRgbaModifiers(mesh), ...(mesh.objectModifiers ?? [])];
     },
     get covObjectModifiers() {
       const mods = [...(mesh.covObjectModifiers ?? [])];
