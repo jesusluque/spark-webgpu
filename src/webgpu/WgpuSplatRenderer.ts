@@ -22,9 +22,14 @@
 
 import * as THREE from "three";
 import { GpuSorter } from "./GpuSorter";
-import type { GpuSplatSource } from "./GpuSplatSource";
+import { GpuSplatSource } from "./GpuSplatSource";
 import { KernelRegistry } from "./KernelRegistry";
 import { sortBackToFront } from "./cpuSort";
+import {
+  type DynoDispatch,
+  DynoKernels,
+  type WgpuDyno,
+} from "./dyno/DynoKernels";
 import drawModule from "./generated/draw/splat_draw";
 import generateModule from "./generated/kernels/generate";
 import { createStorage, upload } from "./gpuBuffers";
@@ -40,6 +45,7 @@ const GEN_OUT_EXT = 2;
 const GEN_USE_LOD = 4;
 const GEN_LOD_OPACITY = 8;
 const GEN_SORT_RADIAL = 16;
+const GEN_DYNO_SOURCE = 256;
 
 const DRAW_EXT = 1;
 const DRAW_ORTHOGRAPHIC = 16;
@@ -53,6 +59,8 @@ export interface WgpuSplatMesh {
   /** Source indices to draw, from LOD traversal; all splats when null. */
   lodIndices: Uint32Array | null;
   lodBuffer: GPUBuffer | null;
+  /** Dyno generator and modifiers run in the generate kernel. */
+  dyno?: WgpuDyno;
 }
 
 export interface WgpuSplatRendererOptions {
@@ -101,6 +109,8 @@ export class WgpuSplatRenderer {
   private drawUniform: GPUBuffer;
   private pipelines = new Map<string, ReflectedRenderPipeline>();
   private emptyBuffer: GPUBuffer;
+  private dynoKernels: DynoKernels;
+  private lastTime = performance.now() / 1000;
 
   // Sort state: a readback in flight, and the order last uploaded.
   private sortPending = false;
@@ -141,11 +151,17 @@ export class WgpuSplatRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.emptyBuffer = createStorage(this.device, 16, "empty");
+    this.dynoKernels = new DynoKernels(
+      this.registry,
+      generateModule,
+      "generate",
+    );
   }
 
   add(
     source: GpuSplatSource,
     object: THREE.Object3D = new THREE.Object3D(),
+    dyno?: WgpuDyno,
   ): WgpuSplatMesh {
     const mesh: WgpuSplatMesh = {
       source,
@@ -153,10 +169,21 @@ export class WgpuSplatRenderer {
       recolor: new THREE.Vector4(1, 1, 1, 1),
       lodIndices: null,
       lodBuffer: null,
+      dyno,
     };
     this.meshes.push(mesh);
     this.mappingVersion += 1;
     return mesh;
+  }
+
+  /** `numSplats` splats made by a dyno generator (SplatGenerator-style). */
+  addGenerator(
+    numSplats: number,
+    dyno: WgpuDyno,
+    object: THREE.Object3D = new THREE.Object3D(),
+  ): WgpuSplatMesh {
+    const source = new GpuSplatSource("packed", numSplats, this.emptyBuffer);
+    return this.add(source, object, dyno);
   }
 
   remove(mesh: WgpuSplatMesh) {
@@ -217,6 +244,13 @@ export class WgpuSplatRenderer {
     const cameraDir = new THREE.Vector3(0, 0, -1).transformDirection(
       camera.matrixWorld,
     );
+
+    const time = performance.now() / 1000;
+    const deltaTime = time - this.lastTime;
+    this.lastTime = time;
+    for (const mesh of this.meshes) {
+      mesh.dyno?.update?.({ camera, object: mesh.object, time, deltaTime });
+    }
 
     const encoder = this.device.createCommandEncoder({ label: "splats" });
     this.generate(encoder, cameraPos, cameraDir);
@@ -288,6 +322,15 @@ export class WgpuSplatRenderer {
       const { source, object } = mesh;
       object.updateMatrixWorld();
       object.matrixWorld.decompose(position, rotation, scale);
+      let dyno: DynoDispatch | null = null;
+      if (DynoKernels.active(mesh.dyno)) {
+        dyno = this.dynoKernels.prepare(mesh, mesh.dyno);
+        if (mesh.dyno.worldSpace) {
+          position.set(0, 0, 0);
+          rotation.identity();
+          scale.set(1, 1, 1);
+        }
+      }
       const viewObject = cameraPos
         .clone()
         .applyMatrix4(inverse.copy(object.matrixWorld).invert());
@@ -297,6 +340,7 @@ export class WgpuSplatRenderer {
       if (mesh.lodIndices) flags |= GEN_USE_LOD;
       if (source.lodOpacity) flags |= GEN_LOD_OPACITY;
       if (this.options.sortRadial) flags |= GEN_SORT_RADIAL;
+      if (dyno && mesh.dyno?.generator) flags |= GEN_DYNO_SOURCE;
       const params = UniformWriter.for(generateModule).setAll({
         numSplats: count,
         outBase: base,
@@ -318,7 +362,8 @@ export class WgpuSplatRenderer {
         viewDir: [cameraDir.x, cameraDir.y, cameraDir.z, 0],
         outOrigin: [0, 0, 0, 0],
       });
-      kernel.dispatch(pass, {
+      (dyno?.kernel ?? kernel).dispatch(pass, {
+        bindings: dyno?.bindings,
         grid: [count],
         buffers: {
           src: source.src,
@@ -508,4 +553,5 @@ export class WgpuSplatRenderer {
 }
 
 export { GpuSplatSource } from "./GpuSplatSource";
+export type { WgpuDyno, WgpuDynoFrame } from "./dyno/DynoKernels";
 export { sortBackToFront } from "./cpuSort";

@@ -58,7 +58,7 @@ export function createReflectedRenderPipeline(
         entries: bindings
           .filter((b) => b.group === g)
           .map((b) => {
-            if (b.kind === "unsupported") {
+            if (b.kind === "unsupported" || b.kind === "external") {
               throw new Error(
                 `${module.name}: unsupported binding '${b.name}'`,
               );

@@ -1,0 +1,223 @@
+// Dyno generators and modifiers spliced into kernels/generate.slang at its
+// hooks (src/webgpu/dyno), against the CPU transform of the source splats.
+
+import * as THREE from "three";
+import { describe, expect, it } from "vitest";
+import * as d from "../../src/dyno";
+import { decodeExtSplat, encodeExtSplat } from "../../src/utils";
+import { KernelRegistry } from "../../src/webgpu/KernelRegistry";
+import { DynoKernels, type WgpuDyno } from "../../src/webgpu/dyno/DynoKernels";
+import generate from "../../src/webgpu/generated/kernels/generate";
+import { UniformWriter } from "../../src/webgpu/uniforms";
+import { device, readBack, storage } from "./device";
+
+const SRC_EXT = 1;
+const OUT_EXT = 2;
+const SORT_RADIAL = 16;
+const DYNO_SOURCE = 256;
+
+const N = 256;
+const extA = new Uint32Array(N * 4);
+const extB = new Uint32Array(N * 4);
+for (let i = 0; i < N; i++) {
+  encodeExtSplat(
+    [extA, extB],
+    i,
+    i * 0.01,
+    1,
+    -2,
+    0.1,
+    0.2,
+    0.05,
+    0,
+    0,
+    0,
+    1,
+    0.8,
+    0.25,
+    0.5,
+    0.75,
+  );
+}
+const src = new Uint32Array(N * 8);
+for (let i = 0; i < N; i++) {
+  src.set(extA.subarray(4 * i, 4 * i + 4), 8 * i);
+  src.set(extB.subarray(4 * i, 4 * i + 4), 8 * i + 4);
+}
+
+const rotate = new THREE.Quaternion().setFromEuler(
+  new THREE.Euler(0.2, 0.9, -0.4),
+);
+const translate = new THREE.Vector3(0.5, -1, 2);
+const scale = 2;
+const viewCenter = new THREE.Vector3(0, 0, 5);
+
+function toWorld(c: THREE.Vector3) {
+  return c.clone().multiplyScalar(scale).applyQuaternion(rotate).add(translate);
+}
+
+describe.skipIf(!device)("generate.slang with dyno", () => {
+  const registry = new KernelRegistry(device as GPUDevice);
+  const kernels = new DynoKernels(registry, generate, "generate");
+
+  async function run(owner: object, dyno: WgpuDyno, flags = 0) {
+    const out = storage(N * 32);
+    const metric = storage(N * 4);
+    const params = UniformWriter.for(generate).setAll({
+      numSplats: N,
+      outBase: 0,
+      flags: SRC_EXT | OUT_EXT | SORT_RADIAL | flags,
+      numSh: 0,
+      srcCount: N,
+      rotate: rotate.toArray(),
+      translateScale: [...translate.toArray(), scale],
+      recolor: [1, 1, 1, 1],
+      encoding: [0, 1, -12, 9],
+      viewCenter: [...viewCenter.toArray(), 0],
+      viewDir: [0, 0, -1, 0],
+    });
+    const { kernel, bindings } = kernels.prepare(owner, dyno);
+    kernel.run({
+      grid: [N],
+      buffers: {
+        src: storage(src),
+        sh: storage(16),
+        lodIndices: storage(16),
+        outSplats: out,
+        sortMetric: metric,
+      },
+      uniforms: params.data,
+      bindings,
+    });
+    const words = new Uint32Array(await readBack(out));
+    const a = new Uint32Array(N * 4);
+    const b = new Uint32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+      a.set(words.subarray(8 * i, 8 * i + 4), 4 * i);
+      b.set(words.subarray(8 * i + 4, 8 * i + 8), 4 * i);
+    }
+    return {
+      splat: (i: number) => decodeExtSplat([a, b], i),
+      metric: new Float32Array(await readBack(metric)),
+    };
+  }
+
+  const offset = d.dynoVec3(new THREE.Vector3(0, 1, 0));
+  const objectModifier = d.dynoBlock(
+    { gsplat: d.Gsplat },
+    { gsplat: d.Gsplat },
+    ({ gsplat }) => {
+      const { center } = d.splitGsplat(gsplat as never).outputs;
+      return {
+        gsplat: d.combineGsplat({
+          gsplat: gsplat as never,
+          center: d.add(center, offset),
+          r: d.dynoConst("float", 1),
+        }),
+      };
+    },
+  );
+
+  it("applies object modifiers before the transform", async () => {
+    const { splat } = await run({}, { objectModifiers: [objectModifier] });
+    for (const i of [0, 17, N - 1]) {
+      const s = splat(i);
+      const e = toWorld(new THREE.Vector3(i * 0.01, 2, -2));
+      expect(s.center.distanceTo(e)).toBeLessThan(1e-3);
+      expect(s.color.r).toBeCloseTo(1, 2);
+      expect(s.color.g).toBeCloseTo(0.5, 2);
+    }
+  });
+
+  it("applies world modifiers after it, and drops deactivated splats", async () => {
+    const fade = d.dynoFloat(0.5);
+    const worldModifier = d.dynoBlock(
+      { gsplat: d.Gsplat },
+      { gsplat: d.Gsplat },
+      ({ gsplat }) => {
+        const { opacity, index, flags } = d.splitGsplat(
+          gsplat as never,
+        ).outputs;
+        const odd = d.equal(
+          d.imod(index, d.dynoConst("int", 2)),
+          d.dynoConst("int", 1),
+        );
+        return {
+          gsplat: d.combineGsplat({
+            gsplat: gsplat as never,
+            opacity: d.mul(opacity, fade),
+            flags: d.select(odd, d.dynoConst("uint", 0), flags),
+          }),
+        };
+      },
+    );
+    const { splat, metric } = await run(
+      {},
+      { objectModifiers: [objectModifier], worldModifiers: [worldModifier] },
+    );
+    for (const i of [0, 2, 100]) {
+      const s = splat(i);
+      const e = toWorld(new THREE.Vector3(i * 0.01, 2, -2));
+      expect(s.center.distanceTo(e)).toBeLessThan(1e-3);
+      expect(s.opacity).toBeCloseTo(0.4, 2);
+      expect(metric[i]).toBeCloseTo(e.distanceTo(viewCenter), 3);
+    }
+    for (const i of [1, 3, 255]) {
+      expect(metric[i]).toBe(Number.POSITIVE_INFINITY);
+      expect(splat(i).opacity).toBe(0);
+    }
+  });
+
+  it("generates splats with dynoSource", async () => {
+    const spacing = d.dynoFloat(0.5);
+    const generator = d.dynoBlock(
+      { index: "int" },
+      { gsplat: d.Gsplat },
+      ({ index }) => ({
+        gsplat: d.combineGsplat({
+          flags: d.dynoLiteral("uint", "GSPLAT_FLAG_ACTIVE"),
+          index: index as never,
+          center: d.vec3(d.mul(d.float(index as never), spacing)),
+          scales: d.dynoConst("vec3", [0.01, 0.02, 0.03]),
+          quaternion: d.dynoConst("vec4", [0, 0, 0, 1]),
+          rgba: d.dynoConst("vec4", [1, 0, 0, 1]),
+        }),
+      }),
+    );
+    const { splat } = await run({}, { generator }, DYNO_SOURCE);
+    for (const i of [0, 9, N - 1]) {
+      const s = splat(i);
+      const e = toWorld(new THREE.Vector3().setScalar(i * 0.5));
+      expect(s.center.distanceTo(e)).toBeLessThan(1e-2 * (1 + i * 0.01));
+      expect(s.scales.y).toBeCloseTo(0.04, 3);
+      expect(s.color.r).toBeCloseTo(1, 2);
+    }
+  });
+
+  it("shares a pipeline between graphs of the same shape", async () => {
+    const make = (y: number) => {
+      const v = d.dynoVec3(new THREE.Vector3(0, y, 0));
+      return d.dynoBlock(
+        { gsplat: d.Gsplat },
+        { gsplat: d.Gsplat },
+        ({ gsplat }) => ({
+          gsplat: d.combineGsplat({
+            gsplat: gsplat as never,
+            center: d.add(d.splitGsplat(gsplat as never).outputs.center, v),
+          }),
+        }),
+      );
+    };
+    const a = { objectModifiers: [make(1)] };
+    const b = { objectModifiers: [make(3)] };
+    const ra = await run(a, a);
+    const rb = await run(b, b);
+    expect(kernels.prepare(a, a).kernel).toBe(kernels.prepare(b, b).kernel);
+    expect(
+      ra.splat(5).center.distanceTo(toWorld(new THREE.Vector3(0.05, 2, -2))),
+    ).toBeLessThan(1e-3);
+    expect(
+      rb.splat(5).center.distanceTo(toWorld(new THREE.Vector3(0.05, 4, -2))),
+    ).toBeLessThan(1e-3);
+  });
+});

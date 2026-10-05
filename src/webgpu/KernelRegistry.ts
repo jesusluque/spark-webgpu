@@ -22,6 +22,8 @@ export interface DispatchArgs {
   buffers?: Record<string, GPUBuffer>;
   /** Contents of the kernel's uniform block, exactly its reflected size. */
   uniforms?: ArrayBufferView | ArrayBuffer;
+  /** Resources for "external" bindings, by name. */
+  bindings?: Record<string, GPUBindingResource>;
 }
 
 /** Problems with a dispatch, or an empty list when it matches the kernel. */
@@ -33,7 +35,11 @@ export function validateDispatch(
   const errors: string[] = [];
   const where = `${module.name}:${entry.name}`;
   for (const b of usedBindings(module, entry)) {
-    if (b.kind === "uniform") {
+    if (b.kind === "external") {
+      if (!args.bindings?.[b.name]) {
+        errors.push(`${where}: missing binding '${b.name}'`);
+      }
+    } else if (b.kind === "uniform") {
       const bytes = args.uniforms?.byteLength ?? 0;
       if (bytes !== b.bytes) {
         errors.push(
@@ -109,10 +115,12 @@ export class Kernel {
       const entries: GPUBindGroupEntry[] = [];
       for (const b of this.bindings) {
         if (b.group !== group) continue;
-        const resource: GPUBufferBinding =
-          b.kind === "uniform"
-            ? this.registry.uniforms.push(args.uniforms as ArrayBufferView)
-            : { buffer: (args.buffers as Record<string, GPUBuffer>)[b.name] };
+        const resource: GPUBindingResource =
+          b.kind === "external"
+            ? (args.bindings as Record<string, GPUBindingResource>)[b.name]
+            : b.kind === "uniform"
+              ? this.registry.uniforms.push(args.uniforms as ArrayBufferView)
+              : { buffer: (args.buffers as Record<string, GPUBuffer>)[b.name] };
         entries.push({ binding: b.binding, resource });
       }
       pass.setBindGroup(
@@ -231,11 +239,24 @@ export class KernelRegistry {
           label: `${key}@${g}`,
           entries: bindings
             .filter((b) => b.group === g)
-            .map((b) => ({
-              binding: b.binding,
-              visibility: GPUShaderStage.COMPUTE,
-              buffer: { type: b.kind === "unsupported" ? undefined : b.kind },
-            })),
+            .map((b) =>
+              b.layout
+                ? {
+                    ...b.layout,
+                    binding: b.binding,
+                    visibility: GPUShaderStage.COMPUTE,
+                  }
+                : {
+                    binding: b.binding,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: {
+                      type:
+                        b.kind === "unsupported" || b.kind === "external"
+                          ? undefined
+                          : b.kind,
+                    },
+                  },
+            ),
         }),
       );
     }
