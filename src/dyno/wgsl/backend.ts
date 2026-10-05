@@ -70,7 +70,46 @@ export interface WgslUniformField {
   offset: number;
   /** Bytes per array element (count set). */
   stride?: number;
+  /** Struct uniforms: their non-texture fields, at offsets in the struct. */
+  members?: { name: string; type: DynoType; offset: number }[];
+  /** Struct uniforms: bytes the member takes in the block. */
+  size?: number;
   uniform: { value: unknown };
+}
+
+// Struct types dyno uniforms may have (e.g. SplatEdit's SdfArray), by name.
+const structs = new Map<string, Record<string, DynoType>>();
+
+/**
+ * Lets dyno uniforms of a struct type compile to WGSL. WGSL structs can't
+ * hold textures, so its texture fields become bindings of their own, named
+ * by wgslStructTexture; the other fields stay a struct in the uniform block,
+ * with bools stored as u32.
+ */
+export function registerWgslStruct(
+  type: { type: string },
+  fields: Record<string, DynoType>,
+) {
+  structs.set(type.type, fields);
+}
+
+/** The texture binding for `field` of a struct uniform (an input's value). */
+export function wgslStructTexture(uniform: string, field: string): string {
+  const prefix = `${UNIFORM_BLOCK}.`;
+  const name = uniform.startsWith(prefix)
+    ? uniform.slice(prefix.length)
+    : uniform;
+  return `${name}_${field}`;
+}
+
+const roundUp = (n: number, k: number) => Math.ceil(n / k) * k;
+
+function storedType(type: DynoType): string {
+  const shape = typeShape(type);
+  if (!shape) throw new Error(`No WGSL uniform type for ${typeLiteral(type)}`);
+  return shapeType(
+    shape.scalar === "bool" ? { ...shape, scalar: "u32" } : shape,
+  );
 }
 
 export interface WgslTextureBinding {
@@ -89,6 +128,7 @@ export class WgslBackend implements DynoBackend {
   readonly fields: WgslUniformField[] = [];
   readonly textures: WgslTextureBinding[] = [];
   private aliases = new Map<string, string>();
+  private structDecls = new Map<string, string>();
   /** Globals that are already WGSL (from emitters and dyno.wgsl). */
   private ownGlobals = new Set<string>();
   private blockBytes = 0;
@@ -159,10 +199,15 @@ export class WgslBackend implements DynoBackend {
       this.textures.push({ name, type, binding, samplerBinding, uniform });
       return;
     }
+    const struct = structs.get(typeLiteral(type));
+    if (struct) {
+      this.addStructUniform(name, type, uniform, struct);
+      return;
+    }
     const shape = typeShape(type);
     if (!shape) {
       throw new Error(
-        `Dyno uniform ${name}: type ${typeLiteral(type)} can't be a WGSL uniform`,
+        `Dyno uniform ${name}: type ${typeLiteral(type)} can't be a WGSL uniform (registerWgslStruct for structs)`,
       );
     }
     let { size, align } = uniformLayout(type);
@@ -191,6 +236,52 @@ export class WgslBackend implements DynoBackend {
     }
   }
 
+  private addStructUniform(
+    name: string,
+    type: DynoType,
+    uniform: { value: unknown },
+    struct: Record<string, DynoType>,
+  ) {
+    const members: { name: string; type: DynoType; offset: number }[] = [];
+    let size = 0;
+    let align = 4;
+    for (const [field, fieldType] of Object.entries(struct)) {
+      if (textureType(fieldType)) {
+        const value = {
+          get value() {
+            return (uniform.value as Record<string, unknown>)?.[field];
+          },
+        };
+        this.addUniform(`${name}_${field}`, fieldType, value);
+        continue;
+      }
+      const layout = uniformLayout(fieldType);
+      const offset = roundUp(size, layout.align);
+      members.push({ name: field, type: fieldType, offset });
+      size = offset + layout.size;
+      align = Math.max(align, layout.align);
+    }
+    if (!members.length) return;
+    const structName = `DynoU_${typeLiteral(type)}`;
+    this.structDecls.set(
+      structName,
+      `struct ${structName} {\n${members.map((m) => `    ${m.name}: ${storedType(m.type)},`).join("\n")}\n}`,
+    );
+    // In a uniform block a struct member aligns to 16 and pads to 16.
+    const memberSize = roundUp(roundUp(size, align), 16);
+    const offset = roundUp(this.blockBytes, 16);
+    this.blockBytes = offset + memberSize;
+    this.fields.push({
+      name,
+      type,
+      offset,
+      members,
+      size: memberSize,
+      uniform,
+    });
+    this.aliases.set(name, `${UNIFORM_BLOCK}.${name}`);
+  }
+
   /** Size of the uniform block, 0 when there are no uniforms. */
   get uniformBytes(): number {
     return Math.ceil(this.blockBytes / 16) * 16;
@@ -201,16 +292,15 @@ export class WgslBackend implements DynoBackend {
     const decls: string[] = [];
     if (this.fields.length) {
       const members = this.fields.map((f) => {
-        const shape = typeShape(f.type);
-        const scalar =
-          shape?.scalar === "bool"
-            ? { ...shape, scalar: "u32" as const }
-            : shape;
-        const t = shapeType(scalar as NonNullable<typeof shape>);
+        if (f.members) {
+          return `    @align(16) @size(${f.size}) ${f.name}: DynoU_${typeLiteral(f.type)},`;
+        }
+        const t = storedType(f.type);
         return f.count != null
           ? `    @align(16) ${f.name}: array<${t}, ${f.count}>,`
           : `    ${f.name}: ${t},`;
       });
+      decls.push(...this.structDecls.values());
       decls.push(
         `struct DynoUniforms {\n${members.join("\n")}\n}`,
         `@group(${this.group}) @binding(0) var<uniform> ${UNIFORM_BLOCK}: DynoUniforms;`,

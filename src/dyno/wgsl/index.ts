@@ -2,11 +2,13 @@
 
 export {
   registerWgsl,
+  registerWgslStruct,
   UNIFORM_BLOCK,
   WgslBackend,
   type WgslEmitter,
   type WgslTextureBinding,
   type WgslUniformField,
+  wgslStructTexture,
 } from "./backend";
 export { convert } from "./ops";
 export { registerWgslGlobal, WGSL_PRELUDE } from "./prelude";

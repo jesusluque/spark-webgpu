@@ -903,3 +903,46 @@ export const textureCases: [string, d.DynoType, () => Val, Expected][] = [
     [2, 2, 3],
   ],
 ];
+
+// A struct uniform with a texture field (as SplatEdit's SdfArray).
+const TestStruct = { type: "TestStruct" } as { type: "TestStruct" };
+d.registerWgslStruct(TestStruct, {
+  scale: "float",
+  offset: "vec3",
+  flag: "bool",
+  tex: "usampler2D",
+  count: "int",
+});
+textureCases.push([
+  "struct uniform",
+  "vec4",
+  () =>
+    new d.Dyno({
+      inTypes: { s: TestStruct },
+      outTypes: { out: "vec4" },
+      inputs: {
+        s: new d.DynoUniform({
+          key: "s",
+          type: TestStruct,
+          value: {
+            scale: 2,
+            offset: [1, 2, 3],
+            flag: true,
+            tex: uTex,
+            count: 7,
+          },
+        }),
+      },
+      wgsl: {
+        statements: ({ inputs, outputs }) => {
+          const s = inputs.s as string;
+          const tex = d.wgslStructTexture(s, "tex");
+          return [
+            `let texel = f32(textureLoad(${tex}, vec2i(0, 0), 0).y);`,
+            `${outputs.out} = vec4f(${s}.offset * ${s}.scale, texel + f32(${s}.flag) + f32(${s}.count));`,
+          ];
+        },
+      },
+    }).outputs.out as Val,
+  [2, 4, 6, 3 + 1 + 7],
+]);

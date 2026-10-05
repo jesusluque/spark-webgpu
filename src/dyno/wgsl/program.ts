@@ -121,24 +121,50 @@ export function flattenValue(value: unknown): number[] {
 }
 
 function writeField(view: DataView, field: WgslUniformField) {
-  const shape = typeShape(field.type);
-  if (!shape)
-    throw new Error(`uniform ${field.name}: ${typeLiteral(field.type)}`);
+  if (field.members) {
+    const struct = (field.uniform.value ?? {}) as Record<string, unknown>;
+    for (const m of field.members) {
+      writeValue(
+        view,
+        m.type,
+        field.offset + m.offset,
+        flattenValue(struct[m.name]),
+      );
+    }
+    return;
+  }
   const values = flattenValue(field.uniform.value);
-  const { rows, cols } = shape;
-  const colStride = cols > 1 ? uniformLayout(field.type).size / cols : 0;
-  const perElement = rows * cols;
+  const shape = typeShape(field.type);
+  const perElement = shape ? shape.rows * shape.cols : 1;
   const count = field.count ?? 1;
   for (let e = 0; e < count; e++) {
-    const base = field.offset + e * (field.stride ?? 0);
-    for (let c = 0; c < cols; c++) {
-      for (let r = 0; r < rows; r++) {
-        const v = values[e * perElement + c * rows + r] ?? 0;
-        const at = base + c * colStride + 4 * r;
-        if (shape.scalar === "f32") view.setFloat32(at, v, true);
-        else if (shape.scalar === "i32") view.setInt32(at, v, true);
-        else view.setUint32(at, v >>> 0, true);
-      }
+    writeValue(
+      view,
+      field.type,
+      field.offset + e * (field.stride ?? 0),
+      values.slice(e * perElement, (e + 1) * perElement),
+    );
+  }
+}
+
+/** One scalar, vector or matrix at `offset`, columns at uniform stride. */
+function writeValue(
+  view: DataView,
+  type: DynoType,
+  offset: number,
+  values: number[],
+) {
+  const shape = typeShape(type);
+  if (!shape) throw new Error(`uniform of type ${typeLiteral(type)}`);
+  const { rows, cols } = shape;
+  const colStride = cols > 1 ? uniformLayout(type).size / cols : 0;
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+      const v = values[c * rows + r] ?? 0;
+      const at = offset + c * colStride + 4 * r;
+      if (shape.scalar === "f32") view.setFloat32(at, v, true);
+      else if (shape.scalar === "i32") view.setInt32(at, v, true);
+      else view.setUint32(at, v >>> 0, true);
     }
   }
 }
