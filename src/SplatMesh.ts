@@ -52,6 +52,7 @@ import {
   splitCovSplat,
   splitGsplat,
   unindentLines,
+  wgslStructTexture,
 } from "./dyno";
 import * as wasm from "./wasm";
 
@@ -1288,6 +1289,18 @@ export function maybeInjectSplatRgba(
           ${outputs.gsplat}.rgba = texelFetch(${inputs.rgba}.texture, splatTexCoord(${inputs.index}), 0);
         }
       `),
+    wgsl: {
+      statements: ({ inputs, outputs }) => {
+        const texture = wgslStructTexture(inputs.rgba as string, "texture");
+        return unindentLines(/* wgsl */ `
+          ${outputs.gsplat} = ${inputs.gsplat};
+          if (!${inputs.enableLod} && (${inputs.index} >= 0) && (${inputs.index} < ${inputs.rgba}.count)) {
+            let coord = splatTexCoord(${inputs.index});
+            ${outputs.gsplat}.rgba = textureLoad(${texture}, coord.xy, coord.z, 0);
+          }
+        `);
+      },
+    },
   }).outputs.gsplat;
 }
 

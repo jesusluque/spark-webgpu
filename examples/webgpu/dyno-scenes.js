@@ -8,6 +8,12 @@
 //   ?scene=edit     the butterfly with SplatEdit SDFs (a red sphere, a
 //                   displacing box)
 //   ?scene=snow     generators.snowBox
+//   ?scene=skin     the butterfly flapping by linear-blend SplatSkinning
+//                   (covariance splats)
+//   ?scene=rgba     the butterfly recoloured by SplatMesh.splatRgba (an
+//                   RgbaArray of channel-swapped colours)
+//   &cov=1          covariance splats: an ExtSplats mesh with covSplats, and
+//                   the renderer's covSplats (implied by scene=skin)
 //   &t=<seconds>    a fixed time for screenshots; animates when absent
 //   ?w=&h=          canvas size
 
@@ -18,6 +24,7 @@ export function sceneParams() {
     effect: params.get("effect") ?? "Disintegrate",
     intensity: Number(params.get("intensity") ?? 0.8),
     time: params.has("t") ? Number(params.get("t")) : null,
+    cov: params.get("cov") === "1" || params.get("scene") === "skin",
     size: {
       w: Number(params.get("w") ?? 800),
       h: Number(params.get("h") ?? 600),
@@ -328,7 +335,11 @@ export async function buildScene({ THREE, spark, getAssetFileURL, params }) {
     return { generator: snow, tick: () => {} };
   }
   const file = params.scene === "effect" ? "cat.spz" : "butterfly.spz";
-  const mesh = new SplatMesh({ url: await getAssetFileURL(file) });
+  const mesh = new SplatMesh({
+    url: await getAssetFileURL(file),
+    extSplats: params.cov,
+    covSplats: params.cov,
+  });
   if (params.scene === "effect") {
     mesh.quaternion.set(1, 0, 0, 0);
     mesh.position.set(0, -0.7, -2.5);
@@ -369,6 +380,23 @@ export async function buildScene({ THREE, spark, getAssetFileURL, params }) {
       box.position.set(-0.35, -0.2, 0);
       edit.add(sphere, box);
       mesh.add(edit);
+    } else if (params.scene === "rgba") {
+      await mesh.initialized;
+      const splats = mesh.extSplats ?? mesh.packedSplats;
+      const array = new Uint8Array(splats.numSplats * 4);
+      splats.forEachSplat((i, _center, _scales, _quat, opacity, color) => {
+        const b = (v) => Math.round(Math.min(1, Math.max(0, v)) * 255);
+        array.set([b(color.b), b(color.r), b(color.g), b(opacity)], 4 * i);
+      });
+      mesh.splatRgba = new spark.RgbaArray({ array });
+    } else if (params.scene === "skin") {
+      await mesh.initialized;
+      const skin = skinWings(THREE, spark, mesh);
+      mesh.updateGenerator();
+      return {
+        mesh,
+        tick: (seconds) => skin(params.time ?? seconds),
+      };
     }
   }
   mesh.updateGenerator();
@@ -377,5 +405,44 @@ export async function buildScene({ THREE, spark, getAssetFileURL, params }) {
     tick: (seconds) => {
       if (params.time == null) animateT.value = seconds;
     },
+  };
+}
+
+// Linear-blend skinning: bone 0 the body, bones 1 and 2 the wings, which
+// flap about the body's axis and stretch, blended near the body.
+function skinWings(THREE, spark, mesh) {
+  const { SplatSkinning, SplatSkinningMode } = spark;
+  const skinning = new SplatSkinning({
+    mesh,
+    numBones: 3,
+    mode: SplatSkinningMode.LINEAR_BLEND,
+  });
+  mesh.extSplats.forEachSplat((index, center) => {
+    const w = Math.min(1, Math.abs(center.x) / 0.3);
+    const wing = center.x < 0 ? 1 : 2;
+    skinning.setSplatBones(
+      index,
+      new THREE.Vector4(0, wing, 0, 0),
+      new THREE.Vector4(1 - w, w, 0, 0),
+    );
+  });
+  for (let bone = 0; bone < 3; bone++) {
+    skinning.setRestMatrix(bone, new THREE.Matrix4());
+  }
+  mesh.skinning = skinning;
+  const m = new THREE.Matrix4();
+  const s = new THREE.Matrix4();
+  return (t) => {
+    const angle = 0.6 * Math.sin(2 * t);
+    const stretch = 1 + 0.3 * Math.sin(t);
+    for (const [bone, sign] of [
+      [1, -1],
+      [2, 1],
+    ]) {
+      m.makeRotationY(sign * angle);
+      s.makeScale(stretch, 1 / stretch, 1);
+      skinning.setBoneMatrix(bone, m.multiply(s));
+    }
+    skinning.updateBones();
   };
 }

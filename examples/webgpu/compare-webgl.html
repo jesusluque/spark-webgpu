@@ -16,19 +16,19 @@
     import { getAssetFileURL } from "../js/get-asset-url.js";
     import { bench, setupCompare, syntheticPacked, waitSettled } from "./compare.js";
 
-    const { file, n, lod, rad, lodSplatCount, pose, size } = setupCompare();
+    const { file, n, flat, lod, rad, lodSplatCount, pose, size, options, ext } = setupCompare();
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(size.w, size.h);
     document.body.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
-    const spark = new SparkRenderer({ renderer, lodSplatCount });
+    const spark = new SparkRenderer({ renderer, lodSplatCount, ...options });
     scene.add(spark);
     const mesh = n
-      ? new SplatMesh({ packedSplats: new PackedSplats({ packedArray: syntheticPacked(utils, n), numSplats: n }) })
+      ? new SplatMesh({ packedSplats: new PackedSplats({ packedArray: syntheticPacked(utils, n, flat), numSplats: n }) })
       : rad
         ? new SplatMesh({ url: rad, paged: true })
-        : new SplatMesh({ url: await getAssetFileURL(file), lod });
+        : new SplatMesh({ url: await getAssetFileURL(file), lod, extSplats: ext, covSplats: options.covSplats });
     pose(mesh);
     scene.add(mesh);
     await mesh.initialized;
@@ -46,6 +46,16 @@
       if (++frames >= 30 && window.__lodState !== undefined || (!lod && !rad && frames === 30)) window.__ready = true;
     });
     window.__spark = spark;
+    // An offscreen render read back (SparkRenderer target / renderReadTarget).
+    window.__readTarget = async (width, height, superXY = 1) => {
+      const offscreen = new SparkRenderer({ renderer, target: { width, height, superXY } });
+      // Its sort runs in a worker: a few renders until it has an order.
+      for (let i = 0; i < 20; i++) {
+        offscreen.renderTarget({ scene, camera });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return Array.from(await offscreen.renderReadTarget({ scene, camera }));
+    };
     const gl = renderer.getContext();
     const pixel = new Uint8Array(4);
     // Throughput: the normal animation loop for `seconds`, the object turning

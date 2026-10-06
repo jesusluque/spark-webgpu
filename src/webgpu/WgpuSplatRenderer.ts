@@ -48,8 +48,12 @@ const GEN_USE_LOD = 4;
 const GEN_LOD_OPACITY = 8;
 const GEN_SORT_RADIAL = 16;
 const GEN_DYNO_SOURCE = 256;
+const GEN_OUT_COV = 512;
+const GEN_COV_TRANSFORM = 1024;
 
 const DRAW_EXT = 1;
+const DRAW_COV = 2;
+const DRAW_2DGS = 4;
 const DRAW_LOD_INFLATE = 8;
 const DRAW_ORTHOGRAPHIC = 16;
 const DRAW_ENCODE_LINEAR = 32;
@@ -95,6 +99,10 @@ export interface WgpuSplatRendererOptions {
   falloff?: number;
   clipXY?: number;
   focalAdjustment?: number;
+  /** Depth of field: distance to the focal plane (0: off). */
+  focalDistance?: number;
+  /** Depth of field: full aperture angle in radians (0: off). */
+  apertureAngle?: number;
   /** Trade LOD opacity above 1 for size (SparkRenderer.lodInflate). */
   lodInflate?: boolean;
   /**
@@ -110,6 +118,17 @@ export interface WgpuSplatRendererOptions {
    * packed range; halves what the draw reads, losing precision far away.
    */
   accumulator?: "ext" | "packed";
+  /**
+   * Accumulate covariance splats (SparkRenderer.covSplats): mesh transforms
+   * may scale non-uniformly or shear, and meshes may use CovSplat modifiers
+   * (WgpuDyno.covObjectModifiers, linear-blend SplatSkinning). Default false.
+   */
+  covSplats?: boolean;
+  /**
+   * Draw splats with a zero scale as flat 2D Gaussians (2DGS) rather than
+   * projected 3D ones (SparkRenderer.enable2DGS). Default false.
+   */
+  enable2DGS?: boolean;
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -124,6 +143,21 @@ export interface SplatDrawContext {
   depthStencil?: GPUDepthStencilState;
   width: number;
   height: number;
+}
+
+/** A render pass someone else opened (three's), for renderInPass. */
+export interface SplatPassTarget {
+  format: GPUTextureFormat;
+  depthFormat: GPUTextureFormat | null;
+  sampleCount: number;
+  width: number;
+  height: number;
+  /** The pass's color is linear (encode splat colors to linear). */
+  linear: boolean;
+  /** Formats of the pass's other color attachments (MRT), left unwritten. */
+  extraFormats?: GPUTextureFormat[];
+  /** For reversed-depth buffers. @default "less-equal" */
+  depthCompare?: GPUCompareFunction;
 }
 
 /** A draw pipeline replacing the default one, with its extra resources. */
@@ -232,9 +266,13 @@ export class WgpuSplatRenderer {
       falloff: 1,
       clipXY: 1.4,
       focalAdjustment: 1,
+      focalDistance: 0,
+      apertureAngle: 0,
       lodInflate: false,
       profile: false,
       accumulator: "ext",
+      covSplats: false,
+      enable2DGS: false,
       ...options,
     };
     this.capabilities = capabilitiesOf(this.device);
@@ -282,9 +320,18 @@ export class WgpuSplatRenderer {
    */
   dynoChanged(): boolean {
     let changed = false;
-    for (const mesh of this.meshes) {
+    for (const mesh of [...this.meshes]) {
       if (DynoKernels.active(mesh.dyno)) {
-        changed = this.dynoKernels.changed(mesh, mesh.dyno) || changed;
+        try {
+          changed = this.dynoKernels.changed(mesh, mesh.dyno) || changed;
+        } catch (error) {
+          // A graph that can't compile (GLSL-only code...) drops its mesh,
+          // as SparkRenderer drops a generator whose update throws, rather
+          // than failing every frame.
+          console.error("WgpuSplatRenderer: dyno failed, mesh removed", error);
+          this.remove(mesh);
+          changed = true;
+        }
       }
     }
     return changed;
@@ -380,6 +427,7 @@ export class WgpuSplatRenderer {
       this.options.sortBits,
       this.options.sortRadial ? 1 : 0,
       this.options.accumulator === "packed" ? 1 : 0,
+      this.options.covSplats ? 1 : 0,
       ...camera.matrixWorld.elements,
       ...camera.projectionMatrix.elements,
     ];
@@ -434,6 +482,19 @@ export class WgpuSplatRenderer {
       : undefined;
   }
 
+  // The GPU sort of this frame's metric, a pass per stage when profiling.
+  private encodeSort(encoder: GPUCommandEncoder, total: number) {
+    const metric = this.metric as GPUBuffer;
+    const bits = this.options.sortBits;
+    if (this.options.profile && this.profiler) {
+      this.sorter.encodeProfiled(encoder, this.profiler, metric, total, bits);
+      return;
+    }
+    const pass = encoder.beginComputePass({ label: "sort" });
+    this.sorter.encode(pass, metric, total, bits);
+    pass.end();
+  }
+
   private submit(encoder: GPUCommandEncoder) {
     const after =
       this.profiler && this.options.profile
@@ -444,52 +505,18 @@ export class WgpuSplatRenderer {
   }
 
   private renderFrame(camera: THREE.Camera, target?: THREE.RenderTarget) {
-    const profiler = this.activeProfiler();
+    this.activeProfiler();
     const total = this.meshes.reduce((n, m) => n + this.meshCount(m), 0);
     this.stats.frames += 1;
     if (total === 0) return;
     this.ensureCapacity(total);
-
-    camera.updateMatrixWorld();
-    const cameraPos = new THREE.Vector3().setFromMatrixPosition(
-      camera.matrixWorld,
-    );
-    const cameraDir = new THREE.Vector3(0, 0, -1).transformDirection(
-      camera.matrixWorld,
-    );
-
-    const time = performance.now() / 1000;
-    const deltaTime = time - this.lastTime;
-    this.lastTime = time;
-    for (const mesh of this.meshes) {
-      mesh.dyno?.update?.({ camera, object: mesh.object, time, deltaTime });
-    }
-    // Generate-skipping frames must regenerate when this is set (dyno
-    // uniforms animated by time, edited SDFs...).
-    this.dynoDirty = this.dynoChanged();
+    const { cameraPos, cameraDir } = this.updateDynos(camera);
 
     const encoder = this.device.createCommandEncoder({ label: "splats" });
     if (this.options.sort === "gpu") {
       if (this.changedSince(camera, total)) {
         this.generateAll(encoder, cameraPos, cameraDir);
-        if (profiler) {
-          this.sorter.encodeProfiled(
-            encoder,
-            profiler,
-            this.metric as GPUBuffer,
-            total,
-            this.options.sortBits,
-          );
-        } else {
-          const pass = encoder.beginComputePass({ label: "sort" });
-          this.sorter.encode(
-            pass,
-            this.metric as GPUBuffer,
-            total,
-            this.options.sortBits,
-          );
-          pass.end();
-        }
+        this.encodeSort(encoder, total);
         this.stats.generated += 1;
       }
       this.draw(encoder, camera, target, total);
@@ -502,6 +529,127 @@ export class WgpuSplatRenderer {
     const readback = this.sortPending ? null : this.copyMetric(encoder, total);
     this.submit(encoder);
     if (readback) this.sortFrom(readback, total, version);
+  }
+
+  /**
+   * Like render, but records the draw into `pass`, a render pass the caller
+   * (three's WebGPURenderer) opened and submits later: generate and sort are
+   * submitted now, so they run first. Draw stages (attribute variants) are
+   * not applied here, as they need attachments of their own.
+   */
+  renderInPass(
+    camera: THREE.Camera,
+    pass: GPURenderPassEncoder,
+    target: SplatPassTarget,
+  ) {
+    // Times generate and sort; the draw is inside three's pass.
+    this.activeProfiler();
+    const total = this.meshes.reduce((n, m) => n + this.meshCount(m), 0);
+    this.stats.frames += 1;
+    if (total === 0) return;
+    this.ensureCapacity(total);
+    const { cameraPos, cameraDir } = this.updateDynos(camera);
+    const encoder = this.device.createCommandEncoder({ label: "splats" });
+    const gpu = this.options.sort === "gpu";
+    let readback: GPUBuffer | null = null;
+    if (gpu) {
+      if (this.changedSince(camera, total)) {
+        this.generateAll(encoder, cameraPos, cameraDir);
+        this.encodeSort(encoder, total);
+        this.stats.generated += 1;
+      }
+    } else {
+      this.generateAll(encoder, cameraPos, cameraDir);
+      readback = this.sortPending ? null : this.copyMetric(encoder, total);
+    }
+    const version = this.mappingVersion;
+    this.submit(encoder);
+    if (readback) this.sortFrom(readback, total, version);
+    if (
+      !gpu &&
+      (this.drawVersion !== this.mappingVersion || this.drawCount === 0)
+    ) {
+      return;
+    }
+
+    this.writeDrawParams(camera, target.width, target.height, target.linear);
+    const depthFormat = this.options.depthTest ? target.depthFormat : null;
+    const key = [
+      target.format,
+      target.depthFormat,
+      target.sampleCount,
+      target.depthCompare,
+      ...(target.extraFormats ?? []),
+    ].join("/");
+    let rp = this.pipelines.get(key);
+    if (!rp) {
+      const { colorTarget } = this.pipelineStates(target.format, null);
+      rp = createReflectedRenderPipeline(this.device, drawModule, {
+        vertex: "splatVertex",
+        fragment: "splatFragment",
+        targets: [
+          colorTarget,
+          ...(target.extraFormats ?? []).map((format) => ({
+            format,
+            writeMask: 0,
+          })),
+        ],
+        // The pass's depth attachment must match even when not testing.
+        depthStencil: target.depthFormat
+          ? {
+              format: target.depthFormat,
+              depthWriteEnabled: false,
+              depthCompare: depthFormat
+                ? (target.depthCompare ?? "less-equal")
+                : "always",
+            }
+          : undefined,
+        multisample: { count: target.sampleCount },
+      });
+      this.pipelines.set(key, rp);
+    }
+    const groups = createBindGroups(this.device, rp, {
+      ordering: gpu ? this.sorter.ordering : (this.ordering as GPUBuffer),
+      splats: this.accumulator as GPUBuffer,
+      params: this.drawUniform,
+    });
+    pass.setPipeline(rp.pipeline);
+    groups.forEach((g, i) => pass.setBindGroup(i, g));
+    if (gpu) {
+      pass.drawIndirect(this.sorter.drawArgs, 0);
+    } else {
+      pass.draw(4, this.drawCount);
+    }
+    this.stats.draws += 1;
+    this.stats.drawn = gpu ? total : this.drawCount;
+  }
+
+  // Runs the dyno updaters for this frame; the camera's world position and
+  // direction for generate.
+  private updateDynos(camera: THREE.Camera) {
+    camera.updateMatrixWorld();
+    const cameraPos = new THREE.Vector3().setFromMatrixPosition(
+      camera.matrixWorld,
+    );
+    const cameraDir = new THREE.Vector3(0, 0, -1).transformDirection(
+      camera.matrixWorld,
+    );
+    const time = performance.now() / 1000;
+    const deltaTime = time - this.lastTime;
+    this.lastTime = time;
+    for (const mesh of this.meshes) {
+      mesh.dyno?.update?.({
+        camera,
+        object: mesh.object,
+        time,
+        deltaTime,
+        lod: mesh.lodIndices != null,
+      });
+    }
+    // Generate-skipping frames must regenerate when this is set (dyno
+    // uniforms animated by time, edited SDFs...).
+    this.dynoDirty = this.dynoChanged();
+    return { cameraPos, cameraDir };
   }
 
   // The GPU textures to draw into: three's for a RenderTarget, or the canvas.
@@ -537,7 +685,11 @@ export class WgpuSplatRenderer {
     return {
       color,
       depth,
-      linear: target.texture.colorSpace !== THREE.SRGBColorSpace,
+      // An -srgb format encodes on store (three picks one for 8-bit sRGB
+      // targets): the shader writes linear values to it too.
+      linear:
+        target.texture.colorSpace !== THREE.SRGBColorSpace ||
+        color.format.endsWith("-srgb"),
     };
   }
 
@@ -579,6 +731,7 @@ export class WgpuSplatRenderer {
     const rotation = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const inverse = new THREE.Matrix4();
+    const basis = new THREE.Matrix4();
     let base = 0;
     for (const mesh of this.meshes) {
       const { source, object } = mesh;
@@ -603,6 +756,14 @@ export class WgpuSplatRenderer {
       if (source.lodOpacity) flags |= GEN_LOD_OPACITY;
       if (this.options.sortRadial) flags |= GEN_SORT_RADIAL;
       if (dyno && mesh.dyno?.generator) flags |= GEN_DYNO_SOURCE;
+      if (this.options.covSplats) {
+        flags |= GEN_OUT_COV;
+        // Gsplat world modifiers need the similarity transform before them.
+        if (!mesh.dyno?.worldModifiers?.length) flags |= GEN_COV_TRANSFORM;
+      }
+      if (dyno && mesh.dyno?.worldSpace) basis.identity();
+      else basis.copy(object.matrixWorld);
+      const b = basis.elements;
       const params = UniformWriter.for(generateModule).setAll({
         numSplats: count,
         outBase: base,
@@ -623,6 +784,9 @@ export class WgpuSplatRenderer {
         viewCenter: [cameraPos.x, cameraPos.y, cameraPos.z, 0],
         viewDir: [cameraDir.x, cameraDir.y, cameraDir.z, 0],
         outOrigin: [origin.x, origin.y, origin.z, 0],
+        covBasis0: [b[0], b[1], b[2], 0],
+        covBasis1: [b[4], b[5], b[6], 0],
+        covBasis2: [b[8], b[9], b[10], 0],
       });
       (dyno?.kernel ?? kernel).dispatch(pass, {
         bindings: dyno?.bindings,
@@ -743,49 +907,7 @@ export class WgpuSplatRenderer {
     const depthTexture = this.options.depthTest ? depth : null;
     const depthView = depthTexture?.createView();
     const depthFormat = depthTexture?.format ?? null;
-
-    const view = camera.matrixWorldInverse;
-    const viewQuat = new THREE.Quaternion().setFromRotationMatrix(view);
-    // World = stored + origin, so the origin moves into the translation.
-    const viewPos = new THREE.Vector3()
-      .copy(this.written.origin)
-      .applyMatrix4(view);
-    const p = camera.projectionMatrix.elements;
-    const basis = new THREE.Matrix3().setFromMatrix4(view).elements;
-    const o = this.options;
-    const params = UniformWriter.for(drawModule).setAll({
-      proj0: p.slice(0, 4),
-      proj1: p.slice(4, 8),
-      proj2: p.slice(8, 12),
-      proj3: p.slice(12, 16),
-      renderToViewQuat: [viewQuat.x, viewQuat.y, viewQuat.z, viewQuat.w],
-      renderToViewPos: [viewPos.x, viewPos.y, viewPos.z, 0],
-      renderToViewBasis0: basis.slice(0, 3),
-      renderToViewBasis1: basis.slice(3, 6),
-      renderToViewBasis2: basis.slice(6, 9),
-      renderWidth: size.x,
-      renderHeight: size.y,
-      maxStdDev: o.maxStdDev,
-      minPixelRadius: o.minPixelRadius,
-      maxPixelRadius: o.maxPixelRadius,
-      minAlpha: o.minAlpha,
-      blurAmount: o.blurAmount,
-      preBlurAmount: o.preBlurAmount,
-      focalDistance: 0,
-      apertureAngle: 0,
-      clipXY: o.clipXY,
-      focalAdjustment: o.focalAdjustment,
-      falloff: o.falloff,
-      flags:
-        (this.written.packed ? 0 : DRAW_EXT) |
-        DRAW_PREMULTIPLIED |
-        (o.lodInflate ? DRAW_LOD_INFLATE : 0) |
-        (linear ? DRAW_ENCODE_LINEAR : 0) |
-        ((camera as THREE.OrthographicCamera).isOrthographicCamera
-          ? DRAW_ORTHOGRAPHIC
-          : 0),
-    });
-    this.device.queue.writeBuffer(this.drawUniform, 0, params.data);
+    this.writeDrawParams(camera, size.x, size.y, linear);
 
     let variant: SplatDrawVariant | null = null;
     for (const s of this.stages) {
@@ -830,6 +952,59 @@ export class WgpuSplatRenderer {
     this.stats.draws += 1;
     this.stats.drawn = gpu ? (gpuSorted as number) : this.drawCount;
     pass.end();
+  }
+
+  // The draw uniforms for this camera and target size.
+  private writeDrawParams(
+    camera: THREE.Camera,
+    width: number,
+    height: number,
+    linear: boolean,
+  ) {
+    const view = camera.matrixWorldInverse;
+    const viewQuat = new THREE.Quaternion().setFromRotationMatrix(view);
+    // World = stored + origin, so the origin moves into the translation.
+    const viewPos = new THREE.Vector3()
+      .copy(this.written.origin)
+      .applyMatrix4(view);
+    const p = camera.projectionMatrix.elements;
+    const basis = new THREE.Matrix3().setFromMatrix4(view).elements;
+    const o = this.options;
+    const params = UniformWriter.for(drawModule).setAll({
+      proj0: p.slice(0, 4),
+      proj1: p.slice(4, 8),
+      proj2: p.slice(8, 12),
+      proj3: p.slice(12, 16),
+      renderToViewQuat: [viewQuat.x, viewQuat.y, viewQuat.z, viewQuat.w],
+      renderToViewPos: [viewPos.x, viewPos.y, viewPos.z, 0],
+      renderToViewBasis0: basis.slice(0, 3),
+      renderToViewBasis1: basis.slice(3, 6),
+      renderToViewBasis2: basis.slice(6, 9),
+      renderWidth: width,
+      renderHeight: height,
+      maxStdDev: o.maxStdDev,
+      minPixelRadius: o.minPixelRadius,
+      maxPixelRadius: o.maxPixelRadius,
+      minAlpha: o.minAlpha,
+      blurAmount: o.blurAmount,
+      preBlurAmount: o.preBlurAmount,
+      focalDistance: o.focalDistance,
+      apertureAngle: o.apertureAngle,
+      clipXY: o.clipXY,
+      focalAdjustment: o.focalAdjustment,
+      falloff: o.falloff,
+      flags:
+        (this.written.packed ? 0 : DRAW_EXT) |
+        DRAW_PREMULTIPLIED |
+        (o.covSplats ? DRAW_COV : 0) |
+        (o.enable2DGS ? DRAW_2DGS : 0) |
+        (o.lodInflate ? DRAW_LOD_INFLATE : 0) |
+        (linear ? DRAW_ENCODE_LINEAR : 0) |
+        ((camera as THREE.OrthographicCamera).isOrthographicCamera
+          ? DRAW_ORTHOGRAPHIC
+          : 0),
+    });
+    this.device.queue.writeBuffer(this.drawUniform, 0, params.data);
   }
 
   dispose() {

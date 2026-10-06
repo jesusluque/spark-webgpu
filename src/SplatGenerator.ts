@@ -203,6 +203,25 @@ export class CovSplatTransformer {
           }
         `);
       },
+      wgsl: {
+        statements: ({ inputs, outputs }) => {
+          const { covsplat, basis, offset } = inputs;
+          const out = outputs.covsplat;
+          return unindentLines(/* wgsl */ `
+            ${out}.flags = 0u;
+            if (isCovSplatActive(${covsplat}.flags)) {
+              ${out}.flags = ${covsplat}.flags;
+              ${out}.index = ${covsplat}.index;
+              ${out}.rgba = ${covsplat}.rgba;
+              ${out}.center = ${basis} * ${covsplat}.center + ${offset};
+              var cov = covSplatMatrix(${covsplat}.xxyyzz, ${covsplat}.xyxzyz);
+              cov = ${basis} * cov * transpose(${basis});
+              ${out}.xxyyzz = vec3f(cov[0][0], cov[1][1], cov[2][2]);
+              ${out}.xyxzyz = vec3f(cov[0][1], cov[0][2], cov[1][2]);
+            }
+          `);
+        },
+      },
     }).outputs.covsplat;
   }
 

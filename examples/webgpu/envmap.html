@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  examples/envmap on WebGPU: WgpuCubeMap.renderEnvMap renders the splats (and
+  the three scene, minus the duck) into a cube map from the duck's position,
+  prefiltered by PMREMGenerator, for the duck's metal material.
+  envmap-webgl.html is the WebGL reference (parameters in envmap-scene.js).
+-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Environment map (WebGPU)</title>
+  <style>
+    body { margin: 0; background: #000; }
+    canvas { display: block; touch-action: none; }
+    label { position: absolute; top: 8px; left: 8px; color: #fff; font: 13px system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+  <label><input id="plastic" type="checkbox" autocomplete="off"> Plastic</label>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.webgpu.js",
+        "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { GpuSplatSource, PackedSplats, WgpuCubeMap, WgpuSplatRenderer } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
+    import { CLEAR_COLOR, envmapParams, loadDuck, poseBackgrounds, setDuckMaterial } from "./envmap-scene.js";
+
+    const params = envmapParams();
+    const renderer = new THREE.WebGPURenderer();
+    renderer.setClearColor(new THREE.Color(CLEAR_COLOR), 1.0);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    await renderer.init();
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.y = 0.5;
+
+    // The duck occludes the splats: both go into a target with depth, shown
+    // by a full-screen quad. (Splats blend in linear space there, sRGB on
+    // WebGL's canvas: midtones differ a little from envmap-webgl.html.)
+    const target = new THREE.RenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1), type: THREE.HalfFloatType });
+    const output = new THREE.QuadMesh(new THREE.MeshBasicNodeMaterial({ colorNode: THREE.TSL.texture(target.texture) }));
+    function resize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      target.setSize(size.x, size.y);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    const splats = new WgpuSplatRenderer(renderer);
+    const packed = new PackedSplats({ url: await getAssetFileURL("fireplace.spz") });
+    await packed.initialized;
+    const source = GpuSplatSource.fromPackedSplats(splats.device, packed);
+    const background = new THREE.Object3D();
+    const background2 = new THREE.Object3D();
+    poseBackgrounds(background, background2);
+    splats.add(source, background);
+    splats.add(source, background2);
+
+    const duck = await loadDuck(GLTFLoader, getAssetFileURL);
+    scene.add(duck);
+
+    const cubeMap = new WgpuCubeMap(splats, { PMREMGenerator: THREE.PMREMGenerator });
+    const envMap = await cubeMap.renderEnvMap({
+      scene,
+      worldCenter: duck.position,
+      hideObjects: [duck],
+    });
+    setDuckMaterial(duck, envMap, params.plastic);
+    const checkbox = document.getElementById("plastic");
+    checkbox.checked = params.plastic;
+    checkbox.onchange = () => setDuckMaterial(duck, null, checkbox.checked);
+    window.__splats = splats;
+    // For parity checks: the six faces of an unfiltered cube map, RGBA8.
+    window.__readCube = async () => {
+      await cubeMap.renderCubeMap({ scene, worldCenter: duck.position, hideObjects: [duck], size: 128 });
+      return (await cubeMap.readCubeTargets()).map((f) => Array.from(f));
+    };
+
+    let frames = 0;
+    renderer.setAnimationLoop((time) => {
+      duck.rotation.y = (params.time ?? time / 1000) / 2.5;
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+      splats.render(camera, target);
+      renderer.setRenderTarget(null);
+      output.render(renderer);
+      if (++frames === 30) window.__ready = true;
+    });
+  </script>
+</body>
+</html>

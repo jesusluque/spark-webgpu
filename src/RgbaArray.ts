@@ -12,9 +12,12 @@ import {
   add,
   dynoBlock,
   readPackedSplatRange,
+  registerWgslGlobal,
+  registerWgslStruct,
   splitGsplat,
   unindent,
   unindentLines,
+  wgslStructTexture,
 } from "./dyno";
 import { getTextureSize } from "./utils";
 
@@ -270,6 +273,10 @@ export const defineRgbaArray = unindent(/* glsl */ `
   };
 `);
 
+// On WebGPU the struct's texture is a binding of its own (wgslStructTexture).
+registerWgslGlobal(defineRgbaArray, "");
+registerWgslStruct(TRgbaArray, { texture: "sampler2DArray", count: "int" });
+
 export function readRgbaArray(
   rgba: DynoVal<typeof TRgbaArray>,
   index: DynoVal<"int">,
@@ -290,6 +297,19 @@ export function readRgbaArray(
           ${outputs.rgba} = vec4(0.0, 0.0, 0.0, 0.0);
         }
       `),
+    wgsl: {
+      statements: ({ inputs, outputs }) => {
+        const texture = wgslStructTexture(inputs.rgba as string, "texture");
+        return unindentLines(/* wgsl */ `
+          if ((${inputs.index} >= 0) && (${inputs.index} < ${inputs.rgba}.count)) {
+            let coord = splatTexCoord(${inputs.index});
+            ${outputs.rgba} = textureLoad(${texture}, coord.xy, coord.z, 0);
+          } else {
+            ${outputs.rgba} = vec4f(0.0);
+          }
+        `);
+      },
+    },
   });
   return dyno.outputs.rgba;
 }

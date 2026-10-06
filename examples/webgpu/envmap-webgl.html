@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- WebGL reference for envmap.html: examples/envmap with envmap-scene.js's parameters. -->
+<head>
+  <meta charset="utf-8">
+  <title>Spark • Environment map (WebGL)</title>
+  <style>
+    body { margin: 0; background: #000; }
+    canvas { display: block; }
+    label { position: absolute; top: 8px; left: 8px; color: #fff; font: 13px system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+  <label><input id="plastic" type="checkbox" autocomplete="off"> Plastic</label>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { PackedSplats, SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
+    import { CLEAR_COLOR, envmapParams, loadDuck, poseBackgrounds, setDuckMaterial } from "./envmap-scene.js";
+
+    const params = envmapParams();
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setClearColor(new THREE.Color(CLEAR_COLOR), 1.0);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.y = 0.5;
+    scene.add(new SparkRenderer({ renderer }));
+
+    const packedSplats = new PackedSplats({ url: await getAssetFileURL("fireplace.spz") });
+    const background = new SplatMesh({ packedSplats });
+    const background2 = new SplatMesh({ packedSplats });
+    poseBackgrounds(background, background2);
+    scene.add(background, background2);
+    await background.initialized;
+    await background2.initialized;
+
+    const duck = await loadDuck(GLTFLoader, getAssetFileURL);
+    scene.add(duck);
+
+    const offline = new SparkRenderer({ renderer });
+    const envMap = await offline.renderEnvMap({ scene, worldCenter: duck.position, hideObjects: [duck] });
+    setDuckMaterial(duck, envMap, params.plastic);
+    const checkbox = document.getElementById("plastic");
+    checkbox.checked = params.plastic;
+    checkbox.onchange = () => setDuckMaterial(duck, null, checkbox.checked);
+    window.__readCube = async () => {
+      await offline.renderCubeMap({ scene, worldCenter: duck.position, hideObjects: [duck], size: 128, update: true });
+      return (await offline.readCubeTargets()).map((f) => Array.from(f));
+    };
+
+    let frames = 0;
+    renderer.setAnimationLoop((time) => {
+      duck.rotation.y = (params.time ?? time / 1000) / 2.5;
+      renderer.render(scene, camera);
+      if (++frames === 30) window.__ready = true;
+    });
+  </script>
+</body>
+</html>

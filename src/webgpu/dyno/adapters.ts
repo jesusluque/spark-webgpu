@@ -8,10 +8,15 @@ import {
   isSplatEdit,
   isSplatEditSdf,
 } from "../../SplatEdit";
-import type { GsplatModifier, SplatGenerator } from "../../SplatGenerator";
-import type { SplatMesh } from "../../SplatMesh";
+import type {
+  CovSplatModifier,
+  GsplatModifier,
+  SplatGenerator,
+} from "../../SplatGenerator";
+import { type SplatMesh, maybeInjectSplatRgba } from "../../SplatMesh";
 import { type Dyno, type IOTypes, dynoBlock } from "../../dyno/base";
-import { Gsplat } from "../../dyno/splats";
+import { CovSplat, Gsplat, splitGsplat } from "../../dyno/splats";
+import { DynoBool } from "../../dyno/uniforms";
 import type { WgpuDyno, WgpuDynoFrame } from "./DynoKernels";
 
 // A modifier per wrapped object, so the graph keeps its identity across
@@ -37,6 +42,56 @@ function asModifier(
   return modifier;
 }
 
+const wrappedCov = new WeakMap<
+  object,
+  { version: unknown; modifier: CovSplatModifier }
+>();
+function asCovModifier(
+  owner: object,
+  version: unknown,
+  modify: (c: Dyno<IOTypes, IOTypes>) => unknown,
+): CovSplatModifier {
+  const cached = wrappedCov.get(owner);
+  if (cached && cached.version === version) return cached.modifier;
+  const modifier = dynoBlock(
+    { covsplat: CovSplat },
+    { covsplat: CovSplat },
+    ({ covsplat }) => ({ covsplat: modify(covsplat as never) as never }),
+  );
+  wrappedCov.set(owner, { version, modifier });
+  return modifier;
+}
+
+// Per mesh: whether it is drawn through LOD this frame (WgpuDynoFrame.lod).
+const lodFlags = new WeakMap<SplatMesh, DynoBool<string>>();
+function lodFlag(mesh: SplatMesh) {
+  let flag = lodFlags.get(mesh);
+  if (!flag) {
+    flag = new DynoBool({ value: false });
+    lodFlags.set(mesh, flag);
+  }
+  return flag;
+}
+
+// SplatMesh.splatRgba, the baked colours that replace the source's, as the
+// first object modifier. By source index: meshes drawn through LOD leave it
+// out, as SparkRenderer does.
+function splatRgbaModifiers(mesh: SplatMesh): GsplatModifier[] {
+  const rgba = mesh.splatRgba;
+  if (!rgba) return [];
+  return [
+    // Keyed by the mesh's flag: meshes may share an RgbaArray.
+    asModifier(lodFlag(mesh), rgba.dyno, (g) =>
+      maybeInjectSplatRgba(
+        g as never,
+        rgba.dyno,
+        splitGsplat(g as never).outputs.index,
+        lodFlag(mesh),
+      ),
+    ),
+  ];
+}
+
 /**
  * A SplatMesh's dyno pipeline on WebGPU: skinning and objectModifiers in
  * object space, SDF edits and worldModifiers in world space, as in
@@ -45,11 +100,17 @@ function asModifier(
  * WgpuSplatRenderer.add with the mesh as the object. Modifier changes are
  * picked up without updateGenerator(). `globalEdits` are SplatEdits outside
  * the mesh that apply to it (SparkRenderer finds those in the scene).
+ *
+ * A mesh with covSplats (render it with WgpuSplatRenderer's covSplats) runs
+ * as SplatMesh.constructCovGenerator: skinning (either mode), its
+ * covObjectModifiers, the full transform, SDF edits and covWorldModifiers on
+ * the CovSplat; its Gsplat worldModifiers don't apply, as on WebGL.
  */
 export function splatMeshDyno(
   mesh: SplatMesh,
   { globalEdits }: { globalEdits?: () => SplatEdit[] } = {},
 ): WgpuDyno {
+  if (mesh.covSplats) return covSplatMeshDyno(mesh, globalEdits);
   return {
     get objectModifiers() {
       const mods = [...(mesh.objectModifiers ?? [])];
@@ -61,7 +122,7 @@ export function splatMeshDyno(
           ),
         );
       }
-      return mods;
+      return [...splatRgbaModifiers(mesh), ...mods];
     },
     get worldModifiers() {
       const mods = [...(mesh.worldModifiers ?? [])];
@@ -70,6 +131,45 @@ export function splatMeshDyno(
         // Growing the edit capacity replaces the edits uniform array.
         mods.unshift(
           asModifier(edits, edits.dynoEdits, (g) => edits.modify(g as never)),
+        );
+      }
+      return mods;
+    },
+    update(frame: WgpuDynoFrame) {
+      updateSplatMeshContext(mesh, frame);
+      updateSplatMeshEdits(mesh, globalEdits?.() ?? []);
+    },
+  };
+}
+
+function covSplatMeshDyno(
+  mesh: SplatMesh,
+  globalEdits?: () => SplatEdit[],
+): WgpuDyno {
+  return {
+    get objectModifiers() {
+      return [...splatRgbaModifiers(mesh), ...(mesh.objectModifiers ?? [])];
+    },
+    get covObjectModifiers() {
+      const mods = [...(mesh.covObjectModifiers ?? [])];
+      const skinning = mesh.skinning;
+      if (skinning) {
+        mods.unshift(
+          asCovModifier(skinning, skinning.uniform, (c) =>
+            skinning.modifyCov(c as never),
+          ),
+        );
+      }
+      return mods;
+    },
+    get covWorldModifiers() {
+      const mods = [...(mesh.covWorldModifiers ?? [])];
+      const edits = mesh.rgbaDisplaceEdits;
+      if (edits) {
+        mods.unshift(
+          asCovModifier(edits, edits.dynoEdits, (c) =>
+            edits.modifyCov(c as never),
+          ),
         );
       }
       return mods;
@@ -114,6 +214,7 @@ export function updateSplatMeshEdits(
 /** The dyno uniforms SplatMesh.update sets, for WebGPU frames. */
 export function updateSplatMeshContext(mesh: SplatMesh, frame: WgpuDynoFrame) {
   const { context } = mesh;
+  lodFlag(mesh).value = frame.lod ?? false;
   context.time.value = frame.time;
   context.deltaTime.value = frame.deltaTime;
   (mesh.constructor as typeof SplatMesh).dynoTime.value = frame.time;
@@ -122,7 +223,13 @@ export function updateSplatMeshContext(mesh: SplatMesh, frame: WgpuDynoFrame) {
   context.viewToWorld.updateFromMatrix(viewToWorld);
   context.worldToView.updateFromMatrix(viewToWorld.clone().invert());
   const worldToObject = mesh.matrixWorld.clone().invert();
-  context.viewToObject.updateFromMatrix(worldToObject.multiply(viewToWorld));
+  context.viewToObject.updateFromMatrix(
+    worldToObject.clone().multiply(viewToWorld),
+  );
+  context.covTransform.update(mesh);
+  context.covViewToWorld.updateFromMatrix(viewToWorld);
+  context.covWorldToView.updateFromMatrix(viewToWorld.clone().invert());
+  context.covViewToObject.updateFromMatrix(worldToObject.multiply(viewToWorld));
   context.recolor.value.set(
     mesh.recolor.r,
     mesh.recolor.g,

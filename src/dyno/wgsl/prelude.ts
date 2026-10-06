@@ -47,6 +47,15 @@ fn isCovSplatActive(flags: u32) -> bool {
     return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
 }
 
+// A CovSplat's symmetric covariance from its six terms.
+fn covSplatMatrix(xxyyzz: vec3f, xyxzyz: vec3f) -> mat3x3f {
+    return mat3x3f(
+        xxyyzz.x, xyxzyz.x, xyxzyz.y,
+        xyxzyz.x, xxyyzz.y, xyxzyz.z,
+        xyxzyz.y, xyxzyz.z, xxyyzz.z
+    );
+}
+
 fn sqr(x: f32) -> f32 {
     return x * x;
 }

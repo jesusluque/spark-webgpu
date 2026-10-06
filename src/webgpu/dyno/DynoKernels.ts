@@ -5,9 +5,13 @@
 // each mesh keeps its own compiled program for its uniform values.
 
 import type * as THREE from "three";
-import type { GsplatGenerator, GsplatModifier } from "../../SplatGenerator";
+import type {
+  CovSplatModifier,
+  GsplatGenerator,
+  GsplatModifier,
+} from "../../SplatGenerator";
 import { type Dyno, type IOTypes, dynoBlock } from "../../dyno/base";
-import { Gsplat } from "../../dyno/splats";
+import { CovSplat, Gsplat } from "../../dyno/splats";
 import { WgslDynoProgram, type WgslFunction } from "../../dyno/wgsl";
 import type { KernelModule } from "../KernelModule";
 import type { Kernel, KernelRegistry } from "../KernelRegistry";
@@ -21,6 +25,8 @@ export interface WgpuDynoFrame {
   /** Seconds, from performance.now(). */
   time: number;
   deltaTime: number;
+  /** The mesh is drawn through LOD indices (its source is the LoD tree). */
+  lod?: boolean;
 }
 
 /**
@@ -34,6 +40,14 @@ export interface WgpuDyno {
   objectModifiers?: GsplatModifier[];
   /** Applied in world space after transform and recolor. */
   worldModifiers?: GsplatModifier[];
+  /**
+   * With WgpuSplatRenderer's covSplats: CovSplat modifiers in object space
+   * (before the full linear transform) and world space, as
+   * SplatMesh.covObjectModifiers / covWorldModifiers. A mesh with
+   * worldModifiers takes the similarity transform and runs both after it.
+   */
+  covObjectModifiers?: CovSplatModifier[];
+  covWorldModifiers?: CovSplatModifier[];
   /** The generator emits world-space splats itself: skip the transform. */
   worldSpace?: boolean;
   /** Called each frame before generating, e.g. to set uniform values. */
@@ -64,12 +78,30 @@ function chain(modifiers: GsplatModifier[]): Dyno<IOTypes, IOTypes> {
   }) as unknown as Dyno<IOTypes, IOTypes>;
 }
 
+function chainCov(modifiers: CovSplatModifier[]): Dyno<IOTypes, IOTypes> {
+  return dynoBlock(
+    { covsplat: CovSplat },
+    { covsplat: CovSplat },
+    ({ covsplat }) => {
+      let c = covsplat;
+      for (const modifier of modifiers) {
+        c = modifier.apply({ covsplat: c }).covsplat;
+      }
+      return { covsplat: c };
+    },
+  ) as unknown as Dyno<IOTypes, IOTypes>;
+}
+
 function graphsOf(dyno: WgpuDyno): unknown[] {
   return [
     dyno.generator,
     ...(dyno.objectModifiers ?? []),
     null,
     ...(dyno.worldModifiers ?? []),
+    null,
+    ...(dyno.covObjectModifiers ?? []),
+    null,
+    ...(dyno.covWorldModifiers ?? []),
   ];
 }
 
@@ -96,7 +128,9 @@ export class DynoKernels {
       dyno &&
         (dyno.generator ||
           dyno.objectModifiers?.length ||
-          dyno.worldModifiers?.length),
+          dyno.worldModifiers?.length ||
+          dyno.covObjectModifiers?.length ||
+          dyno.covWorldModifiers?.length),
     );
   }
 
@@ -190,6 +224,24 @@ export class DynoKernels {
         output: "gsplat",
       });
       hooks.dynoWorldModifier = "dyno_world";
+    }
+    if (dyno.covObjectModifiers?.length) {
+      functions.push({
+        name: "dyno_cov_object",
+        graph: chainCov(dyno.covObjectModifiers),
+        inputs: { covsplat: CovSplat },
+        output: "covsplat",
+      });
+      hooks.dynoCovObjectModifier = "dyno_cov_object";
+    }
+    if (dyno.covWorldModifiers?.length) {
+      functions.push({
+        name: "dyno_cov_world",
+        graph: chainCov(dyno.covWorldModifiers),
+        inputs: { covsplat: CovSplat },
+        output: "covsplat",
+      });
+      hooks.dynoCovWorldModifier = "dyno_cov_world";
     }
     const program = new WgslDynoProgram({ functions, group: 1 });
 

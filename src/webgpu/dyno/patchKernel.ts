@@ -13,9 +13,14 @@ export interface DynoHookFunctions {
   dynoSource?: string;
   dynoObjectModifier?: string;
   dynoWorldModifier?: string;
+  /** CovSplat modifiers, for covariance splats. */
+  dynoCovObjectModifier?: string;
+  dynoCovWorldModifier?: string;
 }
 
-// The dyno Gsplat's fields (src/dyno/wgsl/prelude.ts), in order.
+const COV_HOOKS = new Set(["dynoCovObjectModifier", "dynoCovWorldModifier"]);
+
+// The dyno Gsplat's and CovSplat's fields (src/dyno/wgsl/prelude.ts), in order.
 const GSPLAT_FIELDS = [
   "center",
   "flags",
@@ -23,6 +28,14 @@ const GSPLAT_FIELDS = [
   "index",
   "quaternion",
   "rgba",
+];
+const COVSPLAT_FIELDS = [
+  "center",
+  "flags",
+  "rgba",
+  "xxyyzz",
+  "index",
+  "xyxzyz",
 ];
 
 interface FoundFunction {
@@ -57,36 +70,38 @@ export function findFunction(wgsl: string, base: string): FoundFunction | null {
   return { start: m.index, end: end + 1, name: m[1], params, returns: m[3] };
 }
 
-/** The kernel's Gsplat struct name and its fields by unmangled name. */
-function slangGsplat(wgsl: string) {
-  const m = /struct (Gsplat_\d+)\s*\{([^}]*)\}/.exec(wgsl);
-  if (!m) throw new Error("dyno: kernel has no Gsplat struct");
+/** The kernel's struct `type` (Gsplat, CovSplat): its name and fields by unmangled name. */
+function slangStruct(wgsl: string, type: string, required: string[]) {
+  const m = new RegExp(`struct (${type}_\\d+)\\s*\\{([^}]*)\\}`).exec(wgsl);
+  if (!m) throw new Error(`dyno: kernel has no ${type} struct`);
   const fields = new Map<string, string>();
   for (const line of m[2].split(",")) {
     const name = line.split(":")[0].trim();
     if (name) fields.set(name.replace(/_\d+$/, ""), name);
   }
-  for (const f of GSPLAT_FIELDS) {
-    if (!fields.has(f)) throw new Error(`dyno: kernel Gsplat lacks ${f}`);
+  for (const f of required) {
+    if (!fields.has(f)) throw new Error(`dyno: kernel ${type} lacks ${f}`);
   }
   return { name: m[1], fields };
 }
 
-// The kernel's Gsplat may carry more fields than dyno's: those pass through
+// The kernel's struct may carry more fields than dyno's: those pass through
 // from `base` (a modifier's input, zero for a generator).
-function converters(wgsl: string) {
-  const { name, fields } = slangGsplat(wgsl);
-  const from = GSPLAT_FIELDS.map((f) => `s.${fields.get(f)}`).join(", ");
-  const to = GSPLAT_FIELDS.map((f) => `    k.${fields.get(f)} = s.${f};`).join(
-    "\n",
-  );
-  return {
-    type: name,
-    code: [
-      `fn dyno_from_kernel(s: ${name}) -> Gsplat {\n    return Gsplat(${from});\n}`,
-      `fn dyno_to_kernel(s: Gsplat, base: ${name}) -> ${name} {\n    var k = base;\n${to}\n    return k;\n}`,
-    ].join("\n\n"),
-  };
+function converters(
+  wgsl: string,
+  type: string,
+  fieldNames: string[],
+  suffix: string,
+) {
+  const { name, fields } = slangStruct(wgsl, type, fieldNames);
+  const from = fieldNames.map((f) => `s.${fields.get(f)}`).join(", ");
+  const to = fieldNames
+    .map((f) => `    k.${fields.get(f)} = s.${f};`)
+    .join("\n");
+  return [
+    `fn dyno${suffix}_from_kernel(s: ${name}) -> ${type} {\n    return ${type}(${from});\n}`,
+    `fn dyno${suffix}_to_kernel(s: ${type}, base: ${name}) -> ${name} {\n    var k = base;\n${to}\n    return k;\n}`,
+  ].join("\n\n");
 }
 
 function hookBody(
@@ -95,10 +110,11 @@ function hookBody(
   found: FoundFunction,
 ) {
   const [p] = found.params;
+  const x = COV_HOOKS.has(hook) ? "_cov" : "";
   const call =
     hook === "dynoSource"
       ? `dyno_to_kernel(${fn}(${p.name}), ${found.returns}())`
-      : `dyno_to_kernel(${fn}(dyno_from_kernel(${p.name})), ${p.name})`;
+      : `dyno${x}_to_kernel(${fn}(dyno${x}_from_kernel(${p.name})), ${p.name})`;
   const params = found.params.map((x) => `${x.name}: ${x.type}`).join(", ");
   return `fn ${found.name}(${params}) -> ${found.returns}\n{\n    return ${call};\n}`;
 }
@@ -123,8 +139,11 @@ export function patchKernel(
       hookBody(hook, fn, found) +
       wgsl.slice(found.end);
   }
-  const conv = converters(wgsl);
-  wgsl = `${wgsl}\n\n// dyno\n\n${program.code}\n\n${conv.code}\n`;
+  let conv = converters(wgsl, "Gsplat", GSPLAT_FIELDS, "");
+  if (Object.keys(hooks).some((h) => COV_HOOKS.has(h))) {
+    conv += `\n\n${converters(wgsl, "CovSplat", COVSPLAT_FIELDS, "_cov")}`;
+  }
+  wgsl = `${wgsl}\n\n// dyno\n\n${program.code}\n\n${conv}\n`;
 
   const extra = dynoBindingReflections(program, textureLayouts);
   const names = extra.map((b) => b.name);
