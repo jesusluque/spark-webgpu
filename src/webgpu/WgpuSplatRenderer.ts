@@ -37,9 +37,15 @@ import {
   DynoKernels,
   type WgpuDyno,
 } from "./dyno/DynoKernels";
+import { drawSplatDraw, kernelsGenerate } from "./generated/constants";
 import drawModule from "./generated/draw/splat_draw";
 import generateModule from "./generated/kernels/generate";
-import { createStorage, upload } from "./gpuBuffers";
+import {
+  createReadback,
+  createStorage,
+  createUniform,
+  upload,
+} from "./gpuBuffers";
 import {
   type ReflectedRenderPipeline,
   createBindGroups,
@@ -47,24 +53,27 @@ import {
 } from "./renderPipeline";
 import { UniformWriter } from "./uniforms";
 
-const GEN_SRC_EXT = 1;
-const GEN_OUT_EXT = 2;
-const GEN_USE_LOD = 4;
-const GEN_LOD_OPACITY = 8;
-const GEN_SORT_RADIAL = 16;
-const GEN_DYNO_SOURCE = 256;
-const GEN_OUT_COV = 512;
-const GEN_CULL = 2048;
-const GEN_COV_TRANSFORM = 1024;
-
-const DRAW_EXT = 1;
-const DRAW_COV = 2;
-const DRAW_2DGS = 4;
-const DRAW_LOD_INFLATE = 8;
-const DRAW_ORTHOGRAPHIC = 16;
-const DRAW_ENCODE_LINEAR = 32;
-const DRAW_PREMULTIPLIED = 64;
-const DRAW_DISK_CLIP = 128;
+const {
+  GEN_SRC_EXT,
+  GEN_OUT_EXT,
+  GEN_USE_LOD,
+  GEN_LOD_OPACITY,
+  GEN_SORT_RADIAL,
+  GEN_DYNO_SOURCE,
+  GEN_OUT_COV,
+  GEN_CULL,
+  GEN_COV_TRANSFORM,
+} = kernelsGenerate;
+const {
+  DRAW_EXT,
+  DRAW_COV,
+  DRAW_2DGS,
+  DRAW_LOD_INFLATE,
+  DRAW_ORTHOGRAPHIC,
+  DRAW_ENCODE_LINEAR,
+  DRAW_PREMULTIPLIED,
+  DRAW_DISK_CLIP,
+} = drawSplatDraw;
 
 /** A portal disk in view space that clips the splats (WgpuSplatRenderer.diskClip). */
 export interface SplatDiskClip {
@@ -350,11 +359,11 @@ export class WgpuSplatRenderer {
       );
       this.options.sort = "cpu";
     }
-    this.drawUniform = this.device.createBuffer({
-      label: "splat draw params",
-      size: UniformWriter.for(drawModule).data.byteLength,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    this.drawUniform = createUniform(
+      this.device,
+      UniformWriter.for(drawModule).data.byteLength,
+      "splat draw params",
+    );
     this.emptyBuffer = createStorage(this.device, 16, "empty");
     this.dynoKernels = new DynoKernels(
       this.registry,
@@ -979,10 +988,7 @@ export class WgpuSplatRenderer {
         entryPoint: "main",
       },
     });
-    const countBuffer = device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    const countBuffer = createUniform(device, 16, "bake count");
     device.queue.writeBuffer(countBuffer, 0, new Uint32Array([count, 0, 0, 0]));
     pass.setPipeline(this.bakePipeline);
     pass.setBindGroup(
@@ -1026,11 +1032,11 @@ export class WgpuSplatRenderer {
   }
 
   private copyMetric(encoder: GPUCommandEncoder, total: number): GPUBuffer {
-    const staging = this.device.createBuffer({
-      label: "sort metric readback",
-      size: total * 4,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
+    const staging = createReadback(
+      this.device,
+      total * 4,
+      "sort metric readback",
+    );
     encoder.copyBufferToBuffer(
       this.metric as GPUBuffer,
       0,

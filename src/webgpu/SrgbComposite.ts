@@ -9,16 +9,13 @@
 // functions, so where no splat covers a pixel three's output pass returns
 // exactly what it would have.
 
+import { reuseTexture } from "./gpuBuffers";
+import { FULLSCREEN_TRIANGLE_WGSL } from "./renderPipeline";
+
 const COMPOSITE_WGSL = (multisampled: boolean) => /* wgsl */ `
 @group(0) @binding(0) var dstTex: ${multisampled ? "texture_multisampled_2d" : "texture_2d"}<f32>;
 @group(0) @binding(1) var layerTex: ${multisampled ? "texture_multisampled_2d" : "texture_2d"}<f32>;
-
-@vertex
-fn vertexMain(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
-  let uv = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
-  return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
-}
-
+${FULLSCREEN_TRIANGLE_WGSL}
 // three's sRGBTransferOETF / sRGBTransferEOTF.
 fn toSrgb(c: vec3f) -> vec3f {
   return select(1.055 * pow(c, vec3f(0.41666)) - 0.055, c * 12.92, c <= vec3f(0.0031308));
@@ -122,22 +119,10 @@ export class SrgbComposite {
   }
 
   private ensureScratch(color: GPUTexture): Scratch {
-    const s = this.scratch;
-    if (
-      s &&
-      s.copy.width === color.width &&
-      s.copy.height === color.height &&
-      s.copy.format === color.format &&
-      s.copy.sampleCount === color.sampleCount
-    ) {
-      return s;
-    }
-    s?.layer.destroy();
-    s?.copy.destroy();
     const size = [color.width, color.height];
     const sampleCount = color.sampleCount;
     this.scratch = {
-      layer: this.device.createTexture({
+      layer: reuseTexture(this.device, this.scratch?.layer, {
         label: "splat layer",
         size,
         format: SRGB_LAYER_FORMAT,
@@ -145,7 +130,7 @@ export class SrgbComposite {
         usage:
           GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
       }),
-      copy: this.device.createTexture({
+      copy: reuseTexture(this.device, this.scratch?.copy, {
         label: "splat layer background",
         size,
         format: color.format,
@@ -170,7 +155,7 @@ export class SrgbComposite {
       pipeline = this.device.createRenderPipeline({
         label: "splat layer composite",
         layout: "auto",
-        vertex: { module, entryPoint: "vertexMain" },
+        vertex: { module, entryPoint: "fullscreenVertex" },
         fragment: { module, entryPoint: "fragmentMain", targets: [{ format }] },
         multisample: { count: sampleCount },
       });

@@ -3,7 +3,19 @@
 // to the stages that use them.
 
 import type { BindingReflection, KernelModule } from "./KernelModule";
-import { usedBindings } from "./KernelRegistry";
+import { bindGroupLayouts, usedBindings } from "./KernelRegistry";
+
+/**
+ * A vertex entry `fullscreenVertex` for `draw(3)`: one triangle covering the
+ * target, for full-screen passes.
+ */
+export const FULLSCREEN_TRIANGLE_WGSL = /* wgsl */ `
+@vertex
+fn fullscreenVertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  let uv = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+`;
 
 export interface RenderPipelineOptions {
   vertex: string;
@@ -50,30 +62,17 @@ export function createReflectedRenderPipeline(
     .filter((b) => visibility.has(b.name))
     .sort((a, b) => a.group - b.group || a.binding - b.binding);
 
-  const groupCount = bindings.reduce((n, b) => Math.max(n, b.group + 1), 0);
-  const layouts: GPUBindGroupLayout[] = [];
-  for (let g = 0; g < groupCount; g += 1) {
-    layouts.push(
-      device.createBindGroupLayout({
-        label: `${module.name}@${g}`,
-        entries: bindings
-          .filter((b) => b.group === g)
-          .map((b) => {
-            if (b.kind === "unsupported" || b.kind === "external") {
-              throw new Error(
-                `${module.name}: unsupported binding '${b.name}'`,
-              );
-            }
-            // Vertex shaders may not write storage buffers.
-            return {
-              binding: b.binding,
-              visibility: visibility.get(b.name) as number,
-              buffer: { type: b.kind },
-            };
-          }),
-      }),
-    );
+  for (const b of bindings) {
+    if (b.kind === "unsupported" || b.kind === "external") {
+      throw new Error(`${module.name}: unsupported binding '${b.name}'`);
+    }
   }
+  const layouts = bindGroupLayouts(
+    device,
+    module.name,
+    bindings,
+    (b) => visibility.get(b.name) as number,
+  );
   const shaderModule = device.createShaderModule({
     label: module.name,
     code: module.wgsl,

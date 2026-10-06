@@ -2,6 +2,7 @@
 // thirty-nine operations, at its indices. B is input 0 and the pass-through
 // one. The default region, the union of the inputs, is right for a merge.
 
+import { fxMerge } from "../../generated/constants";
 import mergeModule from "../../generated/fx/merge";
 import { UniformWriter } from "../../uniforms";
 import { Effect, type RenderRequest } from "../Effect";
@@ -50,7 +51,7 @@ export const MERGE_OPERATIONS = [
   "xor",
 ] as const;
 
-export const MERGE_OVER = 28;
+export const MERGE_OVER = fxMerge.kOver;
 
 const HSL = new Set(["hue", "saturation", "color", "luminosity"]);
 

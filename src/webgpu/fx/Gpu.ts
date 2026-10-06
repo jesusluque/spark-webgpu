@@ -14,6 +14,12 @@
 import type { KernelModule } from "../KernelModule";
 import type { Grid, Kernel } from "../KernelRegistry";
 import { KernelRegistry, usedBindings } from "../KernelRegistry";
+import {
+  createReadback,
+  createStorage,
+  readAndDestroy,
+  writeWords,
+} from "../gpuBuffers";
 import { UniformWriter } from "../uniforms";
 import { type FxBuffer, PIXEL_BYTES, rect } from "./types";
 
@@ -29,9 +35,6 @@ export type RunBuffers =
   | Readonly<Record<string, BoundBuffer>>;
 
 export type RunUniforms = UniformWriter | ArrayBufferView | ArrayBuffer;
-
-const STORAGE_USAGE = () =>
-  GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
 
 function isFxBuffer(b: BoundBuffer): b is FxBuffer {
   return "stride" in b;
@@ -64,11 +67,7 @@ export class Gpu {
 
   constructor(readonly registry: KernelRegistry) {
     this.device = registry.device;
-    this.placeholder = this.device.createBuffer({
-      label: "fx placeholder",
-      size: 16,
-      usage: STORAGE_USAGE(),
-    });
+    this.placeholder = createStorage(this.device, 16, "fx placeholder");
   }
 
   static forDevice(device: GPUDevice) {
@@ -232,12 +231,7 @@ export class Gpu {
     const size = Math.max(16, Math.ceil(bytes / step) * step);
     const list = this.free.get(size);
     const buffer =
-      list?.pop() ??
-      this.device.createBuffer({
-        label: "fx scratch",
-        size,
-        usage: STORAGE_USAGE(),
-      });
+      list?.pop() ?? createStorage(this.device, size, "fx scratch");
     this.lent.push(buffer);
     return buffer;
   }
@@ -257,22 +251,8 @@ export class Gpu {
     if (had) return had;
     const size = bytes ?? data?.byteLength ?? 0;
     if (size <= 0) return null;
-    const buffer = this.device.createBuffer({
-      label: `fx keep ${key}`,
-      size: Math.max(16, Math.ceil(size / 16) * 16),
-      usage: STORAGE_USAGE(),
-    });
-    if (data) {
-      // writeBuffer takes whole words; pad a ragged tail with a copy rather
-      // than reading past the end of the caller's view.
-      let bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-      if (bytes.byteLength % 4 !== 0) {
-        const padded = new Uint8Array(Math.ceil(bytes.byteLength / 4) * 4);
-        padded.set(bytes);
-        bytes = padded;
-      }
-      this.device.queue.writeBuffer(buffer, 0, bytes);
-    }
+    const buffer = createStorage(this.device, size, `fx keep ${key}`);
+    if (data) writeWords(this.device, buffer, data);
     this.kept.set(key, buffer);
     return buffer;
   }
@@ -289,20 +269,10 @@ export class Gpu {
    */
   read(source: BoundBuffer, bytes?: number): Promise<ArrayBuffer> {
     const buf = gpuBuffer(source);
-    const size = Math.ceil((bytes ?? buf.size) / 4) * 4;
-    const staging = this.device.createBuffer({
-      label: "fx read",
-      size,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
-    this.commandEncoder().copyBufferToBuffer(buf, 0, staging, 0, size);
+    const staging = createReadback(this.device, bytes ?? buf.size, "fx read");
+    this.commandEncoder().copyBufferToBuffer(buf, 0, staging, 0, staging.size);
     return new Promise((resolve, reject) => {
-      this.reads.push(() => {
-        staging.mapAsync(GPUMapMode.READ).then(() => {
-          resolve(staging.getMappedRange().slice(0));
-          staging.destroy();
-        }, reject);
-      });
+      this.reads.push(() => readAndDestroy(staging).then(resolve, reject));
     });
   }
 

@@ -79,6 +79,38 @@ export function usedBindings(
     .sort((a, b) => a.group - b.group || a.binding - b.binding);
 }
 
+/**
+ * One bind group layout per group up to the highest one `bindings` use:
+ * buffers by their kind, "external" bindings by their own layout.
+ */
+export function bindGroupLayouts(
+  device: GPUDevice,
+  label: string,
+  bindings: readonly BindingReflection[],
+  visibility: (b: BindingReflection) => GPUShaderStageFlags,
+): GPUBindGroupLayout[] {
+  const groupCount = bindings.reduce((n, b) => Math.max(n, b.group + 1), 0);
+  return Array.from({ length: groupCount }, (_, g) =>
+    device.createBindGroupLayout({
+      label: `${label}@${g}`,
+      entries: bindings
+        .filter((b) => b.group === g)
+        .map((b) => ({
+          ...(b.layout ?? {
+            buffer: {
+              type:
+                b.kind === "unsupported" || b.kind === "external"
+                  ? undefined
+                  : b.kind,
+            },
+          }),
+          binding: b.binding,
+          visibility: visibility(b),
+        })),
+    }),
+  );
+}
+
 export function workgroupCount(entry: EntryReflection, grid: Grid): number[] {
   const size = entry.workgroupSize ?? [1, 1, 1];
   const [x, y = 1, z = 1] = grid;
@@ -250,36 +282,12 @@ export class KernelRegistry {
       throw new Error(`${key} is a ${entry.stage} entry, not compute`);
     }
 
-    const bindings = usedBindings(module, entry);
-    const groupCount = bindings.reduce((n, b) => Math.max(n, b.group + 1), 0);
-    const layouts: GPUBindGroupLayout[] = [];
-    for (let g = 0; g < groupCount; g += 1) {
-      layouts.push(
-        this.device.createBindGroupLayout({
-          label: `${key}@${g}`,
-          entries: bindings
-            .filter((b) => b.group === g)
-            .map((b) =>
-              b.layout
-                ? {
-                    ...b.layout,
-                    binding: b.binding,
-                    visibility: GPUShaderStage.COMPUTE,
-                  }
-                : {
-                    binding: b.binding,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: {
-                      type:
-                        b.kind === "unsupported" || b.kind === "external"
-                          ? undefined
-                          : b.kind,
-                    },
-                  },
-            ),
-        }),
-      );
-    }
+    const layouts = bindGroupLayouts(
+      this.device,
+      key,
+      usedBindings(module, entry),
+      () => GPUShaderStage.COMPUTE,
+    );
     const pipeline = this.device.createComputePipeline({
       label: key,
       layout: this.device.createPipelineLayout({ bindGroupLayouts: layouts }),

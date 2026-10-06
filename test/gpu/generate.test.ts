@@ -10,14 +10,17 @@ import {
   unpackSplat,
 } from "../../src/utils";
 import { KernelRegistry } from "../../src/webgpu/KernelRegistry";
+import { kernelsGenerate } from "../../src/webgpu/generated/constants";
 import generate from "../../src/webgpu/generated/kernels/generate";
 import { UniformWriter } from "../../src/webgpu/uniforms";
 import { device, readBack, storage } from "./device";
 
-const SRC_EXT = 1;
-const OUT_EXT = 2;
-const USE_LOD = 4;
-const SORT_RADIAL = 16;
+const {
+  GEN_SRC_EXT: SRC_EXT,
+  GEN_OUT_EXT: OUT_EXT,
+  GEN_USE_LOD: USE_LOD,
+  GEN_SORT_RADIAL: SORT_RADIAL,
+} = kernelsGenerate;
 
 function rng(seed: number) {
   let s = seed >>> 0;

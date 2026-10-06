@@ -7,6 +7,7 @@
 // interest is the output's corners carried back through the inverse, grown
 // by the filter's reach.
 
+import { fxTransform } from "../../generated/constants";
 import transformModule from "../../generated/fx/transform";
 import { UniformWriter } from "../../uniforms";
 import { Effect, type RegionQuery, type RenderRequest } from "../Effect";
@@ -116,8 +117,8 @@ export const TRANSFORM_FILTERS = [
   "mitchell",
   "parzen",
 ] as const;
-const FILTER_BOX = 1;
-const BOX_REACH = 32;
+const FILTER_BOX = fxTransform.kBox;
+const BOX_REACH = fxTransform.kBoxReach;
 
 export function settingsFrom(params: ParamValues): TransformSettings {
   const n = (name: string, fallback: number, c = 0) =>
