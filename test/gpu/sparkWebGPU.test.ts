@@ -153,6 +153,41 @@ describe.skipIf(!device)("SparkRenderer on WebGPU", () => {
     spark.dispose();
   });
 
+  // Tone mapping the composite can't invert (a custom node here) puts the
+  // splats on the canvas after three's output pass, with MSAA too (its
+  // depth resolved to one sample), not into the tone-mapped frame.
+  it("draws after the output pass under custom tone mapping with MSAA", async () => {
+    const { spark, scene, camera } = setup();
+    scene.add(new SplatMesh({ packedSplats: ball() }));
+    const r = fakeRenderer as Record<string, unknown>;
+    const utils = fakeRenderer.backend.utils;
+    const frameBufferTarget = {};
+    r.toneMapping = THREE.CustomToneMapping;
+    r._frameBufferTarget = frameBufferTarget;
+    Object.assign(rc, { renderTarget: frameBufferTarget, textures: [{}] });
+    utils.getSampleCountRenderContext = () => 4;
+    try {
+      await render(spark, scene, camera);
+      expect(Object.hasOwn(scene, "onAfterRender")).toBe(true);
+      scene.onAfterRender(
+        fakeRenderer as never,
+        scene,
+        camera,
+        null as never,
+        null as never,
+        null as never,
+      );
+      await d.queue.onSubmittedWorkDone();
+      expect(await litPixels()).toBeGreaterThan(W * H * 0.1);
+    } finally {
+      r.toneMapping = undefined;
+      r._frameBufferTarget = null;
+      Object.assign(rc, { renderTarget: null, textures: null });
+      utils.getSampleCountRenderContext = () => 1;
+      spark.dispose();
+    }
+  });
+
   it("follows visibility, shared splats and removal", async () => {
     const { spark, scene, camera } = setup();
     const packed = ball();
