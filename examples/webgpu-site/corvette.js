@@ -1,4 +1,4 @@
-import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { SparkRenderer, SplatMesh, workerPool } from "@sparkjsdev/spark";
 import {
   atheneaOutputPlugin,
   atheneaRelightPlugin,
@@ -50,6 +50,7 @@ export async function createCorvette({
     ? (name) => name.replace(/_(1k|2k|4k)\.hdr$/, "_1k.hdr")
     : fullResHdri;
   window.__athenea = { loaded: false, error: null };
+  if (mobile) workerPool.maxWorkers = 1;
   const info = await (
     await fetch(`${base}${params.get("scene") ?? "corvette.json"}`)
   ).json();
@@ -232,6 +233,9 @@ export async function createCorvette({
     // A glass cloud's index is the cloud's, not its file's (corvette.json).
     if (part.ior) relight.setIor(mesh, part.ior);
     if (part.catcher) relight.setCatcher(mesh, true);
+    // On a phone one cloud at a time, in one worker: each decode grows a
+    // worker's WebAssembly memory, and four at once got the tab killed.
+    if (mobile) await mesh.initialized;
   }
   const megabytes = parts.reduce((s, p) => s + (p.bytes ?? 0), 0) / 1e6;
   status.textContent = `loading the car (${megabytes.toFixed(0)} MB)…`;
@@ -300,6 +304,8 @@ export async function createCorvette({
   try {
     await setHdri(state.hdri);
     await Promise.all(Object.values(meshes).map((m) => m.initialized));
+    // Give the decoders' memory back once everything is on the GPU.
+    if (mobile) workerPool.trim();
     await spark.webgpuReady;
     window.__athenea.loaded = true;
   } catch (error) {
