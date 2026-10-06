@@ -196,7 +196,7 @@ const guiOpen = (title) => (ctx) =>
 
 const DYNO = ["effect", "depth", "normal", "edit", "snow", "skin", "rgba"];
 const READY = () => window.__ready;
-const PAGED = { stableShots: 6 };
+const PAGED = { stableShots: 6, maxWait: 120000 };
 
 export const cases = [
   ...ex("hello-world", [{ readme: 0.03 }]),
