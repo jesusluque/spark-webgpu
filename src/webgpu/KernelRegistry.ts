@@ -15,13 +15,28 @@ import type {
 
 export type Grid = readonly [number, number?, number?];
 
+type UniformData = ArrayBufferView | ArrayBuffer;
+
+// The data for uniform block `name` in DispatchArgs.uniforms.
+function uniformData(
+  uniforms: DispatchArgs["uniforms"],
+  name: string,
+): UniformData | undefined {
+  if (!uniforms || ArrayBuffer.isView(uniforms)) return uniforms;
+  if (uniforms instanceof ArrayBuffer) return uniforms;
+  return uniforms[name];
+}
+
 export interface DispatchArgs {
   /** Threads to run in x, y, z; the registry rounds up to whole workgroups. */
   grid: Grid;
   /** Storage buffers by binding name. */
   buffers?: Record<string, GPUBuffer>;
-  /** Contents of the kernel's uniform block, exactly its reflected size. */
-  uniforms?: ArrayBufferView | ArrayBuffer;
+  /**
+   * Contents of the kernel's uniform block, exactly its reflected size; or
+   * of each block by name, for kernels with several.
+   */
+  uniforms?: UniformData | Record<string, UniformData>;
   /** Resources for "external" bindings, by name. */
   bindings?: Record<string, GPUBindingResource>;
 }
@@ -40,7 +55,7 @@ export function validateDispatch(
         errors.push(`${where}: missing binding '${b.name}'`);
       }
     } else if (b.kind === "uniform") {
-      const bytes = args.uniforms?.byteLength ?? 0;
+      const bytes = uniformData(args.uniforms, b.name)?.byteLength ?? 0;
       if (bytes !== b.bytes) {
         errors.push(
           `${where}: uniform block '${b.name}' is ${b.bytes} bytes, got ${bytes}`,
@@ -172,7 +187,9 @@ export class Kernel {
           b.kind === "external"
             ? (args.bindings as Record<string, GPUBindingResource>)[b.name]
             : b.kind === "uniform"
-              ? this.registry.uniforms.push(args.uniforms as ArrayBufferView)
+              ? this.registry.uniforms.push(
+                  uniformData(args.uniforms, b.name) as UniformData,
+                )
               : { buffer: (args.buffers as Record<string, GPUBuffer>)[b.name] };
         entries.push({ binding: b.binding, resource });
       }

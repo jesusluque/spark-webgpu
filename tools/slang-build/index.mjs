@@ -97,6 +97,14 @@ function fieldType(t) {
   return { kind: t.kind };
 }
 
+// Slang [format] names of storage textures, as WebGPU formats.
+const STORAGE_FORMATS = {
+  rgba16f: "rgba16float",
+  rgba32f: "rgba32float",
+  rgba8: "rgba8unorm",
+  r32f: "r32float",
+};
+
 export function reflect(json) {
   const bindings = [];
   for (const p of json.parameters ?? []) {
@@ -122,6 +130,20 @@ export function reflect(json) {
     } else if (t.kind === "resource" && t.baseShape === "byteAddressBuffer") {
       entry.kind = t.access === "readWrite" ? "storage" : "read-only-storage";
       entry.elementBytes = 4;
+    } else if (t.kind === "resource" && t.baseShape === "texture2D") {
+      // Bound by the caller (DispatchArgs.bindings): a Texture2D<float> as
+      // unfilterable float (depth textures included), a write-only
+      // WTexture2D as a storage texture of its [format].
+      entry.kind = "external";
+      entry.layout =
+        t.access === "write"
+          ? {
+              storageTexture: {
+                access: "write-only",
+                format: STORAGE_FORMATS[p.format] ?? p.format,
+              },
+            }
+          : { texture: { sampleType: "unfilterable-float" } };
     } else {
       entry.kind = "unsupported";
       entry.type = t.kind;
