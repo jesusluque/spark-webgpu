@@ -30,6 +30,7 @@ import {
   SRGB_LAYER_FORMAT,
   SrgbComposite,
 } from "./SrgbComposite";
+import { TileRasterizer } from "./TileRasterizer";
 import { type GpuCapabilities, capabilitiesOf } from "./capabilities";
 import { sortBackToFront } from "./cpuSort";
 import {
@@ -37,7 +38,7 @@ import {
   DynoKernels,
   type WgpuDyno,
 } from "./dyno/DynoKernels";
-import { drawSplatDraw, kernelsGenerate } from "./generated/constants";
+import { drawSplatShape, kernelsGenerate } from "./generated/constants";
 import drawModule from "./generated/draw/splat_draw";
 import generateModule from "./generated/kernels/generate";
 import {
@@ -81,7 +82,7 @@ const {
   DRAW_ENCODE_LINEAR,
   DRAW_PREMULTIPLIED,
   DRAW_DISK_CLIP,
-} = drawSplatDraw;
+} = drawSplatShape;
 
 /** A portal disk in view space that clips the splats (WgpuSplatRenderer.diskClip). */
 export interface SplatDiskClip {
@@ -199,6 +200,14 @@ export interface WgpuSplatRendererOptions {
    * target's linear space. Default false.
    */
   srgbBlend?: boolean;
+  /**
+   * How render() draws the sorted splats. "hardware" (default): instanced
+   * quads blended back to front. "tiles" (experimental): a compute tile
+   * rasterizer (TileRasterizer) blending each 16 x 16 tile front to back,
+   * stopping where transmittance drops under 1/255, then composited. Needs
+   * the GPU sort; 2DGS, draw stages and renderInPass stay on hardware.
+   */
+  rasterizer?: "hardware" | "tiles";
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -305,6 +314,7 @@ export class WgpuSplatRenderer {
   private dynoDirty = false;
   private bakePipeline?: GPUComputePipeline;
   private srgb?: SrgbComposite;
+  private tiles?: TileRasterizer;
 
   // Sort state: a readback in flight, and the order last uploaded.
   private sortPending = false;
@@ -348,6 +358,7 @@ export class WgpuSplatRenderer {
       covSplats: false,
       enable2DGS: false,
       srgbBlend: false,
+      rasterizer: "hardware",
       ...options,
     };
     this.capabilities = capabilitiesOf(this.device);
@@ -1151,7 +1162,23 @@ export class WgpuSplatRenderer {
     }
     // Blended in sRGB in a layer of their own, composited after.
     const layer = linear && this.options.srgbBlend && !variant;
-    this.writeDrawParams(camera, size.x, size.y, linear && !layer);
+    const drawParams = this.writeDrawParams(
+      camera,
+      size.x,
+      size.y,
+      linear && !layer,
+    );
+    if (
+      gpu &&
+      !variant &&
+      this.options.rasterizer === "tiles" &&
+      !this.options.enable2DGS
+    ) {
+      this.drawTiles(encoder, target, depthTexture, layer, drawParams);
+      this.stats.draws += 1;
+      this.stats.drawn = gpuSorted as number;
+      return;
+    }
     const rp =
       variant?.pipeline ??
       (layer
@@ -1193,6 +1220,50 @@ export class WgpuSplatRenderer {
     }
     this.stats.draws += 1;
     this.stats.drawn = gpu ? (gpuSorted as number) : this.drawCount;
+    pass.end();
+    if (layer) {
+      this.srgbComposite.composite(encoder, target, {
+        view: target.createView(),
+      });
+    }
+  }
+
+  // The tile rasterizer's draw: its compute stages, then its image blended
+  // over the target as the quads would be.
+  private drawTiles(
+    encoder: GPUCommandEncoder,
+    target: GPUTexture,
+    depth: GPUTexture | null,
+    layer: boolean,
+    drawParams: ArrayBuffer,
+  ) {
+    this.tiles ??= new TileRasterizer(this.registry);
+    const format = layer ? SRGB_LAYER_FORMAT : target.format;
+    this.tiles.encode(encoder, {
+      ordering: this.sorter.ordering,
+      sortCount: this.sorter.drawArgs,
+      slots: this.meshes.reduce((n, m) => n + this.meshCount(m), 0),
+      splats: this.accumulator as GPUBuffer,
+      drawParams,
+      width: target.width,
+      height: target.height,
+      depth,
+      clamp: format.includes("unorm"),
+      profiler: this.options.profile ? this.profiler : null,
+    });
+    const pass = layer
+      ? this.srgbComposite.beginLayer(encoder, target, undefined)
+      : encoder.beginRenderPass({
+          label: "splats",
+          timestampWrites: this.timestampWrites("draw"),
+          colorAttachments: [
+            { view: target.createView(), loadOp: "load", storeOp: "store" },
+          ],
+        });
+    const blend = layer
+      ? SRGB_LAYER_BLEND
+      : (this.pipelineStates(format, null).colorTarget.blend as GPUBlendState);
+    this.tiles.composite(pass, format, blend);
     pass.end();
     if (layer) {
       this.srgbComposite.composite(encoder, target, {
@@ -1264,6 +1335,7 @@ export class WgpuSplatRenderer {
           : 0),
     });
     this.device.queue.writeBuffer(this.drawUniform, 0, params.data);
+    return params.data;
   }
 
   dispose() {
@@ -1275,6 +1347,7 @@ export class WgpuSplatRenderer {
     this.emptyBuffer.destroy();
     this.sorter.destroy();
     this.srgb?.dispose();
+    this.tiles?.destroy();
     this.profiler?.destroy();
     this.registry.destroy();
   }

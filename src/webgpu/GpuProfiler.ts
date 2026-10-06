@@ -105,14 +105,22 @@ export class GpuProfiler {
           const t = new BigInt64Array(readback.getMappedRange(0, bytes));
           const frame: Record<string, number> = {};
           let total = 0;
+          let first = t[0];
+          let last = t[0];
           labels.forEach((label, i) => {
             const ms = Number(t[2 * i + 1] - t[2 * i]) / 1e6;
             // Skip garbage from passes that never ran (end before start).
             if (ms < 0 || ms > 1e4) return;
             frame[label] = (frame[label] ?? 0) + ms;
             total += ms;
+            if (t[2 * i] < first) first = t[2 * i];
+            if (t[2 * i + 1] > last) last = t[2 * i + 1];
           });
           frame.total = total;
+          // First start to last end: passes may overlap (a render pass
+          // starting while the compute before it finishes), so this can be
+          // under the total.
+          frame.span = Number(last - first) / 1e6;
           this.last = frame;
           readback.unmap();
           this.free.push(readback);

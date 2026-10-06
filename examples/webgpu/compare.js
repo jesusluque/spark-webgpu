@@ -14,6 +14,8 @@
 //                        loads the file as cov ExtSplats meshes on WebGL)
 //   ?ext=1               load the file as ExtSplats (both backends)
 //   ?scale=x,y,z         non-uniform object scale (needs covSplats)
+//   ?dist=<d>            object distance from the camera (default 3; e.g.
+//                        1.2 for a dense close-up, the worst overdraw)
 // Both pages expose window.__bench(frames): renders that many frames as fast
 // as possible, each waited on until the GPU finishes, with the object
 // turning a little every frame so both backends regenerate and re-sort.
@@ -36,11 +38,12 @@ export function setupCompare() {
     h: Number(params.get("h") ?? 600),
   };
   const scale = params.get("scale")?.split(",").map(Number);
+  const dist = Number(params.get("dist") ?? 3);
   // The pose examples/hello-world gives the butterfly, without the spin.
   const pose = (object) => {
     if (scale) object.scale.set(...scale);
     if (n) {
-      object.position.set(0, 0, -3);
+      object.position.set(0, 0, -dist);
       return;
     }
     if (rad) {
@@ -49,7 +52,7 @@ export function setupCompare() {
       return;
     }
     object.quaternion.set(1, 0, 0, 0);
-    object.position.set(0, 0, -3);
+    object.position.set(0, 0, -dist);
     object.rotation.y += 0.6;
   };
   const options = {};

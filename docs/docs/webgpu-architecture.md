@@ -43,6 +43,14 @@ This reaches into three.js r180 internals (the current render context, the backe
 
 When the GPU sort doesn't fit the device (see [Capabilities](#capabilities)), or with `sort: "cpu"`, the renderer reads the metrics back and sorts them in JS (`cpuSort.ts`), drawing a frame behind as WebGL Spark does.
 
+### Tile rasterizer (experimental)
+
+`WgpuSplatRenderer({ rasterizer: "tiles" })` replaces the quad draw of `render()` with a compute rasterizer after the reference 3DGS one (`slang/tiles/tile_raster.slang`, `TileRasterizer.ts`). Generate and the depth sort are unchanged. Then, per sorted splat, it computes the footprint with the quad draw's own maths (`slang/draw/splat_shape.slang`, shared with `splat_draw`), lists the splat in every 16×16 tile its ellipse reaches (an exclusive scan of the counts gives each splat's offset), and sorts the (tile, slot) pairs stably by tile alone with `GpuSorter`. The slots are already back to front, so each tile's list stays in depth order. One workgroup per tile then blends its list front to back into an `rgba16float` texture, testing three's depth texture in compute, and stops once every pixel's transmittance is under 1/255. Last, a full-screen pass composites the image with the quad draw's blend state (or into the sRGB layer). There are no float atomics and no subgroups.
+
+The image matches the quad draw to within a level: a mean difference of 0.3–0.5/255 on the example scenes, mostly because the quads round to 8 bits at every blend and the tiles round once. 2DGS splats, draw stages (attributes) and `renderInPass` stay on the quad draw. The pair buffers are sized from a readback a frame or two behind.
+
+On Apple GPUs it pays off only where many splats pile up on a pixel and early termination skips most of them. In Chrome on an Apple GPU, dense synthetic clouds (1–4M splats, and close-ups) reach 1.8–4.4× the frame rate. Captured scenes (penguin, valley, robot-head) are 1.1–1.7× slower, because a tile blends all 256 of its pixels for each listed splat, where the rasterizer shades only covered fragments. It stays opt-in.
+
 ## Buffer layouts and the 8-storage-buffers rule
 
 WebGPU guarantees only 8 storage buffers per shader stage, and that is what Safari gives by default. So per-splat data is **interleaved**, one buffer per kind of data, and no kernel binds more than 5 storage buffers:
@@ -150,7 +158,7 @@ Per-Gaussian attributes (`src/webgpu/attributes/`, `slang/core/attrib.slang`) ar
 
 ## Profiling
 
-`WgpuSplatRenderer({ profile: true })` times generate, each sort stage and the draw with timestamp queries (`GpuProfiler.ts`) into `stats.gpuMs`, where the device has the `timestamp-query` feature. It splits the sort into a pass per stage, so it costs a little. `compare-webgpu.html?profile=1` exposes it as `window.__profile(frames)`.
+`WgpuSplatRenderer({ profile: true })` times generate, each sort stage and the draw with timestamp queries (`GpuProfiler.ts`) into `stats.gpuMs`, where the device has the `timestamp-query` feature. It splits the sort into a pass per stage, so it costs a little. `compare-webgpu.html?profile=1` exposes it as `window.__profile(frames)`. Besides each label, `total` sums the passes and `span` runs from the first start to the last end. On Apple GPUs passes can overlap: a render pass may start its timer while the compute before it is still running, which is the case for the tile rasterizer's composite. The pass times are then only indicative, and frame rates or `span` are the numbers to compare.
 
 ## Frame skipping
 
