@@ -455,7 +455,7 @@ export async function main(argv) {
     }
     const versions = Object.values(drivers).map((d) => d.version());
     console.log(
-      `parity: ${items.length} cases, ${versions.join(", ")}, ${ctx.base}${opts.perf ? ", perf" : ""}`,
+      `parity: ${items.length} cases, ${[...versions, ctx.base].join(", ")}${opts.perf ? ", perf" : ""}`,
     );
     const results = [];
     const t0 = Date.now();
@@ -504,7 +504,7 @@ export async function main(argv) {
       results,
       perf,
       opts,
-      versions,
+      versions: [...new Set(Object.values(drivers).map((d) => d.version()))],
       base: ctx.base,
       seconds: (Date.now() - t0) / 1000,
     });
