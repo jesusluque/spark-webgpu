@@ -35,6 +35,7 @@
         "three/tsl": "../js/vendor/three/build/three.tsl.js",
         "three/addons/": "../js/vendor/three/examples/jsm/",
         "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js",
         "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
       }
     }
@@ -46,7 +47,8 @@
   <canvas id="canvas" tabindex="0" style="outline: none;"></canvas>
   <script type="module">
     import * as THREE from "three/webgpu";
-    import { SparkRenderer, SplatMesh, SparkControls, isMobile, splatRequiredLimits } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh, SparkControls, isMobile } from "@sparkjsdev/spark";
+    import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
     import GUI from "lil-gui";
 
     const initialWorld = "Coit Tower, SF";

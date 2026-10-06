@@ -37,6 +37,7 @@
         "three/tsl": "../js/vendor/three/build/three.tsl.js",
         "three/addons/": "../js/vendor/three/examples/jsm/",
         "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js",
         "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
       }
     }
@@ -54,7 +55,8 @@
   <script type="module">
     import * as THREE from "three/webgpu";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-    import { SparkRenderer, SplatMesh, splatRequiredLimits } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
     import GUI from "lil-gui";
 
     const stats = document.getElementById("stats");

@@ -40,6 +40,18 @@ function makeCtx(h, extra) {
     setTime: (t) => h.evaluate((t) => window.__setTime(t), t),
     wait: (ms) => sleep(ms),
     eval: (fn, arg) => h.evaluate(fn, arg),
+    /** Waits until the page has logged `count` lines containing `text`. */
+    async waitForLog(text, { count = 1, timeout = 120000 } = {}) {
+      const t0 = Date.now();
+      for (;;) {
+        const lines = await h.console();
+        if (lines.filter((l) => l.includes(text)).length >= count) return;
+        if (Date.now() - t0 > timeout) {
+          throw new Error(`timed out waiting for the log "${text}"`);
+        }
+        await sleep(200);
+      }
+    },
     async waitFor(fn, arg, timeout = 60000) {
       const t0 = Date.now();
       while (!(await h.evaluate(fn, arg).catch(() => false))) {
@@ -120,9 +132,12 @@ export class ChromeDriver {
     });
     const logs = [];
     let inflight = 0;
+    const all = [];
     page.on("console", (m) => {
-      if (m.type() === "error" || m.type() === "warning") {
-        const line = `[${m.type() === "warning" ? "warn" : "error"}] ${m.text()}`;
+      const type = m.type() === "warning" ? "warn" : m.type();
+      all.push(`[${type}] ${m.text()}`);
+      if (type === "error" || type === "warn") {
+        const line = `[${type}] ${m.text()}`;
         if (keep(line)) logs.push(line);
       }
     });
@@ -170,6 +185,7 @@ export class ChromeDriver {
       // present a frame.
       screenshot: () => page.screenshot({ timeout: 120000 }),
       logs: () => logs.filter(keep),
+      console: async () => all,
       inflight: () => inflight,
       close: () => page.close(),
     };
@@ -272,7 +288,12 @@ export class SafariDriver {
       },
     };
     let lastLog = [];
-    h.logs = () => lastLog.filter(keep);
+    h.logs = () =>
+      lastLog.filter((l) => !/^\[(log|info)\]/.test(l)).filter(keep);
+    h.console = async () => {
+      await refreshLogs();
+      return lastLog;
+    };
     const refreshLogs = async () => {
       lastLog =
         (await wd

@@ -47,7 +47,7 @@ export function parityInit(cfg) {
               : String(x),
         )
         .join(" ");
-    for (const level of ["error", "warn"]) {
+    for (const level of ["error", "warn", "log", "info"]) {
       const orig = console[level].bind(console);
       console[level] = (...a) => {
         log.push(`[${level}] ${text(a)}`);

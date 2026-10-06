@@ -48,7 +48,8 @@ thresholds. The mean threshold defaults to the README number × 1.5 + 0.15.
 Where the README has no number, the threshold was set from measured runs,
 with a margin. Input scripts use the driver-neutral `ctx`
 (`drivers.mjs`): `step`, `wait`, `mouse.*`, `key.*`, `click(selector)`,
-`clickText`, `select`, `eval`, `waitFor`, `setFiles`/`fixture`. A new example
+`clickText`, `select`, `eval`, `waitFor`, `waitForLog`, `settle`,
+`setFiles`/`fixture`. A new example
 is one `ex(name, [scenarios])` line.
 
 ## Safari
