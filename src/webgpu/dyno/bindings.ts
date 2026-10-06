@@ -2,11 +2,9 @@
 // block at binding 0, then each sampler uniform's texture and sampler.
 
 import type * as THREE from "three";
-import type { WgslDynoProgram } from "../../dyno/wgsl";
+import { UNIFORM_BLOCK, type WgslDynoProgram } from "../../dyno/wgsl";
 import type { BindingReflection } from "../KernelModule";
 import { type TextureCache, isFilterable } from "./textures";
-
-export const DYNO_UNIFORMS = "dyno_uniforms";
 
 export interface TextureLayout {
   sampleType: GPUTextureSampleType;
@@ -65,7 +63,7 @@ export function dynoBindingReflections(
   const extra: BindingReflection[] = [];
   if (program.uniformBytes > 0) {
     extra.push({
-      name: DYNO_UNIFORMS,
+      name: UNIFORM_BLOCK,
       group,
       binding: 0,
       kind: "external",
@@ -112,7 +110,7 @@ export function dynoResources(
 ): Record<string, GPUBindingResource> {
   const resources: Record<string, GPUBindingResource> = {};
   if (program.uniformBytes > 0) {
-    resources[DYNO_UNIFORMS] = pushUniforms(program.packUniforms());
+    resources[UNIFORM_BLOCK] = pushUniforms(program.packUniforms());
   }
   for (const t of program.backend.textures) {
     const texture = t.uniform.value as THREE.Texture;

@@ -147,18 +147,3 @@ export function splatRequiredLimits(
   }
   return out;
 }
-
-/** A canvas format and alpha mode that every WebGPU implementation accepts. */
-export function canvasConfiguration(): {
-  format: GPUTextureFormat;
-  alphaMode: GPUCanvasAlphaMode;
-} {
-  // bgra8unorm on Apple GPUs in both browsers; rgba8unorm elsewhere. Both
-  // are always valid canvas formats, and "premultiplied" is what the splat
-  // draw writes and what Safari and Chrome both support.
-  const format =
-    typeof navigator !== "undefined" && navigator.gpu
-      ? navigator.gpu.getPreferredCanvasFormat()
-      : "bgra8unorm";
-  return { format, alphaMode: "premultiplied" };
-}
