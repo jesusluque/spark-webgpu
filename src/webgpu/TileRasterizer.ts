@@ -52,6 +52,10 @@ export class TileRasterizer {
   minTransmittance = 1 / 255;
   /** Pairs of the last frame read back, and what the buffers hold. */
   readonly stats = { pairs: 0, pairCapacity: 0 };
+  /** encode() calls so far, and which one the last read pair count is from. */
+  encodes = 0;
+  readFrom = -1;
+  private copiedFrom = -1;
   private sorter: GpuSorter;
   private slotCapacity = 0;
   private tileSplats: GPUBuffer | null = null;
@@ -106,9 +110,13 @@ export class TileRasterizer {
     );
   }
 
-  // The last copied pair count, mapped now that its frame was submitted:
-  // grows the pair buffers for the next frames when they were too small.
-  private pollReadback() {
+  /**
+   * Maps the last copied pair count, once its frame was submitted: grows the
+   * pair buffers for the next frames when they were too small. encode()
+   * calls it; call it on frames without one too, to size them before the
+   * next.
+   */
+  poll() {
     if (this.readback !== "copied") return;
     this.readback = "mapping";
     this.keyReadback
@@ -117,6 +125,7 @@ export class TileRasterizer {
         const pairs = new Uint32Array(this.keyReadback.getMappedRange())[0];
         this.keyReadback.unmap();
         this.stats.pairs = pairs;
+        this.readFrom = this.copiedFrom;
         if (pairs > this.pairCapacity) {
           this.pairCapacity = Math.min(Math.ceil(pairs * 1.25), this.maxPairs);
         }
@@ -130,7 +139,8 @@ export class TileRasterizer {
   /** Records the tile stages into `encoder`, leaving the image for composite(). */
   encode(encoder: GPUCommandEncoder, input: TileRasterInput) {
     const { width, height, profiler } = input;
-    this.pollReadback();
+    this.poll();
+    this.encodes += 1;
     this.ensureSlots(input.slots);
     const tilesX = Math.ceil(width / TILE_SIZE);
     const tilesY = Math.ceil(height / TILE_SIZE);
@@ -204,6 +214,7 @@ export class TileRasterizer {
     if (this.readback === "idle") {
       encoder.copyBufferToBuffer(this.keyTotal, 0, this.keyReadback, 0, 4);
       this.readback = "copied";
+      this.copiedFrom = this.encodes - 1;
     }
 
     const sorted = this.sorter.encodeKeys(encoder, profiler, pairs, tileBits);

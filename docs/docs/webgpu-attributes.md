@@ -62,11 +62,11 @@ Unsigned integer properties keep their size (`uchar` → `u8`, `ushort` → `u16
 ```typescript
 const packed = new PackedSplats({ url: "scene.ply" });
 await packed.initialized;
-packed.extra.attribs;   // the attributes (AttribPool.from() restores its methods)
+packed.extra.attribs;   // the decoder's specs and values (AttribPool.from() packs them)
 const source = GpuSplatSource.fromPackedSplats(device, packed); // source.attribs
 ```
 
-The WASM decoder reads the extra properties itself (`rust/spark-lib/src/ply.rs`). With an older WASM build that doesn't, `PlyAttributeReader` reads them from the same byte stream in the loader worker, with the same grouping rules.
+The WASM decoder reads the extra properties (`rust/spark-lib/src/ply.rs`), as `f64` values, and every result of the loader worker (plain, `lod: true` packed or ext) carries the decoder's specs and values as `extra.attribs` (`AttribValues`): the worker imports nothing from `src/webgpu`. `AttribPool.from()` packs them on the WebGPU side (`GpuSplatSource`, `WgpuSplatPager`), so WebGL users never pack them. The decoder keeps an all-zero normal out of its output from the first batch on, adding it zeroed if a non-zero one shows up later: a standard 3DGS PLY costs nothing extra (500k splats: 19.1 → 7.6 MB of WASM memory). `GsplatArray`/`CsplatArray` expose `get_attrib_specs()` and `get_attribs()` for JS callers of `set_attribs()`.
 
 ### .rad
 

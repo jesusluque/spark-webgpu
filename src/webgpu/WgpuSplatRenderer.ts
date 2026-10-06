@@ -21,6 +21,12 @@
 // metric readback one frame behind, as SparkRenderer does with its WASM sort.
 
 import * as THREE from "three";
+import {
+  AutoRasterizer,
+  type AutoRasterizerState,
+  DrawTimer,
+  type RasterPath,
+} from "./AutoRasterizer";
 import { GpuProfiler } from "./GpuProfiler";
 import { GpuSorter } from "./GpuSorter";
 import { GpuSplatSource } from "./GpuSplatSource";
@@ -206,8 +212,11 @@ export interface WgpuSplatRendererOptions {
    * rasterizer (TileRasterizer) blending each 16 x 16 tile front to back,
    * stopping where transmittance drops under 1/255, then composited. Needs
    * the GPU sort; 2DGS, draw stages and renderInPass stay on hardware.
+   * "auto": whichever of the two the GPU draws faster, timed with timestamp
+   * queries and re-probed now and then (AutoRasterizer); hardware without
+   * the timestamp-query feature. stats.rasterizer says which drew.
    */
-  rasterizer?: "hardware" | "tiles";
+  rasterizer?: "hardware" | "tiles" | "auto";
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -282,6 +291,10 @@ export class WgpuSplatRenderer {
     cpuMs: 0,
     /** Smoothed GPU ms per pass with options.profile (GpuProfiler labels). */
     gpuMs: {} as Record<string, number>,
+    /** The path the last draw took. */
+    rasterizer: "hardware" as RasterPath,
+    /** rasterizer "auto": its choice and timings. */
+    auto: null as AutoRasterizerState | null,
   };
   options: Required<WgpuSplatRendererOptions>;
   /** What the device allows; consulted for the sort path and sizes. */
@@ -315,6 +328,11 @@ export class WgpuSplatRenderer {
   private bakePipeline?: GPUComputePipeline;
   private srgb?: SrgbComposite;
   private tiles?: TileRasterizer;
+  // rasterizer "auto": the policy, its draw timer (without options.profile),
+  // and the first tile encode a probe needs the pair count of.
+  private auto?: AutoRasterizer;
+  private autoTimer: DrawTimer | null = null;
+  private warmFrom = 0;
 
   // Sort state: a readback in flight, and the order last uploaded.
   private sortPending = false;
@@ -603,8 +621,53 @@ export class WgpuSplatRenderer {
       this.profiler && this.options.profile
         ? this.profiler.resolve(encoder)
         : null;
+    const afterAuto = this.autoTimer?.resolve(encoder);
     this.registry.submit(encoder.finish());
     after?.();
+    afterAuto?.();
+  }
+
+  // The draw path of a frame that may take either; "warm": a tile probe's
+  // frame drawn on hardware while the tile stages run untimed, until the
+  // pair buffers are sized for this view (an undersized frame drops pairs).
+  private rasterPath(): RasterPath | "warm" {
+    if (this.options.rasterizer !== "auto") {
+      return this.options.rasterizer === "tiles" ? "tiles" : "hardware";
+    }
+    if (!this.auto) {
+      this.auto = new AutoRasterizer();
+      const auto = this.auto;
+      if (this.options.profile && this.activeProfiler()) {
+        // The profiler times every pass (a tile frame has tiles.* stages),
+        // which may overlap: the frame's span, generate and sort included.
+        (this.profiler as GpuProfiler).onFrame = (frame) => {
+          if (frame.draw === undefined) return;
+          const tiles = frame["tiles.blend"] !== undefined;
+          auto.measured(tiles ? "tiles" : "hardware", frame.span);
+        };
+      } else {
+        // Readbacks for the frames an unthrottled loop has in flight.
+        const profiler = GpuProfiler.create(this.device, 0, 32);
+        this.autoTimer =
+          profiler &&
+          new DrawTimer(profiler, (path, ms) => auto.measured(path, ms));
+      }
+    }
+    if (!this.autoTimer && !this.profiler?.onFrame) return "hardware";
+    const auto = this.auto;
+    const probes = auto.probes;
+    const path = auto.next();
+    this.stats.auto = auto.state();
+    if (path === "tiles" && auto.path === "hardware") {
+      this.tiles ??= new TileRasterizer(this.registry);
+      if (auto.probes !== probes) this.warmFrom = this.tiles.encodes;
+      if (this.tiles.readFrom < this.warmFrom) {
+        // Waits for the readback, on hardware, after one warm-up encode.
+        auto.extendProbe();
+        return this.tiles.encodes === this.warmFrom ? "warm" : "hardware";
+      }
+    }
+    return path;
   }
 
   private renderFrame(camera: THREE.Camera, target?: THREE.RenderTarget) {
@@ -1168,17 +1231,29 @@ export class WgpuSplatRenderer {
       size.y,
       linear && !layer,
     );
-    if (
-      gpu &&
-      !variant &&
-      this.options.rasterizer === "tiles" &&
-      !this.options.enable2DGS
-    ) {
-      this.drawTiles(encoder, target, depthTexture, layer, drawParams);
+    this.tiles?.poll();
+    const either = gpu && !variant && !this.options.enable2DGS;
+    const path = either ? this.rasterPath() : "hardware";
+    // Times the draw for rasterizer "auto" (options.profile times it anyway).
+    let drawEnd: GPURenderPassTimestampWrites | undefined;
+    if (either && this.autoTimer && !this.options.profile) {
+      if (path === "warm") this.autoTimer.skip();
+      else
+        drawEnd = this.autoTimer.begin(encoder, path, path !== this.auto?.path);
+    }
+    if (path === "tiles") {
+      this.drawTiles(encoder, target, depthTexture, layer, drawParams, drawEnd);
       this.stats.draws += 1;
       this.stats.drawn = gpuSorted as number;
+      this.stats.rasterizer = "tiles";
       return;
     }
+    if (path === "warm") {
+      // Untimed, so options.profile's frame reads as a hardware one.
+      this.encodeTiles(encoder, target, depthTexture, layer, drawParams, false);
+    }
+    this.stats.rasterizer = "hardware";
+    const timestampWrites = this.timestampWrites("draw") ?? drawEnd;
     const rp =
       variant?.pipeline ??
       (layer
@@ -1201,10 +1276,15 @@ export class WgpuSplatRenderer {
           }
         : undefined;
     const pass = layer
-      ? this.srgbComposite.beginLayer(encoder, target, depthAttachment)
+      ? this.srgbComposite.beginLayer(
+          encoder,
+          target,
+          depthAttachment,
+          timestampWrites,
+        )
       : encoder.beginRenderPass({
           label: "splats",
-          timestampWrites: this.timestampWrites("draw"),
+          timestampWrites,
           colorAttachments: [
             { view: target.createView(), loadOp: "load", storeOp: "store" },
             ...(variant?.attachments ?? []),
@@ -1230,12 +1310,53 @@ export class WgpuSplatRenderer {
 
   // The tile rasterizer's draw: its compute stages, then its image blended
   // over the target as the quads would be.
+  // `end`: timestamp writes for the composite pass.
   private drawTiles(
     encoder: GPUCommandEncoder,
     target: GPUTexture,
     depth: GPUTexture | null,
     layer: boolean,
     drawParams: ArrayBuffer,
+    end?: GPURenderPassTimestampWrites,
+  ) {
+    const format = this.encodeTiles(encoder, target, depth, layer, drawParams);
+    const timestampWrites = this.timestampWrites("draw") ?? end;
+    const tiles = this.tiles as TileRasterizer;
+    const pass = layer
+      ? this.srgbComposite.beginLayer(
+          encoder,
+          target,
+          undefined,
+          timestampWrites,
+        )
+      : encoder.beginRenderPass({
+          label: "splats",
+          timestampWrites,
+          colorAttachments: [
+            { view: target.createView(), loadOp: "load", storeOp: "store" },
+          ],
+        });
+    const blend = layer
+      ? SRGB_LAYER_BLEND
+      : (this.pipelineStates(format, null).colorTarget.blend as GPUBlendState);
+    tiles.composite(pass, format, blend);
+    pass.end();
+    if (layer) {
+      this.srgbComposite.composite(encoder, target, {
+        view: target.createView(),
+      });
+    }
+  }
+
+  // The tile stages, leaving their image for composite; the target format.
+  // `profile`: time them with options.profile.
+  private encodeTiles(
+    encoder: GPUCommandEncoder,
+    target: GPUTexture,
+    depth: GPUTexture | null,
+    layer: boolean,
+    drawParams: ArrayBuffer,
+    profile = true,
   ) {
     this.tiles ??= new TileRasterizer(this.registry);
     const format = layer ? SRGB_LAYER_FORMAT : target.format;
@@ -1249,27 +1370,9 @@ export class WgpuSplatRenderer {
       height: target.height,
       depth,
       clamp: format.includes("unorm"),
-      profiler: this.options.profile ? this.profiler : null,
+      profiler: this.options.profile && profile ? this.profiler : null,
     });
-    const pass = layer
-      ? this.srgbComposite.beginLayer(encoder, target, undefined)
-      : encoder.beginRenderPass({
-          label: "splats",
-          timestampWrites: this.timestampWrites("draw"),
-          colorAttachments: [
-            { view: target.createView(), loadOp: "load", storeOp: "store" },
-          ],
-        });
-    const blend = layer
-      ? SRGB_LAYER_BLEND
-      : (this.pipelineStates(format, null).colorTarget.blend as GPUBlendState);
-    this.tiles.composite(pass, format, blend);
-    pass.end();
-    if (layer) {
-      this.srgbComposite.composite(encoder, target, {
-        view: target.createView(),
-      });
-    }
+    return format;
   }
 
   /** Composites splat layers over linear targets (srgbBlend). */
@@ -1349,6 +1452,7 @@ export class WgpuSplatRenderer {
     this.srgb?.dispose();
     this.tiles?.destroy();
     this.profiler?.destroy();
+    this.autoTimer?.destroy();
     this.registry.destroy();
   }
 }

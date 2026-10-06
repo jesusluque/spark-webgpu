@@ -149,6 +149,9 @@ pub trait SplatReceiver: 'static {
 
     /// Extra per-Gaussian attributes (attrib.rs): the schema, after init_splats.
     fn init_attribs(&mut self, specs: &[AttribSpec]) {}
+    /// Appends one more attribute, zeroed for every splat (after
+    /// init_attribs, or instead of it).
+    fn add_attrib(&mut self, spec: &AttribSpec) {}
     /// Values of attribute `attrib` for splats base..base + count.
     fn set_attrib(&mut self, attrib: usize, base: usize, count: usize, values: &[f64]) {}
 }

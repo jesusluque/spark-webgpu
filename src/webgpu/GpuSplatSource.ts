@@ -173,11 +173,11 @@ export class GpuSplatSource {
   }
 }
 
-// extra.attribs as loaded (a plain object after the worker's postMessage).
+// extra.attribs as loaded (the worker's AttribValues), or a pool.
 function attribsOf(extra: Record<string, unknown>): AttribPool | null {
-  const a = extra.attribs as AttribPool | undefined;
+  const a = extra.attribs as Parameters<typeof AttribPool.from>[0] | undefined;
   if (!a) return null;
   const pool = AttribPool.from(a);
   extra.attribs = pool;
-  return pool;
+  return pool.columns.length ? pool : null;
 }

@@ -5,13 +5,13 @@
 // only, with gpuBuffer set, so SplatAttributes binds the pool as it is.
 
 import { createStorage } from "../gpuBuffers";
-import { columnValues } from "./lodAttributes";
 import {
   AttribPool,
   type AttributeSpec,
   type LodMerge,
   type PoolLayout,
   attribWords,
+  columnValues,
   packColumn,
   poolHeader,
   poolLayout,

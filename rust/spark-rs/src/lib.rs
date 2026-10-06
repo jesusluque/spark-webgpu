@@ -229,6 +229,12 @@ impl GsplatArray {
         attribs_to_js(&self.inner.attribs)
     }
 
+    /// The attributes' specs [{name, format, components, lodMerge}], as
+    /// set_attribs takes them: decoded from the file (PLY, .rad) or set.
+    pub fn get_attrib_specs(&self) -> Result<JsValue, JsValue> {
+        Ok(serde_wasm_bindgen::to_value(&self.inner.attribs.specs)?)
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -466,6 +472,12 @@ impl CsplatArray {
     /// The attributes' values, merged and ordered like the splats.
     pub fn get_attribs(&self) -> Array {
         attribs_to_js(&self.inner.attribs)
+    }
+
+    /// The attributes' specs [{name, format, components, lodMerge}], as
+    /// set_attribs takes them: decoded from the file (PLY, .rad) or set.
+    pub fn get_attrib_specs(&self) -> Result<JsValue, JsValue> {
+        Ok(serde_wasm_bindgen::to_value(&self.inner.attribs.specs)?)
     }
 
     pub fn len(&self) -> usize {

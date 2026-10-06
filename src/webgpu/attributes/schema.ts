@@ -2,9 +2,11 @@
 // per attribute on the CPU and packed into the one-buffer pool that
 // slang/core/attrib.slang decodes at run time (layout documented there).
 //
-// AttribPool holds only plain data, so it survives postMessage from the
-// loader worker; AttribPool.from() restores the methods on the other side.
+// AttribPool holds only plain data, so it survives postMessage; the loader
+// worker sends the WASM decoders' values instead (AttribValues), and
+// AttribPool.from() makes a pool of either on this side.
 
+import type { AttribValues } from "../../defines";
 import { coreAttrib } from "../generated/constants";
 
 export type AttribFormat =
@@ -301,13 +303,40 @@ export class AttribPool {
 
   constructor(public count: number) {}
 
-  /** Restores the methods of a pool that went through postMessage. */
+  /**
+   * Restores the methods of a pool that went through postMessage, or packs
+   * the values the loader worker sends.
+   */
   static from(
-    data: AttribPool | { count: number; columns: AttributeColumn[] },
+    data:
+      | AttribPool
+      | { count: number; columns: AttributeColumn[] }
+      | AttribValues,
   ) {
     if (data instanceof AttribPool) return data;
+    if ("values" in data) return AttribPool.fromValues(data);
     const pool = new AttribPool(data.count);
     pool.columns = data.columns;
+    return pool;
+  }
+
+  /**
+   * A pool of the WASM decoders' attributes (decoded from a PLY or .rad, or
+   * merged by a LOD build), each drawable.
+   */
+  static fromValues({ count, specs, values }: AttribValues): AttribPool {
+    const pool = new AttribPool(count);
+    specs.forEach(({ name, format, components, lodMerge }, k) => {
+      // The file keeps no flags: a renormalized 3-vector is a direction. An
+      // all-zero one is a 3DGS trainer's placeholder normal.
+      const direction = lodMerge === "normalizeMean" && components === 3;
+      if (direction && values[k].every((v) => v === 0)) return;
+      pool.setAttribute(name, values[k], format as AttribFormat, components, {
+        lodMerge: lodMerge as LodMerge,
+        direction,
+        toDraw: true,
+      });
+    });
     return pool;
   }
 
@@ -390,4 +419,19 @@ export class AttribPool {
     });
     return { layout, words };
   }
+}
+
+/** A column's decoded values, components per splat. */
+export function columnValues(
+  col: AttributeColumn,
+  count: number,
+): Float64Array {
+  const n = col.spec.components;
+  const out = new Float64Array(count * n);
+  for (let i = 0; i < count; i++) {
+    for (let c = 0; c < n; c++) {
+      out[i * n + c] = decodeComponent(col.spec.format, columnBits(col, i, c));
+    }
+  }
+  return out;
 }

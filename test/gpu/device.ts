@@ -22,7 +22,13 @@ async function open(): Promise<GPUDevice | null> {
   try {
     gpu = create([]);
     adapter = await gpu.requestAdapter();
-    return adapter ? await adapter.requestDevice() : null;
+    // Timestamps where the adapter has them (rasterizer "auto", profile).
+    const requiredFeatures: GPUFeatureName[] = adapter?.features.has(
+      "timestamp-query",
+    )
+      ? ["timestamp-query"]
+      : [];
+    return adapter ? await adapter.requestDevice({ requiredFeatures }) : null;
   } catch {
     return null;
   }

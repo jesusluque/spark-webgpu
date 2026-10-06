@@ -738,6 +738,10 @@ impl SplatReceiver for GsplatArray {
         self.attribs = AttribArray::new_zeroed(specs, self.splats.len());
     }
 
+    fn add_attrib(&mut self, spec: &AttribSpec) {
+        self.attribs.add_zeroed(spec, self.splats.len());
+    }
+
     fn set_attrib(&mut self, attrib: usize, base: usize, count: usize, values: &[f64]) {
         self.attribs.set_range(attrib, base, count, values);
     }

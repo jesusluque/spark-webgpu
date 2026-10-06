@@ -99,10 +99,12 @@ export class SrgbComposite {
     encoder: GPUCommandEncoder,
     color: GPUTexture,
     depth: GPURenderPassDepthStencilAttachment | undefined,
+    timestampWrites?: GPURenderPassTimestampWrites,
   ): GPURenderPassEncoder {
     const { layer } = this.ensureScratch(color);
     return encoder.beginRenderPass({
       label: "splat layer",
+      timestampWrites,
       colorAttachments: [
         {
           view: layer.createView(),

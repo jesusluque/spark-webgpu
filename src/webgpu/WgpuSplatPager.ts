@@ -128,7 +128,9 @@ export class WgpuSplatPager extends SplatPager {
   }
 
   private uploadAttribs(base: number, count: number, data: unknown) {
-    const chunk = data ? AttribPool.from(data as AttribPool) : null;
+    const chunk = data
+      ? AttribPool.from(data as Parameters<typeof AttribPool.from>[0])
+      : null;
     if (!this.attribs) {
       if (!chunk) return;
       const specs =
