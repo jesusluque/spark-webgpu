@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import type { WgpuSplatRenderer } from "./WgpuSplatRenderer";
 import { copyBytesPerRow } from "./gpuBuffers";
+import type { WebGPURendererLike } from "./threeRenderer";
 
 /**
  * Bytes per row of an RGBA8 readback from readRenderTargetPixelsAsync: rows
@@ -25,7 +26,7 @@ export function rowStride(length: number, width: number, height: number) {
  * the right size.
  */
 export async function readTargetPixels(
-  renderer: Pick<RendererLike, "readRenderTargetPixelsAsync">,
+  renderer: Pick<WebGPURendererLike, "readRenderTargetPixelsAsync">,
   target: THREE.RenderTarget,
   superXY: number,
   out?: Uint8Array,
@@ -70,19 +71,6 @@ export interface WgpuReadTargetOptions {
   superXY?: number;
 }
 
-interface RendererLike {
-  getRenderTarget(): THREE.RenderTarget | null;
-  setRenderTarget(target: THREE.RenderTarget | null): void;
-  render(scene: THREE.Object3D, camera: THREE.Camera): void;
-  readRenderTargetPixelsAsync(
-    target: THREE.RenderTarget,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-  ): Promise<ArrayBufferView>;
-}
-
 export class WgpuReadTarget {
   readonly target: THREE.RenderTarget;
   readonly superXY: number;
@@ -102,8 +90,8 @@ export class WgpuReadTarget {
     });
   }
 
-  private get renderer(): RendererLike {
-    return this.splats.renderer as unknown as RendererLike;
+  private get renderer(): WebGPURendererLike {
+    return this.splats.renderer;
   }
 
   /** Renders `scene` (three objects) and the splats into the target. */
