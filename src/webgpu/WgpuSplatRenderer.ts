@@ -497,7 +497,11 @@ export class WgpuSplatRenderer {
     return {
       color,
       depth,
-      linear: target.texture.colorSpace !== THREE.SRGBColorSpace,
+      // An -srgb format encodes on store (three picks one for 8-bit sRGB
+      // targets): the shader writes linear values to it too.
+      linear:
+        target.texture.colorSpace !== THREE.SRGBColorSpace ||
+        color.format.endsWith("-srgb"),
     };
   }
 

@@ -133,6 +133,10 @@ export {
   type WgpuLodOptions,
 } from "./webgpu/WgpuLod";
 export { WgpuSplatPager } from "./webgpu/WgpuSplatPager";
+export {
+  WgpuCubeMap,
+  type WgpuCubeMapOptions,
+} from "./webgpu/WgpuCubeMap";
 export { UniformWriter } from "./webgpu/uniforms";
 export * as fx from "./webgpu/fx";
 export {
