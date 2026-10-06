@@ -24,6 +24,11 @@ import * as THREE from "three";
 import { GpuSorter } from "./GpuSorter";
 import { GpuSplatSource } from "./GpuSplatSource";
 import { KernelRegistry } from "./KernelRegistry";
+import {
+  SRGB_LAYER_BLEND,
+  SRGB_LAYER_FORMAT,
+  SrgbComposite,
+} from "./SrgbComposite";
 import { type GpuCapabilities, capabilitiesOf } from "./capabilities";
 import { sortBackToFront } from "./cpuSort";
 import {
@@ -133,6 +138,12 @@ export interface WgpuSplatRendererOptions {
    * projected 3D ones (SparkRenderer.enable2DGS). Default false.
    */
   enable2DGS?: boolean;
+  /**
+   * render(): blend the splats in sRGB space into linear targets too, as
+   * WebGL Spark does on the canvas (see SrgbComposite), rather than in the
+   * target's linear space. Default false.
+   */
+  srgbBlend?: boolean;
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -162,6 +173,11 @@ export interface SplatPassTarget {
   extraFormats?: GPUTextureFormat[];
   /** For reversed-depth buffers. @default "less-equal" */
   depthCompare?: GPUCompareFunction;
+  /**
+   * The pass draws into an SrgbComposite layer: alpha accumulates the
+   * transmittance. Colours are written as sRGB (linear is ignored).
+   */
+  layer?: boolean;
 }
 
 /** A draw pipeline replacing the default one, with its extra resources. */
@@ -229,6 +245,7 @@ export class WgpuSplatRenderer {
   private lastTime = performance.now() / 1000;
   private dynoDirty = false;
   private bakePipeline?: GPUComputePipeline;
+  private srgb?: SrgbComposite;
 
   // Sort state: a readback in flight, and the order last uploaded.
   private sortPending = false;
@@ -268,6 +285,7 @@ export class WgpuSplatRenderer {
       lodInflate: false,
       covSplats: false,
       enable2DGS: false,
+      srgbBlend: false,
       ...options,
     };
     this.capabilities = capabilitiesOf(this.device);
@@ -527,18 +545,25 @@ export class WgpuSplatRenderer {
       return;
     }
 
-    this.writeDrawParams(camera, target.width, target.height, target.linear);
+    this.writeDrawParams(
+      camera,
+      target.width,
+      target.height,
+      target.linear && !target.layer,
+    );
     const depthFormat = this.options.depthTest ? target.depthFormat : null;
     const key = [
       target.format,
       target.depthFormat,
       target.sampleCount,
       target.depthCompare,
+      target.layer ? "layer" : "",
       ...(target.extraFormats ?? []),
     ].join("/");
     let rp = this.pipelines.get(key);
     if (!rp) {
       const { colorTarget } = this.pipelineStates(target.format, null);
+      if (target.layer) colorTarget.blend = SRGB_LAYER_BLEND;
       rp = createReflectedRenderPipeline(this.device, drawModule, {
         vertex: "splatVertex",
         fragment: "splatFragment",
@@ -914,14 +939,16 @@ export class WgpuSplatRenderer {
   private pipeline(
     format: GPUTextureFormat,
     depthFormat: GPUTextureFormat | null,
+    layer = false,
   ) {
-    const key = `${format}/${depthFormat}`;
+    const key = `${format}/${depthFormat}${layer ? "/layer" : ""}`;
     let p = this.pipelines.get(key);
     if (!p) {
       const { colorTarget, depthStencil } = this.pipelineStates(
         format,
         depthFormat,
       );
+      if (layer) colorTarget.blend = SRGB_LAYER_BLEND;
       p = createReflectedRenderPipeline(this.device, drawModule, {
         vertex: "splatVertex",
         fragment: "splatFragment",
@@ -950,7 +977,6 @@ export class WgpuSplatRenderer {
     const depthTexture = this.options.depthTest ? depth : null;
     const depthView = depthTexture?.createView();
     const depthFormat = depthTexture?.format ?? null;
-    this.writeDrawParams(camera, size.x, size.y, linear);
 
     let variant: SplatDrawVariant | null = null;
     for (const s of this.stages) {
@@ -961,20 +987,22 @@ export class WgpuSplatRenderer {
           height: size.y,
         }) ?? null;
     }
-    const rp = variant?.pipeline ?? this.pipeline(target.format, depthFormat);
+    // Blended in sRGB in a layer of their own, composited after.
+    const layer = linear && this.options.srgbBlend && !variant;
+    this.writeDrawParams(camera, size.x, size.y, linear && !layer);
+    const rp =
+      variant?.pipeline ??
+      (layer
+        ? this.pipeline(SRGB_LAYER_FORMAT, depthFormat, true)
+        : this.pipeline(target.format, depthFormat));
     const groups = createBindGroups(this.device, rp, {
       ordering: gpu ? this.sorter.ordering : (this.ordering as GPUBuffer),
       splats: this.accumulator as GPUBuffer,
       params: this.drawUniform,
       ...variant?.buffers,
     });
-    const pass = encoder.beginRenderPass({
-      label: "splats",
-      colorAttachments: [
-        { view: target.createView(), loadOp: "load", storeOp: "store" },
-        ...(variant?.attachments ?? []),
-      ],
-      depthStencilAttachment: depthView
+    const depthAttachment: GPURenderPassDepthStencilAttachment | undefined =
+      depthView
         ? {
             view: depthView,
             depthReadOnly: true,
@@ -982,8 +1010,17 @@ export class WgpuSplatRenderer {
               ? { stencilReadOnly: true }
               : {}),
           }
-        : undefined,
-    });
+        : undefined;
+    const pass = layer
+      ? this.srgbComposite.beginLayer(encoder, target, depthAttachment)
+      : encoder.beginRenderPass({
+          label: "splats",
+          colorAttachments: [
+            { view: target.createView(), loadOp: "load", storeOp: "store" },
+            ...(variant?.attachments ?? []),
+          ],
+          depthStencilAttachment: depthAttachment,
+        });
     pass.setPipeline(rp.pipeline);
     groups.forEach((g, i) => pass.setBindGroup(i, g));
     if (gpu) {
@@ -994,6 +1031,17 @@ export class WgpuSplatRenderer {
     this.stats.draws += 1;
     this.stats.drawn = gpu ? (gpuSorted as number) : this.drawCount;
     pass.end();
+    if (layer) {
+      this.srgbComposite.composite(encoder, target, {
+        view: target.createView(),
+      });
+    }
+  }
+
+  /** Composites splat layers over linear targets (srgbBlend). */
+  get srgbComposite(): SrgbComposite {
+    this.srgb ??= new SrgbComposite(this.device);
+    return this.srgb;
   }
 
   // The draw uniforms for this camera and target size.
@@ -1054,6 +1102,7 @@ export class WgpuSplatRenderer {
     this.drawUniform.destroy();
     this.emptyBuffer.destroy();
     this.sorter.destroy();
+    this.srgb?.dispose();
     this.registry.destroy();
   }
 }

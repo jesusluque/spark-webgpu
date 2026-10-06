@@ -25,6 +25,7 @@ import { type SplatEdit, isSplatEdit } from "../SplatEdit";
 import { SplatGenerator } from "../SplatGenerator";
 import { SplatMesh } from "../SplatMesh";
 import { GpuSplatSource } from "./GpuSplatSource";
+import { SRGB_LAYER_FORMAT } from "./SrgbComposite";
 import { WgpuLod, type WgpuLodMesh } from "./WgpuLod";
 import {
   type SplatPassTarget,
@@ -38,6 +39,8 @@ import { splatGeneratorDyno, splatMeshDyno } from "./dyno/adapters";
 // context, its backend data and the backend utils are internal to three.
 interface RenderContextLike {
   textures: THREE.Texture[] | null;
+  scissor?: boolean;
+  scissorValue?: THREE.Vector4;
   renderTarget?: THREE.RenderTarget | null;
   depthTexture: THREE.Texture | null;
   width: number;
@@ -52,11 +55,14 @@ interface BackendLike {
   context: GPUCanvasContext;
   get(resource: object): {
     texture?: GPUTexture;
+    msaaTexture?: GPUTexture;
     format?: GPUTextureFormat;
     currentPass?: GPURenderPassEncoder | null;
     descriptor?: GPURenderPassDescriptor;
+    encoder?: GPUCommandEncoder;
     currentSets?: unknown;
   };
+  updateViewport(rc: RenderContextLike): void;
   utils: {
     getCurrentColorFormat(rc: RenderContextLike): GPUTextureFormat;
     getCurrentDepthStencilFormat(
@@ -74,6 +80,7 @@ export interface WebGPURendererLike {
   info: { frame: number };
   xr?: { isPresenting?: boolean };
   outputColorSpace: string;
+  toneMapping?: THREE.ToneMapping;
   getOutputRenderTarget(): THREE.RenderTarget | null;
   _currentRenderContext?: RenderContextLike | null;
   /** Where three renders the scene before its output (color space) pass. */
@@ -200,18 +207,35 @@ export class SparkWebGPU {
         : "less-equal",
     };
     this.spark.dirty = false;
-    if (
-      rc.renderTarget &&
+    // On the canvas three renders into a linear half-float target, then
+    // converts it in an output pass.
+    const canvas =
+      !!rc.renderTarget &&
       rc.renderTarget === renderer._frameBufferTarget &&
       !renderer.getOutputRenderTarget() &&
-      target.sampleCount === 1 &&
-      (scene as THREE.Scene).isScene
-    ) {
+      (scene as THREE.Scene).isScene;
+    const toneMapped = (renderer.toneMapping ?? THREE.NoToneMapping) !== 0;
+    if (canvas && toneMapped && target.sampleCount === 1) {
       this.drawAfterOutput(scene, camera, rc);
       return;
     }
+    if (
+      rc.textures &&
+      target.linear &&
+      !this.spark.rawColor &&
+      (canvas || this.spark.srgbBlend)
+    ) {
+      this.drawSrgbBlended(camera, rc, target);
+      return;
+    }
     splats.renderInPass(camera, pass, target);
-    // three skips setting a pipeline or bind group it believes is still set.
+    this.resetPassState(pass);
+  }
+
+  // three skips setting a pipeline or bind group it believes is still set.
+  private resetPassState(pass: GPURenderPassEncoder) {
+    const { backend } = this.renderer;
+    const data = backend.get(this.renderer._currentRenderContext as object);
     backend.pipelineUtils?._activePipelines?.delete(pass);
     data.currentSets = {
       attributes: {},
@@ -221,11 +245,83 @@ export class SparkWebGPU {
     };
   }
 
-  // three renders the scene into a linear half-float target, then converts it
-  // to the canvas. Splats are blended in sRGB space, as WebGL Spark does on
-  // the canvas and as they were trained, so they go on the canvas after that
-  // output pass, tested against the scene's depth, which three keeps.
-  // Transparent objects in front of the splats are then drawn under them.
+  // Splats blend in sRGB space, as WebGL Spark blends them on the canvas and
+  // as they were trained, but three's target is linear. So three's pass is
+  // ended where the splats come in the transparent order, the splats are
+  // composited over its colour in sRGB (SrgbComposite), and the pass
+  // resumes, as three's own copyFramebufferToTexture does: transparent
+  // objects in front of the splats still draw over them.
+  private drawSrgbBlended(
+    camera: THREE.Camera,
+    rc: RenderContextLike,
+    target: SplatPassTarget,
+  ) {
+    const { backend } = this.renderer;
+    const splats = this.splats as WgpuSplatRenderer;
+    const data = backend.get(rc);
+    const descriptor = data.descriptor as GPURenderPassDescriptor;
+    const encoder = data.encoder as GPUCommandEncoder;
+    const attachment = [
+      ...descriptor.colorAttachments,
+    ][0] as GPURenderPassColorAttachment;
+    const textureData = backend.get((rc.textures as THREE.Texture[])[0]);
+    const color = (textureData.msaaTexture ??
+      textureData.texture) as GPUTexture;
+    (data.currentPass as GPURenderPassEncoder).end();
+
+    const depth = descriptor.depthStencilAttachment;
+    const composite = splats.srgbComposite;
+    const layer = composite.beginLayer(
+      encoder,
+      color,
+      depth
+        ? {
+            view: depth.view,
+            depthReadOnly: true,
+            ...(target.depthFormat?.includes("stencil")
+              ? { stencilReadOnly: true }
+              : {}),
+          }
+        : undefined,
+    );
+    const viewport = rc.viewport ? rc.viewportValue : null;
+    if (viewport) {
+      layer.setViewport(viewport.x, viewport.y, viewport.z, viewport.w, 0, 1);
+    }
+    splats.renderInPass(camera, layer, {
+      ...target,
+      format: SRGB_LAYER_FORMAT,
+      extraFormats: undefined,
+      linear: false,
+      layer: true,
+    });
+    layer.end();
+    composite.composite(
+      encoder,
+      color,
+      { view: attachment.view, resolveTarget: attachment.resolveTarget },
+      viewport,
+    );
+
+    for (const a of descriptor.colorAttachments) {
+      if (a) a.loadOp = "load";
+    }
+    if (depth?.depthLoadOp) depth.depthLoadOp = "load";
+    if (depth?.stencilLoadOp) depth.stencilLoadOp = "load";
+    const pass = encoder.beginRenderPass(descriptor);
+    data.currentPass = pass;
+    this.resetPassState(pass);
+    if (rc.viewport) backend.updateViewport(rc);
+    if (rc.scissor && rc.scissorValue) {
+      const { x, y, z, w } = rc.scissorValue;
+      pass.setScissorRect(x, y, z, w);
+    }
+  }
+
+  // With tone mapping, splats (which WebGL Spark doesn't tone map) go on
+  // the canvas after three's output pass, blended in sRGB, tested against
+  // the scene's depth, which three keeps. Transparent objects in front of
+  // the splats are then drawn under them.
   private drawAfterOutput(
     scene: THREE.Scene,
     camera: THREE.Camera,

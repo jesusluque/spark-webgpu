@@ -335,6 +335,14 @@ export interface SparkRendererOptions {
    */
   rawColor?: boolean;
   /**
+   * WebGPU: blend splats in sRGB space into linear render targets too, as
+   * WebGL Spark blends them on the canvas, rather than in the target's linear
+   * space as WebGL Spark does in render targets. On the canvas they always
+   * blend in sRGB.
+   * @default false
+   */
+  srgbBlend?: boolean;
+  /**
    * Set the splat shader material to be transparent which determines if the
    * splats are rendered during the first opaque THREE.js render pass or the
    * second transparent render pass.
@@ -388,6 +396,8 @@ export class SparkRenderer extends THREE.Mesh {
   minSortIntervalMs: number;
   /** See SparkRendererOptions.rawColor. */
   rawColor: boolean;
+  /** See SparkRendererOptions.srgbBlend. */
+  srgbBlend: boolean;
 
   readonly timer: THREE.Timer;
   private readonly ownsTimer: boolean;
@@ -570,6 +580,7 @@ export class SparkRenderer extends THREE.Mesh {
     }
     this.onDirty = options.onDirty;
     this.rawColor = options.rawColor ?? false;
+    this.srgbBlend = options.srgbBlend ?? false;
     this.dirty = true;
     this.autoUpdate = options.autoUpdate ?? true;
     this.preUpdate = options.preUpdate ?? true;
