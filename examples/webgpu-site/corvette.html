@@ -43,7 +43,7 @@
   <script type="module">
     import * as THREE from "three/webgpu";
     import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
-    import { HDRI_4K_BYTES, downloadProgress, requireWebGPU } from "./site.js";
+    import { HDRI_4K_BYTES, downloadProgress, isMobileDevice, requireWebGPU } from "./site.js";
     import { createCorvette } from "./corvette.js";
 
     const params = new URLSearchParams(location.search);
@@ -53,7 +53,11 @@
       light: { folder: "corvette-v3-light", megabytes: 68, label: "light (~95 MB)" },
       hd: { folder: "corvette-v2-hd", megabytes: 289, label: "detailed (~315 MB)" },
     };
-    const quality = QUALITY[params.get("quality")] ? params.get("quality") : "light";
+    // Phones and tablets get the light set (the detailed one needs a desktop
+    // browser's memory) unless ?force=1; 1k HDRIs, pixel ratio 1.
+    const mobile = isMobileDevice();
+    const asked = QUALITY[params.get("quality")] ? params.get("quality") : "light";
+    const quality = mobile && asked === "hd" && params.get("force") !== "1" ? "light" : asked;
     const base =
       params.get("base") ?? `https://athenea-assets.lucab.co.uk/sparkwebgpu/${QUALITY[quality].folder}/`;
     const status = document.getElementById("stats");
@@ -61,13 +65,19 @@
     const download = downloadProgress({
       match: (url) => /\.(athc|hdr)(\?|$)/.test(url),
       // The car, and one full-resolution (4k) HDRI.
-      expectedBytes: QUALITY[quality].megabytes * 1024 * 1024 + HDRI_4K_BYTES,
+      expectedBytes:
+        QUALITY[quality].megabytes * 1024 * 1024 + (mobile ? 1.6 * 1024 * 1024 : HDRI_4K_BYTES),
     });
     // The other set, one click away (it reloads the page).
     const other = quality === "hd" ? "light" : "hd";
     const link = document.createElement("a");
-    link.href = `?quality=${other}`;
-    link.textContent = `Switch to the ${QUALITY[other].label} version`;
+    link.href = `?quality=${other}${mobile && other === "hd" ? "&force=1" : ""}`;
+    link.textContent =
+      mobile && other === "hd"
+        ? asked === "hd"
+          ? "Showing the light version on this device; open the detailed one anyway (needs a lot of memory)"
+          : "Open the detailed version anyway (needs a lot of memory)"
+        : `Switch to the ${QUALITY[other].label} version`;
     link.style.display = "block";
     link.style.marginTop = "6px";
     status.after(link);
@@ -75,10 +85,10 @@
       canvas: document.getElementById("canvas"),
       requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
     });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setPixelRatio(mobile ? 1 : Math.min(devicePixelRatio, 2));
     renderer.setSize(innerWidth, innerHeight);
     await renderer.init();
-    await createCorvette({ renderer, base, params, status, progress: download });
+    await createCorvette({ renderer, base, params, status, progress: download, mobile });
     download.done();
   </script>
 </body>

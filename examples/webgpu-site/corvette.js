@@ -41,9 +41,14 @@ export async function createCorvette({
   base,
   params,
   status,
-  hdriBase = params.get("hdriBase") ?? HDRI_BASE,
   progress,
+  mobile = false,
+  // On a phone the scene's own 1k domes (next to its clouds), not the 4k set.
+  hdriBase = params.get("hdriBase") ?? (mobile ? `${base}hdri/` : HDRI_BASE),
 }) {
+  const domeName = mobile
+    ? (name) => name.replace(/_(1k|2k|4k)\.hdr$/, "_1k.hdr")
+    : fullResHdri;
   window.__athenea = { loaded: false, error: null };
   const info = await (
     await fetch(`${base}${params.get("scene") ?? "corvette.json"}`)
@@ -188,7 +193,8 @@ export async function createCorvette({
     renderer,
     hdr: true,
     lodSplatCount:
-      Number(params.get("lod")) || Math.max(info.splats ?? 0, 2_500_000),
+      Number(params.get("lod")) ||
+      (mobile ? 600_000 : Math.max(info.splats ?? 0, 2_500_000)),
   });
   scene.add(spark);
   // athenea's stage is Z-up: the car turns to three's Y-up.
@@ -231,7 +237,7 @@ export async function createCorvette({
   status.textContent = `loading the car (${megabytes.toFixed(0)} MB)…`;
 
   const state = {
-    hdri: fullResHdri(params.get("hdri") ?? "golden_gate_hills_4k.hdr"),
+    hdri: domeName(params.get("hdri") ?? "golden_gate_hills_4k.hdr"),
     rotation: info.domeRotation ?? 0,
     intensity: 1,
     sun: false,
@@ -349,9 +355,14 @@ export async function createCorvette({
   if (params.get("gui") !== "0") {
     const gui = new GUI({ title: "Corvette" });
     if (innerWidth < 700) gui.close();
-    // Every dome at full resolution, the scene's own first.
+    // Every dome at full resolution, the scene's own first (on a phone, the
+    // scene's 1k domes only).
     const hdris = [
-      ...new Set([...(info.hdri ?? []).map(fullResHdri), ...HDRIS_4K]),
+      ...new Set(
+        mobile
+          ? (info.hdri ?? []).map(domeName)
+          : [...(info.hdri ?? []).map(fullResHdri), ...HDRIS_4K],
+      ),
     ];
     gui.add(state, "hdri", hdris).name("HDRI").onChange(setHdri);
     gui

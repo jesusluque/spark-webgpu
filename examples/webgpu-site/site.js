@@ -233,6 +233,22 @@ export function addColourCorrector(gui, chain, fx) {
   };
 }
 
+/**
+ * A phone or tablet (or ?mobile=1): the heavy demos drop to what such a
+ * browser can hold in memory (a 4k float HDRI alone is about 130 MB on the
+ * CPU and as much on the GPU) instead of being killed and reloaded.
+ */
+export function isMobileDevice() {
+  const p = new URLSearchParams(location.search).get("mobile");
+  if (p === "1") return true;
+  if (p === "0") return false;
+  return (
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) ||
+    !matchMedia("(pointer: fine)").matches
+  );
+}
+
 /** A desktop with a mouse (not a phone or tablet). */
 export function isWorkstation() {
   return (
