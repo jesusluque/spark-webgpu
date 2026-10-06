@@ -137,6 +137,13 @@ export class SparkWebGPU {
   private lastCamera: THREE.Camera | null = null;
   private failed = false;
   private depthResolve?: DepthResolve;
+  private pmrem?: {
+    Class: unknown;
+    generator: {
+      fromCubemap(t: THREE.Texture): THREE.RenderTarget;
+      dispose(): void;
+    };
+  };
 
   constructor(
     readonly spark: SparkRenderer,
@@ -425,6 +432,38 @@ export class SparkWebGPU {
     }
     const texture = rgba.gpuTexture(this.splats.device, mesh.source.count);
     this.splats.bakeRgba(mesh, this.lastCamera, texture);
+  }
+
+  /**
+   * SparkRenderer.renderEnvMap: prefilters a cube map with three/webgpu's
+   * PMREMGenerator (three's WebGL one can't run on WebGPURenderer), as WebGL
+   * does, into a texture of its own. That is THREE.PMREMGenerator when the
+   * "three" Spark imports is three/webgpu, or the one passed. Otherwise
+   * (Spark resolving "three" to three's WebGL build, as Vite does) the cube
+   * texture itself is returned: three/webgpu's materials prefilter a cube
+   * envMap themselves, but the next renderCubeMap or renderEnvMap redraws it.
+   */
+  prefilterEnvMap(cube: THREE.Texture, PMREMGenerator?: unknown) {
+    type Generator = {
+      fromCubemap(t: THREE.Texture): THREE.RenderTarget;
+      dispose(): void;
+    };
+    const Class =
+      PMREMGenerator ??
+      ("WebGPURenderer" in THREE ? THREE.PMREMGenerator : undefined);
+    if (!Class) {
+      // Re-prefiltered where it is used.
+      cube.needsPMREMUpdate = true;
+      return cube;
+    }
+    if (this.pmrem?.Class !== Class) {
+      this.pmrem?.generator.dispose();
+      const generator = new (Class as new (renderer: unknown) => Generator)(
+        this.renderer,
+      );
+      this.pmrem = { Class, generator };
+    }
+    return this.pmrem.generator.fromCubemap(cube).texture;
   }
 
   private ensureRenderer() {
@@ -756,6 +795,8 @@ export class SparkWebGPU {
     this.splats?.dispose();
     this.depthResolve?.dispose();
     this.depthResolve = undefined;
+    this.pmrem?.generator.dispose();
+    this.pmrem = undefined;
     this.lod = undefined;
     this.splats = undefined;
   }

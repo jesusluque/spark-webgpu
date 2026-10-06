@@ -2231,6 +2231,7 @@ export class SparkRenderer extends THREE.Mesh {
     far = 1000,
     hideObjects = [],
     update = true,
+    PMREMGenerator,
   }: {
     scene: THREE.Scene;
     worldCenter: THREE.Vector3;
@@ -2239,9 +2240,12 @@ export class SparkRenderer extends THREE.Mesh {
     far?: number;
     hideObjects: THREE.Object3D[];
     update: boolean;
+    /**
+     * WebGPU: three/webgpu's PMREMGenerator, used when the "three" Spark
+     * imports is not three/webgpu (see SparkWebGPU.prefilterEnvMap).
+     */
+    PMREMGenerator?: unknown;
   }): Promise<THREE.Texture> {
-    // three's WebGPU PMREMGenerator: see WgpuCubeMap.renderEnvMap.
-    this.requireWebGL("renderEnvMap");
     const cubeTexture = await this.renderCubeMap({
       scene,
       worldCenter,
@@ -2252,6 +2256,9 @@ export class SparkRenderer extends THREE.Mesh {
       update,
       filter: true,
     });
+    if (this.webgpu) {
+      return this.webgpu.prefilterEnvMap(cubeTexture, PMREMGenerator);
+    }
     // Pre-filter the cube map using THREE.PMREMGenerator if requested
     if (!SparkRenderer.pmrem) {
       SparkRenderer.pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -2315,18 +2322,31 @@ export class SparkRenderer extends THREE.Mesh {
     level: number,
     pageColoring = false,
   ) {
-    this.requireWebGL("getLodTreeLevel");
-    const instance = this.lodInstances.get(splats);
-    if (!instance) {
-      return null;
-    }
+    let result: { indices: Uint32Array };
+    if (this.webgpu) {
+      const lodSplats =
+        splats.packedSplats?.lodSplats ??
+        splats.extSplats?.lodSplats ??
+        splats.paged;
+      const indices =
+        lodSplats && (await this.webgpu.lod?.getLodTreeLevel(lodSplats, level));
+      if (!indices) {
+        return null;
+      }
+      result = { indices };
+    } else {
+      const instance = this.lodInstances.get(splats);
+      if (!instance) {
+        return null;
+      }
 
-    const result = await this.ensureLodWorker().exclusive(async (worker) => {
-      return await worker.call("getLodTreeLevel", {
-        lodId: instance.lodId,
-        level,
+      result = await this.ensureLodWorker().exclusive(async (worker) => {
+        return await worker.call("getLodTreeLevel", {
+          lodId: instance.lodId,
+          level,
+        });
       });
-    });
+    }
 
     if (splats.packedSplats?.lodSplats) {
       const newSplats = splats.packedSplats.lodSplats.extractSplats(

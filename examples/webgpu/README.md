@@ -94,6 +94,12 @@ things:
   WebGL: the SparkRenderer in the scene draws as the one rendering
   (`sparkOverride`). `rawColor: true` writes splat colours as they are,
   with no colour conversion, for data packed into RGB (render-cube-depth).
+  `renderEnvMap()` prefilters with three/webgpu's `PMREMGenerator`: Spark's
+  `THREE.PMREMGenerator` when "three" resolves to three/webgpu, or the one
+  passed as `renderEnvMap({ PMREMGenerator })`. Without either (Vite resolves
+  Spark's "three" to three's WebGL build) it returns the cube map, which
+  three/webgpu's materials prefilter themselves. `getLodTreeLevel()` works
+  as on WebGL.
 - **Baking colours.** `RgbaArray.render()` runs GLSL readers. On WebGPU,
   `spark.getRgba({ generator })` gives a generator's RGBA as it generates
   it (modifiers, recolor), in a GPU-backed `RgbaArray` usable as
@@ -115,7 +121,6 @@ things:
 
 These throw or warn:
 
-- `renderEnvMap` (use `WgpuCubeMap.renderEnvMap`), `getLodTreeLevel`;
 - custom `vertexShader`/`fragmentShader` (the portal disk clip is built in);
 - WebXR and array cameras;
 - `covSplats`, `enable2DGS`, `accumExtSplats`;

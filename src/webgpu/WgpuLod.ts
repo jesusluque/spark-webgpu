@@ -212,6 +212,25 @@ export class WgpuLod {
     }
   }
 
+  /**
+   * The indices into `splats`' LoD splats of one level of its LoD tree, as
+   * SparkRenderer.getLodTreeLevel; null when no mesh has built its tree.
+   */
+  async getLodTreeLevel(
+    splats: LodSplats,
+    level: number,
+  ): Promise<Uint32Array | null> {
+    return this.ensureWorker().exclusive(async (worker) => {
+      const record = this.trees.get(splats);
+      if (!record) return null;
+      const { indices } = await worker.call("getLodTreeLevel", {
+        lodId: record.lodId,
+        level,
+      });
+      return indices;
+    });
+  }
+
   /** Switches a mesh between its LoD selection and all of its lodSplats. */
   setEnableLod(lodMesh: WgpuLodMesh, enable: boolean) {
     if (lodMesh.enableLod === enable) return;
