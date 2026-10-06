@@ -20,14 +20,16 @@
         "three": "../js/vendor/three/build/three.webgpu.js",
         "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
         "three/addons/": "../js/vendor/three/examples/jsm/",
-        "@sparkjsdev/spark": "../../dist/spark.module.js"
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three/webgpu";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-    import { GpuSplatSource, WgpuSplatRenderer, utils } from "@sparkjsdev/spark";
+    import { utils } from "@sparkjsdev/spark";
+    import { GpuSplatSource, WgpuSplatRenderer } from "@sparkjsdev/spark/webgpu";
 
     const info = document.getElementById("info");
     const params = new URLSearchParams(location.search);

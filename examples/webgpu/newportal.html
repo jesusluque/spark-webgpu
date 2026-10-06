@@ -24,6 +24,7 @@
         "three/tsl": "../js/vendor/three/build/three.tsl.js",
         "three/addons/": "../js/vendor/three/examples/jsm/",
         "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js",
         "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
       }
     }
@@ -36,8 +37,8 @@
       PackedSplats,
       SplatMesh,
       SparkControls,
-      splatRequiredLimits,
     } from "@sparkjsdev/spark";
+    import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
     import GUI from "lil-gui";
 
     // ========== Setup ==========

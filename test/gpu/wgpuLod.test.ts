@@ -12,7 +12,11 @@ import { SplatWorker } from "../../src/SplatWorker";
 import { setPackedSplat } from "../../src/utils";
 import { WgpuLod } from "../../src/webgpu/WgpuLod";
 import { WgpuSplatRenderer } from "../../src/webgpu/WgpuSplatRenderer";
+import { loadWebGPU } from "../../src/webgpuLoader";
 import { device } from "./device";
+
+// SparkRenderer constructs its WebGPU backend at once when it has loaded.
+await loadWebGPU();
 
 // test/unit/setup.ts stubs the wasm package; these tests need the real one.
 const wasm = await vi.importActual<typeof import("spark-rs")>("spark-rs");

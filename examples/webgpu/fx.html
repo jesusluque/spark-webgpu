@@ -29,7 +29,8 @@
         "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
         "three/addons/": "../js/vendor/three/examples/jsm/",
         "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js",
-        "@sparkjsdev/spark": "../../dist/spark.module.js"
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js"
       }
     }
   </script>
@@ -37,7 +38,8 @@
     import * as THREE from "three/webgpu";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import GUI from "lil-gui";
-    import { GpuSplatSource, PackedSplats, WgpuSplatRenderer, fx, utils } from "@sparkjsdev/spark";
+    import { PackedSplats, utils } from "@sparkjsdev/spark";
+    import { GpuSplatSource, WgpuSplatRenderer, fx } from "@sparkjsdev/spark/webgpu";
     import { getAssetFileURL } from "../js/get-asset-url.js";
     import { syntheticPacked } from "./compare.js";
 

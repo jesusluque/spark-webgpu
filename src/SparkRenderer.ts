@@ -23,14 +23,12 @@ import {
   isVisionPro,
   uploadU32DataTextureRows,
 } from "./utils";
+import type { SparkWebGPU, WebGPURendererLike } from "./webgpu/SparkWebGPU";
 import {
-  SparkWebGPU,
-  type WebGPURendererLike,
   isWebGPURenderer,
-} from "./webgpu/SparkWebGPU";
-import { readCubeFaces } from "./webgpu/WgpuCubeMap";
-import { readTargetPixels } from "./webgpu/WgpuReadTarget";
-import { rowStride } from "./webgpu/WgpuReadTarget";
+  loadWebGPUBackend,
+  loadedWebGPU,
+} from "./webgpuLoader";
 
 export interface SparkRendererOptions {
   /**
@@ -369,8 +367,18 @@ export class SparkRenderer extends THREE.Mesh {
   readonly renderer: THREE.WebGLRenderer;
   readonly material: THREE.ShaderMaterial;
   readonly uniforms: ReturnType<typeof SparkRenderer.makeUniforms>;
-  /** The WebGPU backend, when rendering with three's WebGPURenderer. */
+  /**
+   * The WebGPU backend, when rendering with three's WebGPURenderer. Set from
+   * the constructor on if the backend has loaded (loadWebGPU() or importing
+   * "@sparkjsdev/spark/webgpu"), else once `webgpuReady` resolves: until
+   * then nothing is drawn.
+   */
   readonly webgpu?: SparkWebGPU;
+  /** Whether this renders with the WebGPU backend (`webgpu` once loaded). */
+  readonly isWebGPU: boolean;
+  /** Resolves once `webgpu` is set (at once on WebGL). */
+  readonly webgpuReady: Promise<void>;
+  private disposed = false;
 
   autoUpdate: boolean;
   preUpdate: boolean;
@@ -575,11 +583,27 @@ export class SparkRenderer extends THREE.Mesh {
 
     // sparkRendererInstance = this;
     this.renderer = options.renderer as THREE.WebGLRenderer;
-    if (webgpu) {
-      this.webgpu = new SparkWebGPU(
+    this.isWebGPU = webgpu;
+    const loaded = webgpu ? loadedWebGPU() : undefined;
+    if (loaded) {
+      this.webgpu = new loaded.SparkWebGPU(
         this,
         options.renderer as WebGPURendererLike,
       );
+      this.webgpuReady = Promise.resolve();
+    } else if (webgpu) {
+      // The backend is a separate chunk (src/webgpuLoader.ts): draw once it
+      // loads.
+      this.webgpuReady = loadWebGPUBackend().then(({ SparkWebGPU }) => {
+        if (this.disposed) return;
+        (this as { webgpu?: SparkWebGPU }).webgpu = new SparkWebGPU(
+          this,
+          options.renderer as WebGPURendererLike,
+        );
+        this.onDirty?.();
+      });
+    } else {
+      this.webgpuReady = Promise.resolve();
     }
     this.onDirty = options.onDirty;
     this.rawColor = options.rawColor ?? false;
@@ -769,6 +793,7 @@ export class SparkRenderer extends THREE.Mesh {
 
     this.geometry.dispose();
     this.material.dispose();
+    this.disposed = true;
     this.webgpu?.dispose();
 
     if (this.target) {
@@ -827,10 +852,11 @@ export class SparkRenderer extends THREE.Mesh {
     camera: THREE.Camera,
   ) {
     const spark = SparkRenderer.sparkOverride ?? this;
-    if (spark.webgpu) {
+    if (spark.isWebGPU) {
       // render(), renderTarget() and renderCubeMap() draw the splats as that
-      // SparkRenderer, through this mesh in the scene, as on WebGL.
-      spark.webgpu.onBeforeRender(scene, camera, this);
+      // SparkRenderer, through this mesh in the scene, as on WebGL. Nothing
+      // until the backend has loaded (webgpuReady).
+      spark.webgpu?.onBeforeRender(scene, camera, this);
       return;
     }
 
@@ -1015,7 +1041,7 @@ export class SparkRenderer extends THREE.Mesh {
     autoUpdate: boolean;
   }) {
     // On WebGPU, rendering updates (SparkWebGPU).
-    if (this.webgpu) return;
+    if (this.isWebGPU) return;
     const renderer = this.renderer;
     if (this.ownsTimer) {
       this.timer.update();
@@ -1935,12 +1961,6 @@ export class SparkRenderer extends THREE.Mesh {
     return texture;
   })();
 
-  private requireWebGL(name: string) {
-    if (this.webgpu) {
-      throw new Error(`SparkRenderer.${name} is not supported on WebGPU yet`);
-    }
-  }
-
   render(scene: THREE.Scene, camera: THREE.Camera) {
     try {
       SparkRenderer.sparkOverride = this;
@@ -1983,8 +2003,9 @@ export class SparkRenderer extends THREE.Mesh {
     if (!this.target) {
       throw new Error("Must initialize with target");
     }
-    if (this.webgpu) {
+    if (this.isWebGPU) {
       // WebGPURenderer returns its own (row-padded, top-down) array.
+      const { readTargetPixels } = await loadWebGPUBackend();
       this.targetPixels = await readTargetPixels(
         this.renderer as unknown as Parameters<typeof readTargetPixels>[0],
         this.target,
@@ -2002,37 +2023,14 @@ export class SparkRenderer extends THREE.Mesh {
     }
     const superPixels = this.superPixels;
 
-    if (this.webgpu) {
-      // WebGPU reads rows top to bottom, padded to 256 bytes: flipped to
-      // WebGL's readPixels order.
-      const gpu = this.renderer as unknown as {
-        readRenderTargetPixelsAsync(
-          ...args: [THREE.RenderTarget, number, number, number, number]
-        ): Promise<ArrayBufferView>;
-      };
-      const data = await gpu.readRenderTargetPixelsAsync(
-        this.target,
-        0,
-        0,
-        width,
-        height,
-      );
-      const src = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-      const stride = rowStride(src.length, width, height);
-      for (let y = 0; y < height; y++) {
-        const from = (height - 1 - y) * stride;
-        superPixels.set(src.subarray(from, from + width * 4), y * width * 4);
-      }
-    } else {
-      await this.renderer.readRenderTargetPixelsAsync(
-        this.target,
-        0,
-        0,
-        width,
-        height,
-        superPixels,
-      );
-    }
+    await this.renderer.readRenderTargetPixelsAsync(
+      this.target,
+      0,
+      0,
+      width,
+      height,
+      superPixels,
+    );
 
     const { superXY } = this;
     if (superXY === 1) {
@@ -2130,7 +2128,7 @@ export class SparkRenderer extends THREE.Mesh {
       }
       // three/webgpu's CubeRenderTarget on WebGPU when "three" resolves to
       // it; its backend renders into either.
-      const CubeTarget = this.webgpu
+      const CubeTarget = this.isWebGPU
         ? ((
             THREE as unknown as {
               CubeRenderTarget?: typeof THREE.WebGLCubeRenderTarget;
@@ -2160,7 +2158,7 @@ export class SparkRenderer extends THREE.Mesh {
     }
 
     // On WebGPU each face's render updates the splats (SparkWebGPU).
-    if (update && !this.webgpu) {
+    if (update && !this.isWebGPU) {
       const tempCamera = new THREE.Camera();
       tempCamera.position.copy(worldCenter);
       await this.update({ scene, camera: tempCamera });
@@ -2186,7 +2184,8 @@ export class SparkRenderer extends THREE.Mesh {
     if (!SparkRenderer.cubeRender) {
       throw new Error("No cube render");
     }
-    if (this.webgpu) {
+    if (this.isWebGPU) {
+      const { readCubeFaces } = await loadWebGPUBackend();
       return readCubeFaces(
         this.renderer as unknown as Parameters<typeof readCubeFaces>[0],
         SparkRenderer.cubeRender.target as unknown as THREE.RenderTarget,
@@ -2256,8 +2255,12 @@ export class SparkRenderer extends THREE.Mesh {
       update,
       filter: true,
     });
-    if (this.webgpu) {
-      return this.webgpu.prefilterEnvMap(cubeTexture, PMREMGenerator);
+    if (this.isWebGPU) {
+      await this.webgpuReady;
+      return (this.webgpu as SparkWebGPU).prefilterEnvMap(
+        cubeTexture,
+        PMREMGenerator,
+      );
     }
     // Pre-filter the cube map using THREE.PMREMGenerator if requested
     if (!SparkRenderer.pmrem) {
@@ -2298,7 +2301,10 @@ export class SparkRenderer extends THREE.Mesh {
     generator,
     rgba = new RgbaArray(),
   }: { generator: SplatGenerator; rgba?: RgbaArray }): RgbaArray {
-    if (this.webgpu) {
+    if (this.isWebGPU) {
+      if (!this.webgpu) {
+        throw new Error("SparkRenderer.getRgba: await spark.webgpuReady first");
+      }
       this.webgpu.getRgba(generator, rgba);
       return rgba;
     }
@@ -2323,13 +2329,15 @@ export class SparkRenderer extends THREE.Mesh {
     pageColoring = false,
   ) {
     let result: { indices: Uint32Array };
-    if (this.webgpu) {
+    if (this.isWebGPU) {
+      await this.webgpuReady;
       const lodSplats =
         splats.packedSplats?.lodSplats ??
         splats.extSplats?.lodSplats ??
         splats.paged;
       const indices =
-        lodSplats && (await this.webgpu.lod?.getLodTreeLevel(lodSplats, level));
+        lodSplats &&
+        (await this.webgpu?.lod?.getLodTreeLevel(lodSplats, level));
       if (!indices) {
         return null;
       }

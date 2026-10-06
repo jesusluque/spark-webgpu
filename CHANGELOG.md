@@ -1,3 +1,30 @@
+## Unreleased: WebGPU backend
+
+`SparkRenderer` draws with a WebGPU backend when its `renderer` is three.js's `WebGPURenderer`: the same scene graph and API, with generate, sort and draw as compute and render pipelines whose kernels are written in Slang and compiled ahead of time to WGSL. WebGL2 stays the default and its output is unchanged. See [docs/docs/webgpu.md](docs/docs/webgpu.md) and the migration guide, [examples/webgpu/README.md](examples/webgpu/README.md).
+
+### Enhancements
+
+- WebGPU backend for `SparkRenderer` on three's `WebGPURenderer` (`backend: "webgpu"` asks for it explicitly). Generate runs as a compute pass, sort is a GPU radix sort in the same frame drawn with an indirect count, and splat data lives in storage buffers. No optional WebGPU features or raised limits needed. Verified in Chrome on macOS; Safari 26.5 runs the main examples
+- Supported on WebGPU: `PackedSplats` and `ExtSplats`, spherical harmonics up to degree 3, LoD and paged `.rad` streaming, dyno generators and modifiers, `SplatEdit`, `SplatSkinning`, `splatRgba`, depth of field, covariance splats, 2DGS, `SparkPortals`, render targets and `readTarget()`, `renderCubeMap()` / `renderEnvMap()`, `getRgba()` and GPU-backed `RgbaArray`, `getLodTreeLevel()`, raycasting, drawing through `PostProcessing`'s `pass()`, sRGB blending in three's transparent order
+- Custom dynos compile to WGSL as well as GLSL (dyno WGSL backend; user dynos give `wgsl: { globals, statements }`)
+- Lower-level `WgpuSplatRenderer`, `WgpuLod`, `WgpuSplatPager`, `WgpuReadTarget` and `WgpuCubeMap`, with a GPU profiler (`profile` option)
+- Per-Gaussian attributes (`SplatAttributes`, `AttribPool`): extra PLY properties and `.rad` attribute chunks, merged through LoD building, shown and picked in the draw ([docs](docs/docs/webgpu-attributes.md))
+- aofx post effects (`fx`): the AOFX SDK's effect model with its Slang kernels compiled to WGSL ([docs](docs/docs/webgpu-fx.md))
+- `capabilitiesOf` and `splatRequiredLimits` to inspect an adapter and request higher limits; `examples/webgpu/caps.html` probes a browser
+- Packaging: the WebGPU backend is its own file, `spark.webgpu.module.js` (`spark.webgpu.cjs.js`), so WebGL apps don't download it. `SparkRenderer` loads it the first time it's given a `WebGPURenderer` and draws once `spark.webgpuReady` resolves; `await loadWebGPU()`, or importing `@sparkjsdev/spark/webgpu`, loads it up front. The WebGPU-only API above is exported from `@sparkjsdev/spark/webgpu`. Its type declarations use the WebGPU DOM types: TypeScript apps add `@webgpu/types` (or `skipLibCheck`)
+- WebGPU ports of most examples in `examples/webgpu/`, with WebGL/WebGPU comparison and benchmark pages
+- Slang toolchain (`npm run build:slang`, `npm run check:slang`) and GPU tests on Dawn (`npm run test:gpu`)
+
+### Bug Fixes
+
+- Fix `SparkRenderer` generators seeing time 0: `ownsTimer` was inverted
+- Fix `SplatAccumulator` throwing "Generator must be provided" for packed `covSplats`
+- Fix `PackedSplats` from an unpadded `packedArray` past one texture layer
+- Fix `encodeExtSh12Rgb` reading degree-2 coefficients at stride 5
+- `SparkXr` reports `not_supported` on three's WebGPU backend, which can't present WebXR
+
+
+
 ## 2.3.1 (Oct 1, 2026)
 
 Fix builds

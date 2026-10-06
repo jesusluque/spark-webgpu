@@ -9,7 +9,8 @@
       "vite/client",
       "vite-plugin-glsl/ext",
       "vite-plugin-arraybuffer/types",
-      "node"
+      "node",
+      "@webgpu/types"
     ]
   },
   "include": ["./**/*.ts"]
