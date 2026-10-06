@@ -793,6 +793,29 @@ export const splatCases: [string, d.DynoType, () => Val, Expected][] = [
     [2, 2.4, 3.6, 0.5],
   ],
   [
+    "combine gsplat rgb",
+    "vec4",
+    () => {
+      const s = d.splitGsplat(
+        d.combineGsplat({
+          gsplat: splat(),
+          rgb: d.dynoConst("vec3", [0.25, 0.5, 0.75]),
+        }),
+      ).outputs;
+      return d.extendVec(s.rgb, s.opacity);
+    },
+    (v) => expect(v.slice(0, 3)).toEqual([0.25, 0.5, 0.75]),
+  ],
+  [
+    "combine covsplat rgb",
+    "vec3",
+    () =>
+      d.splitCovSplat(
+        d.combineCovSplat({ rgb: d.dynoConst("vec3", [0.25, 0.5, 0.75]) }),
+      ).outputs.rgb,
+    [0.25, 0.5, 0.75],
+  ],
+  [
     "gsplat active/index",
     "ivec2",
     () => {

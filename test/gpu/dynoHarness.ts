@@ -77,6 +77,15 @@ export async function evalDyno(
   });
   const code = harnessCode(program, type);
   const errors = await compileErrors(code);
+  // Dawn accepts assignments to swizzles (its swizzle_assignment language
+  // feature); WGSL elsewhere (naga, so Firefox) rejects them. Fields named
+  // like a 4-letter swizzle (rgba) count only behind another member.
+  const swizzle =
+    /^.*\.(?:[rgbaxyzw]{2,3}|\w+\.[rgbaxyzw]{4})\s*[-+*/]?=(?!=).*$/m.exec(
+      code,
+    );
+  if (swizzle)
+    errors.push(`assignment to a swizzle:\n    ${swizzle[0].trim()}`);
   if (errors.length) {
     throw new Error(`WGSL errors:\n${errors.join("\n")}\n\n${code}`);
   }

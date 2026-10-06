@@ -432,6 +432,43 @@ void main() {
 "
 `;
 
+exports[`dyno GLSL > combine covsplat rgb 1`] = `
+"struct CovSplat {
+  vec3 center;
+  uint flags;
+  vec4 rgba;
+  vec3 xxyyzz;
+  int index;
+  vec3 xyxzyz;
+};
+
+bool isCovSplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // CombineCovSplat(vec3(0.25, 0.5, 0.75)) => (covsplat_1)
+        CovSplat covsplat_1;
+        {
+            covsplat_1.flags = 0u;
+            covsplat_1.index = 0;
+            covsplat_1.center = vec3(0.0, 0.0, 0.0);
+            covsplat_1.rgba = vec4(0.0, 0.0, 0.0, 0.0);
+            covsplat_1.rgba.rgb = vec3(0.25, 0.5, 0.75);
+            covsplat_1.xxyyzz = vec3(0.0, 0.0, 0.0);
+            covsplat_1.xyxzyz = vec3(0.0, 0.0, 0.0);
+        }
+        
+        // SplitCovSplat(covsplat_1) => (out_value)
+        {
+            out_value = covsplat_1.rgba.rgb;
+        }
+    }
+}
+"
+`;
+
 exports[`dyno GLSL > combine defaults 1`] = `
 "uniform uint value_1;
 void main() {
@@ -444,6 +481,83 @@ void main() {
             out_value.x = uint(0u);
             out_value.y = uint(0u);
             out_value.z = value_1;
+        }
+    }
+}
+"
+`;
+
+exports[`dyno GLSL > combine gsplat rgb 1`] = `
+"uniform int value_4;
+
+uniform vec3 value_5;
+
+uniform vec3 value_6;
+
+uniform vec4 value_7;
+
+uniform vec4 value_8;
+
+struct Gsplat {
+  vec3 center;
+  uint flags;
+  vec3 scales;
+  int index;
+  vec4 quaternion;
+  vec4 rgba;
+};
+const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
+bool isGsplatActive(uint flags) {
+  return (flags & GSPLAT_FLAG_ACTIVE) != 0u;
+}
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoInt() => (value_4)
+        
+        // DynoVec3() => (value_5)
+        
+        // DynoVec3() => (value_6)
+        
+        // DynoVec4() => (value_7)
+        
+        // DynoVec4() => (value_8)
+        
+        // CombineGsplat(GSPLAT_FLAG_ACTIVE, value_4, value_5, value_6, value_7, value_8) => (gsplat_3)
+        Gsplat gsplat_3;
+        {
+            gsplat_3.flags = GSPLAT_FLAG_ACTIVE;
+            gsplat_3.index = value_4;
+            gsplat_3.center = value_5;
+            gsplat_3.scales = value_6;
+            gsplat_3.quaternion = value_7;
+            gsplat_3.rgba = value_8;
+        }
+        
+        // CombineGsplat(gsplat_3, vec3(0.25, 0.5, 0.75)) => (gsplat_2)
+        Gsplat gsplat_2;
+        {
+            gsplat_2.flags = gsplat_3.flags;
+            gsplat_2.index = gsplat_3.index;
+            gsplat_2.center = gsplat_3.center;
+            gsplat_2.scales = gsplat_3.scales;
+            gsplat_2.quaternion = gsplat_3.quaternion;
+            gsplat_2.rgba = gsplat_3.rgba;
+            gsplat_2.rgba.rgb = vec3(0.25, 0.5, 0.75);
+        }
+        
+        // SplitGsplat(gsplat_2) => (rgb_1, opacity_1)
+        vec3 rgb_1;
+        float opacity_1;
+        {
+            rgb_1 = gsplat_2.rgba.rgb;
+            opacity_1 = gsplat_2.rgba.a;
+        }
+        
+        // ExtendVec(rgb_1, opacity_1) => (out_value)
+        {
+            out_value = vec4(rgb_1, opacity_1);
         }
     }
 }
