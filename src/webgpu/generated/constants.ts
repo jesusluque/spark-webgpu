@@ -138,3 +138,13 @@ export const kernelsSortRadix = {
   SCAN_WG: 256,
   SCAN_CHUNK: 512,
 } as const;
+
+/** slang/tiles/tile_raster.slang */
+export const tilesTileRaster = {
+  TILE_SIZE: 16,
+  TILE_THREADS: 256,
+  RANGE_WG: 128,
+  RANGE_ROUNDS: 8,
+  TILE_DEPTH_TEST: 1,
+  TILE_CLAMP: 2,
+} as const;

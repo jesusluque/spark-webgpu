@@ -31,13 +31,14 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
-    // ?sort=cpu, ?sortBits=24, ?profile=1 (stats.gpuMs), and ?opts=<JSON>
-    // for any other WgpuSplatRenderer option.
+    // ?sort=cpu, ?sortBits=24, ?profile=1 (stats.gpuMs), ?rasterizer=tiles,
+    // and ?opts=<JSON> for any other WgpuSplatRenderer option.
     const query = new URLSearchParams(location.search);
     const splats = new WgpuSplatRenderer(renderer, {
       sort: query.get("sort") ?? "gpu",
       sortBits: Number(query.get("sortBits") ?? 32),
       profile: query.get("profile") === "1",
+      rasterizer: query.get("rasterizer") ?? "hardware",
       ...options,
       ...JSON.parse(query.get("opts") ?? "{}"),
     });
