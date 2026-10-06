@@ -109,6 +109,8 @@ Splats are not tone mapped, as on WebGL.
 | interactive-deform.html (still, drag, bounce, rotate) | WGSL for its GLSL dyno, main.js inlined | 0.08, 0.09, 0.09, 0.09 |
 | interactive-ripples.html (still, 30 and 90 frames after a click) | WGSL for its GLSL dyno, main.js inlined | 0.33, 0.33, 0.34 |
 | interactive-holes.html (still, 1 click, 5 clicks, reset) | WGSL for its GLSL dyno (impulse loop unrolled) | 0.50, 0.57, 0.63, 0.50 |
+| splat-dissolve-effects.html (t = 0, 10, 40 s) | WGSL for its GLSL dyno, opaque clear color | 0.15, 0.39, 0.38 |
+| splat-reveal-effects.html (Magic, Spread, Unroll, Twister, Rain) | WGSL for its GLSL dyno, opaque clear color | 0.36, 0.41, 0.34, 1.51, 2.38 (fast particles) |
 
 `spark-renderer.html` puts a cube through a splat mesh. Use
 `?backend=webgl` for the WebGL version, `&mode=target` or `&mode=post` for the
