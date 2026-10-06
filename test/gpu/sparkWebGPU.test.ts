@@ -188,6 +188,33 @@ describe.skipIf(!device)("SparkRenderer on WebGPU", () => {
     }
   });
 
+  // rawColor on the canvas: three's output pass would encode the values
+  // the splats store in its linear frame, so they go on after it, unconverted,
+  // as WebGL Spark writes them to its canvas.
+  it("draws rawColor splats on the canvas after the output pass", async () => {
+    const spark = new SparkRenderer({
+      renderer: fakeRenderer as never,
+      rawColor: true,
+    });
+    const { spark: other, scene, camera } = setup();
+    scene.remove(other);
+    other.dispose();
+    scene.add(spark);
+    scene.add(new SplatMesh({ packedSplats: ball() }));
+    const r = fakeRenderer as Record<string, unknown>;
+    const frameBufferTarget = {};
+    r._frameBufferTarget = frameBufferTarget;
+    Object.assign(rc, { renderTarget: frameBufferTarget, textures: [{}] });
+    try {
+      await render(spark, scene, camera);
+      expect(Object.hasOwn(scene, "onAfterRender")).toBe(true);
+    } finally {
+      r._frameBufferTarget = null;
+      Object.assign(rc, { renderTarget: null, textures: null });
+      spark.dispose();
+    }
+  });
+
   it("follows visibility, shared splats and removal", async () => {
     const { spark, scene, camera } = setup();
     const packed = ball();

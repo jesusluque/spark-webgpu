@@ -202,8 +202,13 @@ export class SparkWebGPU {
       INVERTIBLE_TONE_MAPPINGS.includes(toneMapping) &&
       renderer.outputColorSpace === THREE.SRGBColorSpace &&
       !this.spark.rawColor;
-    // With MSAA too: drawOnCanvas tests against the resolved depth.
-    if (toneMapping !== THREE.NoToneMapping && !invertible) {
+    // With MSAA too: drawOnCanvas tests against the resolved depth. Raw
+    // colours too, which three's output pass would encode, unlike WebGL's
+    // canvas.
+    if (
+      (toneMapping !== THREE.NoToneMapping && !invertible) ||
+      (canvas && this.spark.rawColor)
+    ) {
       this.drawAfterOutput(scene, camera, open);
       return;
     }
