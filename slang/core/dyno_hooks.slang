@@ -28,3 +28,15 @@ public Gsplat dynoObjectModifier(Gsplat s) {
 public Gsplat dynoWorldModifier(Gsplat s) {
     return s;
 }
+
+// SplatMesh.covObjectModifiers, on the CovSplat in object space (covSplats).
+[noinline]
+public CovSplat dynoCovObjectModifier(CovSplat s) {
+    return s;
+}
+
+// SplatMesh.covWorldModifiers, on the CovSplat in world space (covSplats).
+[noinline]
+public CovSplat dynoCovWorldModifier(CovSplat s) {
+    return s;
+}

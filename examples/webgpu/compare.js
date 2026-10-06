@@ -1,12 +1,19 @@
 // Shared settings for compare-webgl.html and compare-webgpu.html.
 //   ?file=<asset name>   a file from examples/assets.json (default butterfly.spz)
 //   ?n=<count>           instead, a synthetic cloud of n packed splats
+//   &flat=1              with zero z scales (2D Gaussians, for enable2DGS)
 //   ?w=&h=               canvas size
 //   ?lod=1               load the file with LoD splats (lod: true) and draw
 //                        the LoD traversal's selection
 //   ?rad=<url>|1         instead, a paged .rad file streamed through the LoD
 //                        pager (1: the hobbiton scene)
 //   ?count=<n>           lodSplatCount for both renderers
+//   ?focalDistance=&apertureAngle=&covSplats=1&enable2DGS=1
+//                        renderer options for both (SparkRenderer and
+//                        WgpuSplatRenderer take the same names; covSplats
+//                        loads the file as cov ExtSplats meshes on WebGL)
+//   ?ext=1               load the file as ExtSplats (both backends)
+//   ?scale=x,y,z         non-uniform object scale (needs covSplats)
 // Both pages expose window.__bench(frames): renders that many frames as fast
 // as possible, each waited on until the GPU finishes, with the object
 // turning a little every frame so both backends regenerate and re-sort.
@@ -14,6 +21,7 @@ export function setupCompare() {
   const params = new URLSearchParams(location.search);
   const file = params.get("file") ?? "butterfly.spz";
   const n = params.get("n") ? Number(params.get("n")) : null;
+  const flat = params.get("flat") === "1";
   const lod = params.get("lod") === "1";
   const radParam = params.get("rad");
   const rad =
@@ -27,8 +35,10 @@ export function setupCompare() {
     w: Number(params.get("w") ?? 800),
     h: Number(params.get("h") ?? 600),
   };
+  const scale = params.get("scale")?.split(",").map(Number);
   // The pose examples/hello-world gives the butterfly, without the spin.
   const pose = (object) => {
+    if (scale) object.scale.set(...scale);
     if (n) {
       object.position.set(0, 0, -3);
       return;
@@ -42,11 +52,20 @@ export function setupCompare() {
     object.position.set(0, 0, -3);
     object.rotation.y += 0.6;
   };
-  return { file, n, lod, rad, lodSplatCount, size, pose };
+  const options = {};
+  for (const key of ["focalDistance", "apertureAngle"]) {
+    if (params.has(key)) options[key] = Number(params.get(key));
+  }
+  for (const key of ["covSplats", "enable2DGS", "accumExtSplats"]) {
+    if (params.has(key)) options[key] = params.get(key) === "1";
+  }
+  const ext = params.get("ext") === "1" || options.covSplats === true;
+  return { file, n, flat, lod, rad, lodSplatCount, size, pose, options, ext };
 }
 
-// A deterministic cloud of n splats in a 2-unit ball, packed as PackedSplats.
-export function syntheticPacked(utils, n) {
+// A deterministic cloud of n splats in a 2-unit ball, packed as PackedSplats;
+// `flat`: 2D splats, their z scale 0.
+export function syntheticPacked(utils, n, flat = false) {
   const packed = new Uint32Array(n * 4);
   let s = 12345;
   const rnd = () => {
@@ -74,7 +93,7 @@ export function syntheticPacked(utils, n) {
       z,
       sc,
       sc * (0.3 + rnd()),
-      sc,
+      flat ? 0 : sc,
       qx,
       qy,
       qz,

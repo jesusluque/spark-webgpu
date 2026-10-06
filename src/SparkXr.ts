@@ -15,6 +15,13 @@ import {
   NUM_JOINTS,
 } from "./hands";
 
+function isWebGPUBackend(renderer: unknown): boolean {
+  return (
+    (renderer as { backend?: { isWebGPUBackend?: boolean } }).backend
+      ?.isWebGPUBackend === true
+  );
+}
+
 export interface SparkXrOptions {
   renderer: THREE.WebGLRenderer;
   // Element to attach enter/exit click handler to
@@ -205,6 +212,18 @@ export class SparkXr {
         }
 
         if (!options.allowMobileXr && isLikelyMobilePhone()) {
+          this.mode = "not_supported";
+          return;
+        }
+
+        // three's WebGPURenderer can't present to WebXR on its WebGPU
+        // backend (XRManager.setSession throws; WebXR has no WebGPU binding
+        // in Chrome or Safari on macOS yet). Say so rather than offer a
+        // button that fails; WebGPURenderer({ forceWebGL: true }) works.
+        if (isWebGPUBackend(this.renderer)) {
+          console.warn(
+            "SparkXr: WebXR needs WebGL; three's WebGPURenderer can't present XR on its WebGPU backend (use WebGLRenderer, or WebGPURenderer with forceWebGL: true)",
+          );
           this.mode = "not_supported";
           return;
         }

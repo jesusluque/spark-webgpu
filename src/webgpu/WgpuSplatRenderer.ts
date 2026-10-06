@@ -47,8 +47,12 @@ const GEN_USE_LOD = 4;
 const GEN_LOD_OPACITY = 8;
 const GEN_SORT_RADIAL = 16;
 const GEN_DYNO_SOURCE = 256;
+const GEN_OUT_COV = 512;
+const GEN_COV_TRANSFORM = 1024;
 
 const DRAW_EXT = 1;
+const DRAW_COV = 2;
+const DRAW_2DGS = 4;
 const DRAW_LOD_INFLATE = 8;
 const DRAW_ORTHOGRAPHIC = 16;
 const DRAW_ENCODE_LINEAR = 32;
@@ -100,6 +104,17 @@ export interface WgpuSplatRendererOptions {
   apertureAngle?: number;
   /** Trade LOD opacity above 1 for size (SparkRenderer.lodInflate). */
   lodInflate?: boolean;
+  /**
+   * Accumulate covariance splats (SparkRenderer.covSplats): mesh transforms
+   * may scale non-uniformly or shear, and meshes may use CovSplat modifiers
+   * (WgpuDyno.covObjectModifiers, linear-blend SplatSkinning). Default false.
+   */
+  covSplats?: boolean;
+  /**
+   * Draw splats with a zero scale as flat 2D Gaussians (2DGS) rather than
+   * projected 3D ones (SparkRenderer.enable2DGS). Default false.
+   */
+  enable2DGS?: boolean;
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -232,6 +247,8 @@ export class WgpuSplatRenderer {
       focalDistance: 0,
       apertureAngle: 0,
       lodInflate: false,
+      covSplats: false,
+      enable2DGS: false,
       ...options,
     };
     this.capabilities = capabilitiesOf(this.device);
@@ -384,6 +401,7 @@ export class WgpuSplatRenderer {
       this.mappingVersion,
       this.options.sortBits,
       this.options.sortRadial ? 1 : 0,
+      this.options.covSplats ? 1 : 0,
       ...camera.matrixWorld.elements,
       ...camera.projectionMatrix.elements,
     ];
@@ -556,7 +574,13 @@ export class WgpuSplatRenderer {
     const deltaTime = time - this.lastTime;
     this.lastTime = time;
     for (const mesh of this.meshes) {
-      mesh.dyno?.update?.({ camera, object: mesh.object, time, deltaTime });
+      mesh.dyno?.update?.({
+        camera,
+        object: mesh.object,
+        time,
+        deltaTime,
+        lod: mesh.lodIndices != null,
+      });
     }
     // Generate-skipping frames must regenerate when this is set (dyno
     // uniforms animated by time, edited SDFs...).
@@ -597,7 +621,11 @@ export class WgpuSplatRenderer {
     return {
       color,
       depth,
-      linear: target.texture.colorSpace !== THREE.SRGBColorSpace,
+      // An -srgb format encodes on store (three picks one for 8-bit sRGB
+      // targets): the shader writes linear values to it too.
+      linear:
+        target.texture.colorSpace !== THREE.SRGBColorSpace ||
+        color.format.endsWith("-srgb"),
     };
   }
 
@@ -631,6 +659,7 @@ export class WgpuSplatRenderer {
     const rotation = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const inverse = new THREE.Matrix4();
+    const basis = new THREE.Matrix4();
     let base = 0;
     for (const mesh of this.meshes) {
       const { source, object } = mesh;
@@ -655,6 +684,14 @@ export class WgpuSplatRenderer {
       if (source.lodOpacity) flags |= GEN_LOD_OPACITY;
       if (this.options.sortRadial) flags |= GEN_SORT_RADIAL;
       if (dyno && mesh.dyno?.generator) flags |= GEN_DYNO_SOURCE;
+      if (this.options.covSplats) {
+        flags |= GEN_OUT_COV;
+        // Gsplat world modifiers need the similarity transform before them.
+        if (!mesh.dyno?.worldModifiers?.length) flags |= GEN_COV_TRANSFORM;
+      }
+      if (dyno && mesh.dyno?.worldSpace) basis.identity();
+      else basis.copy(object.matrixWorld);
+      const b = basis.elements;
       const params = UniformWriter.for(generateModule).setAll({
         numSplats: count,
         outBase: base,
@@ -675,6 +712,9 @@ export class WgpuSplatRenderer {
         viewCenter: [cameraPos.x, cameraPos.y, cameraPos.z, 0],
         viewDir: [cameraDir.x, cameraDir.y, cameraDir.z, 0],
         outOrigin: [0, 0, 0, 0],
+        covBasis0: [b[0], b[1], b[2], 0],
+        covBasis1: [b[4], b[5], b[6], 0],
+        covBasis2: [b[8], b[9], b[10], 0],
       });
       (dyno?.kernel ?? kernel).dispatch(pass, {
         bindings: dyno?.bindings,
@@ -880,6 +920,8 @@ export class WgpuSplatRenderer {
       flags:
         DRAW_EXT |
         DRAW_PREMULTIPLIED |
+        (o.covSplats ? DRAW_COV : 0) |
+        (o.enable2DGS ? DRAW_2DGS : 0) |
         (o.lodInflate ? DRAW_LOD_INFLATE : 0) |
         (linear ? DRAW_ENCODE_LINEAR : 0) |
         ((camera as THREE.OrthographicCamera).isOrthographicCamera
