@@ -2,25 +2,56 @@
 // slang/kernels/sort_radix.slang — do not edit.
 import type { KernelModule } from "../../KernelModule";
 
-export const wgsl = "struct SortParams_std140_0\n{\n    @align(16) count_0 : u32,\n    @align(4) shift_0 : u32,\n    @align(8) numBlocks_0 : u32,\n    @align(4) pad0_0 : u32,\n};\n\n@binding(9) @group(0) var<uniform> params_0 : SortParams_std140_0;\n@binding(0) @group(0) var<storage, read> sortMetric_0 : array<f32>;\n\n@binding(6) @group(0) var<storage, read_write> drawArgs_0 : array<atomic<u32>>;\n\n@binding(1) @group(0) var<storage, read_write> keysIn_0 : array<u32>;\n\n@binding(2) @group(0) var<storage, read_write> valsIn_0 : array<u32>;\n\n@binding(5) @group(0) var<storage, read_write> blockHist_0 : array<u32>;\n\nstruct ScanParams_std140_0\n{\n    @align(16) count_1 : u32,\n    @align(4) pad0_1 : u32,\n    @align(8) pad1_0 : u32,\n    @align(4) pad2_0 : u32,\n};\n\n@binding(10) @group(0) var<uniform> scanParams_0 : ScanParams_std140_0;\n@binding(7) @group(0) var<storage, read_write> scanData_0 : array<u32>;\n\n@binding(8) @group(0) var<storage, read_write> chunkSums_0 : array<u32>;\n\n@binding(3) @group(0) var<storage, read_write> keysOut_0 : array<u32>;\n\n@binding(4) @group(0) var<storage, read_write> valsOut_0 : array<u32>;\n\nfn isnan_0( x_0 : f32) -> bool\n{\n    var _S1 : u32 = (bitcast<u32>((x_0)));\n    var _S2 : u32 = (_S1 & (u32(8388607)));\n    var _S3 : bool;\n    if(((((_S1 >> (u32(23)))) & (u32(255)))) == u32(255))\n    {\n        _S3 = _S2 != u32(0);\n    }\n    else\n    {\n        _S3 = false;\n    }\n    return _S3;\n}\n\nfn isinf_0( x_1 : f32) -> bool\n{\n    var _S4 : u32 = (bitcast<u32>((x_1)));\n    var _S5 : u32 = (_S4 & (u32(8388607)));\n    var _S6 : bool;\n    if(((((_S4 >> (u32(23)))) & (u32(255)))) == u32(255))\n    {\n        _S6 = _S5 == u32(0);\n    }\n    else\n    {\n        _S6 = false;\n    }\n    return _S6;\n}\n\n@compute\n@workgroup_size(256, 1, 1)\nfn prepareSort(@builtin(global_invocation_id) tid_0 : vec3<u32>)\n{\n    var i_0 : u32 = tid_0.x;\n    if(i_0 >= (params_0.count_0))\n    {\n        return;\n    }\n    var m_0 : f32 = sortMetric_0[i_0];\n    var _S7 : bool;\n    if(!isinf_0(m_0))\n    {\n        _S7 = !isnan_0(m_0);\n    }\n    else\n    {\n        _S7 = false;\n    }\n    var key_0 : u32;\n    if(_S7)\n    {\n        var _S8 : u32 = min(~(bitcast<u32>((max(m_0, 0.0f)))), u32(4294967294));\n        var _S9 : u32 = atomicAdd(&(drawArgs_0[i32(1)]), u32(1));\n        key_0 = _S8;\n    }\n    else\n    {\n        key_0 = u32(4294967295);\n    }\n    keysIn_0[i_0] = key_0;\n    valsIn_0[i_0] = i_0;\n    return;\n}\n\nvar<workgroup> sHist_0 : array<atomic<u32>, i32(16)>;\n\nfn digitOf_0( key_1 : u32) -> u32\n{\n    return (((key_1 >> ((params_0.shift_0)))) & (u32(15)));\n}\n\n@compute\n@workgroup_size(128, 1, 1)\nfn radixHistogram(@builtin(local_invocation_id) lid_0 : vec3<u32>, @builtin(workgroup_id) gid_0 : vec3<u32>)\n{\n    var _S10 : u32 = lid_0.x;\n    var _S11 : bool = _S10 < u32(16);\n    if(_S11)\n    {\n        atomicStore(&(sHist_0[_S10]), u32(0));\n    }\n    workgroupBarrier();\n    var _S12 : u32 = gid_0.x;\n    var _S13 : u32 = _S12 * u32(1024);\n    var r_0 : u32 = u32(0);\n    for(;;)\n    {\n        if(r_0 < u32(8))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var i_1 : u32 = _S13 + r_0 * u32(128) + _S10;\n        if(i_1 < (params_0.count_0))\n        {\n            var _S14 : u32 = atomicAdd(&(sHist_0[digitOf_0(keysIn_0[i_1])]), u32(1));\n        }\n        r_0 = r_0 + u32(1);\n    }\n    workgroupBarrier();\n    if(_S11)\n    {\n        var _S15 : u32 = atomicLoad(&(sHist_0[_S10]));\n        blockHist_0[_S10 * params_0.numBlocks_0 + _S12] = _S15;\n    }\n    return;\n}\n\nvar<workgroup> sScanBuf_0 : array<u32, i32(512)>;\n\n@compute\n@workgroup_size(256, 1, 1)\nfn scanChunks(@builtin(local_invocation_id) lid_1 : vec3<u32>, @builtin(workgroup_id) gid_1 : vec3<u32>)\n{\n    var t_0 : u32 = lid_1.x;\n    var _S16 : u32 = gid_1.x;\n    var n_0 : u32 = scanParams_0.count_1;\n    var _S17 : u32 = u32(2) * t_0;\n    var _S18 : u32 = _S16 * u32(512) + _S17;\n    var _S19 : bool = _S18 < (scanParams_0.count_1);\n    var d_0 : u32;\n    if(_S19)\n    {\n        d_0 = scanData_0[_S18];\n    }\n    else\n    {\n        d_0 = u32(0);\n    }\n    sScanBuf_0[_S17] = d_0;\n    var _S20 : u32 = _S17 + u32(1);\n    var _S21 : u32 = _S18 + u32(1);\n    var _S22 : bool = _S21 < n_0;\n    if(_S22)\n    {\n        d_0 = scanData_0[_S21];\n    }\n    else\n    {\n        d_0 = u32(0);\n    }\n    sScanBuf_0[_S20] = d_0;\n    d_0 = u32(256);\n    var offset_0 : u32 = u32(1);\n    for(;;)\n    {\n        if(d_0 > u32(0))\n        {\n        }\n        else\n        {\n            break;\n        }\n        workgroupBarrier();\n        if(t_0 < d_0)\n        {\n            sScanBuf_0[offset_0 * (_S17 + u32(2)) - u32(1)] = sScanBuf_0[offset_0 * (_S17 + u32(2)) - u32(1)] + sScanBuf_0[offset_0 * _S20 - u32(1)];\n        }\n        var offset_1 : u32 = (offset_0 << (u32(1)));\n        d_0 = (d_0 >> (u32(1)));\n        offset_0 = offset_1;\n    }\n    workgroupBarrier();\n    if(t_0 == u32(0))\n    {\n        chunkSums_0[_S16] = sScanBuf_0[u32(511)];\n        sScanBuf_0[u32(511)] = u32(0);\n    }\n    d_0 = u32(1);\n    for(;;)\n    {\n        if(d_0 < u32(512))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var offset_2 : u32 = (offset_0 >> (u32(1)));\n        workgroupBarrier();\n        if(t_0 < d_0)\n        {\n            var v_0 : u32 = sScanBuf_0[offset_2 * _S20 - u32(1)];\n            sScanBuf_0[offset_2 * _S20 - u32(1)] = sScanBuf_0[offset_2 * (_S17 + u32(2)) - u32(1)];\n            sScanBuf_0[offset_2 * (_S17 + u32(2)) - u32(1)] = sScanBuf_0[offset_2 * (_S17 + u32(2)) - u32(1)] + v_0;\n        }\n        d_0 = (d_0 << (u32(1)));\n        offset_0 = offset_2;\n    }\n    workgroupBarrier();\n    if(_S19)\n    {\n        scanData_0[_S18] = sScanBuf_0[_S17];\n    }\n    if(_S22)\n    {\n        scanData_0[_S21] = sScanBuf_0[_S20];\n    }\n    return;\n}\n\n@compute\n@workgroup_size(256, 1, 1)\nfn addChunkOffsets(@builtin(global_invocation_id) tid_1 : vec3<u32>)\n{\n    var i_2 : u32 = tid_1.x;\n    if(i_2 < (scanParams_0.count_1))\n    {\n        scanData_0[i_2] = scanData_0[i_2] + chunkSums_0[i_2 / u32(512)];\n    }\n    return;\n}\n\nvar<workgroup> sBase_0 : array<u32, i32(16)>;\n\nfn oneHot_0( digit_0 : u32) -> vec4<u32>\n{\n    var v_1 : vec4<u32> = vec4<u32>(u32(0));\n    v_1[(digit_0 >> (u32(2)))] = (u32(1) << ((u32(8) * ((digit_0 & (u32(3)))))));\n    return v_1;\n}\n\nvar<workgroup> sScan_0 : array<vec4<u32>, i32(128)>;\n\nfn lane_0( v_2 : vec4<u32>,  digit_1 : u32) -> u32\n{\n    return ((((v_2[(digit_1 >> (u32(2)))]) >> ((u32(8) * ((digit_1 & (u32(3)))))))) & (u32(255)));\n}\n\n@compute\n@workgroup_size(128, 1, 1)\nfn radixScatter(@builtin(local_invocation_id) lid_2 : vec3<u32>, @builtin(workgroup_id) gid_2 : vec3<u32>)\n{\n    var t_1 : u32 = lid_2.x;\n    var _S23 : bool = t_1 < u32(16);\n    if(_S23)\n    {\n        sBase_0[t_1] = blockHist_0[t_1 * params_0.numBlocks_0 + gid_2.x];\n    }\n    var _S24 : u32 = gid_2.x * u32(1024);\n    var r_1 : u32 = u32(0);\n    for(;;)\n    {\n        if(r_1 < u32(8))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var i_3 : u32 = _S24 + r_1 * u32(128) + t_1;\n        var valid_0 : bool = i_3 < (params_0.count_0);\n        var key_2 : u32;\n        if(valid_0)\n        {\n            key_2 = keysIn_0[i_3];\n        }\n        else\n        {\n            key_2 = u32(0);\n        }\n        var val_0 : u32;\n        if(valid_0)\n        {\n            val_0 = valsIn_0[i_3];\n        }\n        else\n        {\n            val_0 = u32(0);\n        }\n        var digit_2 : u32 = digitOf_0(key_2);\n        var mine_0 : vec4<u32>;\n        if(valid_0)\n        {\n            mine_0 = oneHot_0(digit_2);\n        }\n        else\n        {\n            mine_0 = vec4<u32>(u32(0));\n        }\n        sScan_0[t_1] = mine_0;\n        workgroupBarrier();\n        var o_0 : u32 = u32(1);\n        for(;;)\n        {\n            if(o_0 < u32(128))\n            {\n            }\n            else\n            {\n                break;\n            }\n            var add_0 : vec4<u32>;\n            if(t_1 >= o_0)\n            {\n                add_0 = sScan_0[t_1 - o_0];\n            }\n            else\n            {\n                add_0 = vec4<u32>(u32(0));\n            }\n            workgroupBarrier();\n            sScan_0[t_1] = sScan_0[t_1] + add_0;\n            workgroupBarrier();\n            o_0 = (o_0 << (u32(1)));\n        }\n        var inclusive_0 : vec4<u32> = sScan_0[t_1];\n        if(valid_0)\n        {\n            var dst_0 : u32 = sBase_0[digit_2] + lane_0(inclusive_0 - mine_0, digit_2);\n            keysOut_0[dst_0] = key_2;\n            valsOut_0[dst_0] = val_0;\n        }\n        workgroupBarrier();\n        if(_S23)\n        {\n            sBase_0[t_1] = sBase_0[t_1] + lane_0(sScan_0[u32(127)], t_1);\n        }\n        workgroupBarrier();\n        r_1 = r_1 + u32(1);\n    }\n    return;\n}\n\n";
+export const wgsl = "struct SortParams_std140_0\n{\n    @align(16) count_0 : u32,\n    @align(4) shift_0 : u32,\n    @align(8) numBlocks_0 : u32,\n    @align(4) pad0_0 : u32,\n};\n\n@binding(11) @group(0) var<uniform> params_0 : SortParams_std140_0;\n@binding(0) @group(0) var<storage, read> sortMetric_0 : array<f32>;\n\n@binding(5) @group(0) var<storage, read_write> blockHist_0 : array<u32>;\n\n@binding(6) @group(0) var<storage, read_write> drawArgs_0 : array<atomic<u32>>;\n\n@binding(3) @group(0) var<storage, read_write> keysOut_0 : array<u32>;\n\n@binding(4) @group(0) var<storage, read_write> valsOut_0 : array<u32>;\n\n@binding(8) @group(0) var<storage, read_write> dispatchArgs_0 : array<u32>;\n\n@binding(7) @group(0) var<storage, read> sortCount_0 : array<u32>;\n\n@binding(1) @group(0) var<storage, read_write> keysIn_0 : array<u32>;\n\nstruct ScanParams_std140_0\n{\n    @align(16) count_1 : u32,\n    @align(4) pad0_1 : u32,\n    @align(8) pad1_0 : u32,\n    @align(4) pad2_0 : u32,\n};\n\n@binding(12) @group(0) var<uniform> scanParams_0 : ScanParams_std140_0;\n@binding(9) @group(0) var<storage, read_write> scanData_0 : array<u32>;\n\n@binding(10) @group(0) var<storage, read_write> chunkSums_0 : array<u32>;\n\n@binding(2) @group(0) var<storage, read_write> valsIn_0 : array<u32>;\n\nfn isnan_0( x_0 : f32) -> bool\n{\n    var _S1 : u32 = (bitcast<u32>((x_0)));\n    var _S2 : u32 = (_S1 & (u32(8388607)));\n    var _S3 : bool;\n    if(((((_S1 >> (u32(23)))) & (u32(255)))) == u32(255))\n    {\n        _S3 = _S2 != u32(0);\n    }\n    else\n    {\n        _S3 = false;\n    }\n    return _S3;\n}\n\nfn isinf_0( x_1 : f32) -> bool\n{\n    var _S4 : u32 = (bitcast<u32>((x_1)));\n    var _S5 : u32 = (_S4 & (u32(8388607)));\n    var _S6 : bool;\n    if(((((_S4 >> (u32(23)))) & (u32(255)))) == u32(255))\n    {\n        _S6 = _S5 == u32(0);\n    }\n    else\n    {\n        _S6 = false;\n    }\n    return _S6;\n}\n\nvar<workgroup> sHist_0 : array<atomic<u32>, i32(16)>;\n\nfn isActiveMetric_0( m_0 : f32) -> bool\n{\n    var _S7 : bool;\n    if(!isinf_0(m_0))\n    {\n        _S7 = !isnan_0(m_0);\n    }\n    else\n    {\n        _S7 = false;\n    }\n    return _S7;\n}\n\n@compute\n@workgroup_size(128, 1, 1)\nfn countActive(@builtin(local_invocation_id) lid_0 : vec3<u32>, @builtin(workgroup_id) gid_0 : vec3<u32>)\n{\n    var _S8 : u32 = lid_0.x;\n    var _S9 : bool = _S8 == u32(0);\n    if(_S9)\n    {\n        atomicStore(&(sHist_0[i32(0)]), u32(0));\n    }\n    workgroupBarrier();\n    var _S10 : u32 = gid_0.x;\n    var _S11 : u32 = _S10 * u32(1024);\n    var r_0 : u32 = u32(0);\n    var n_0 : u32 = u32(0);\n    for(;;)\n    {\n        if(r_0 < u32(8))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var i_0 : u32 = _S11 + r_0 * u32(128) + _S8;\n        var _S12 : bool;\n        if(i_0 < (params_0.count_0))\n        {\n            _S12 = isActiveMetric_0(sortMetric_0[i_0]);\n        }\n        else\n        {\n            _S12 = false;\n        }\n        if(_S12)\n        {\n            n_0 = n_0 + u32(1);\n        }\n        r_0 = r_0 + u32(1);\n    }\n    if(n_0 > u32(0))\n    {\n        var _S13 : u32 = atomicAdd(&(sHist_0[i32(0)]), n_0);\n    }\n    workgroupBarrier();\n    if(_S9)\n    {\n        var total_0 : u32 = atomicLoad(&(sHist_0[i32(0)]));\n        blockHist_0[_S10] = total_0;\n        var _S14 : u32 = atomicAdd(&(drawArgs_0[i32(1)]), total_0);\n    }\n    return;\n}\n\nvar<workgroup> sFlags_0 : array<u32, i32(128)>;\n\nfn metricKey_0( m_1 : f32) -> u32\n{\n    return min(~(bitcast<u32>((max(m_1, 0.0f)))), u32(4294967294));\n}\n\n@compute\n@workgroup_size(128, 1, 1)\nfn compactKeys(@builtin(local_invocation_id) lid_1 : vec3<u32>, @builtin(workgroup_id) gid_1 : vec3<u32>)\n{\n    var _S15 : u32 = lid_1.x;\n    var _S16 : u32 = gid_1.x;\n    var _S17 : u32 = _S16 * u32(1024);\n    var r_1 : u32 = u32(0);\n    var start_0 : u32 = blockHist_0[_S16];\n    for(;;)\n    {\n        if(r_1 < u32(8))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var i_1 : u32 = _S17 + r_1 * u32(128) + _S15;\n        var m_2 : f32;\n        if(i_1 < (params_0.count_0))\n        {\n            m_2 = sortMetric_0[i_1];\n        }\n        else\n        {\n            m_2 = 0.0f;\n        }\n        var _S18 : bool;\n        if(i_1 < (params_0.count_0))\n        {\n            _S18 = isActiveMetric_0(m_2);\n        }\n        else\n        {\n            _S18 = false;\n        }\n        var mine_0 : u32;\n        if(_S18)\n        {\n            mine_0 = u32(1);\n        }\n        else\n        {\n            mine_0 = u32(0);\n        }\n        sFlags_0[_S15] = mine_0;\n        workgroupBarrier();\n        var o_0 : u32 = u32(1);\n        for(;;)\n        {\n            if(o_0 < u32(128))\n            {\n            }\n            else\n            {\n                break;\n            }\n            var add_0 : u32;\n            if(_S15 >= o_0)\n            {\n                add_0 = sFlags_0[_S15 - o_0];\n            }\n            else\n            {\n                add_0 = u32(0);\n            }\n            workgroupBarrier();\n            sFlags_0[_S15] = sFlags_0[_S15] + add_0;\n            workgroupBarrier();\n            o_0 = (o_0 << (u32(1)));\n        }\n        if(mine_0 != u32(0))\n        {\n            var dst_0 : u32 = start_0 + sFlags_0[_S15] - u32(1);\n            keysOut_0[dst_0] = metricKey_0(m_2);\n            valsOut_0[dst_0] = i_1;\n        }\n        var roundTotal_0 : u32 = sFlags_0[u32(127)];\n        workgroupBarrier();\n        var start_1 : u32 = start_0 + roundTotal_0;\n        r_1 = r_1 + u32(1);\n        start_0 = start_1;\n    }\n    return;\n}\n\nfn activeCount_0() -> u32\n{\n    return sortCount_0[i32(1)];\n}\n\nfn activeBlocks_0() -> u32\n{\n    return (activeCount_0() + u32(1024) - u32(1)) / u32(1024);\n}\n\n@compute\n@workgroup_size(1, 1, 1)\nfn writeDispatch()\n{\n    dispatchArgs_0[i32(0)] = activeBlocks_0();\n    dispatchArgs_0[i32(1)] = u32(1);\n    dispatchArgs_0[i32(2)] = u32(1);\n    return;\n}\n\nfn digitOf_0( key_0 : u32) -> u32\n{\n    return (((key_0 >> ((params_0.shift_0)))) & (u32(15)));\n}\n\n@compute\n@workgroup_size(128, 1, 1)\nfn radixHistogram(@builtin(local_invocation_id) lid_2 : vec3<u32>, @builtin(workgroup_id) gid_2 : vec3<u32>)\n{\n    var _S19 : u32 = lid_2.x;\n    var _S20 : bool = _S19 < u32(16);\n    if(_S20)\n    {\n        atomicStore(&(sHist_0[_S19]), u32(0));\n    }\n    workgroupBarrier();\n    var _S21 : u32 = gid_2.x;\n    var _S22 : u32 = _S21 * u32(1024);\n    var _S23 : u32 = activeCount_0();\n    var r_2 : u32 = u32(0);\n    for(;;)\n    {\n        if(r_2 < u32(8))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var i_2 : u32 = _S22 + r_2 * u32(128) + _S19;\n        if(i_2 < _S23)\n        {\n            var _S24 : u32 = atomicAdd(&(sHist_0[digitOf_0(keysIn_0[i_2])]), u32(1));\n        }\n        r_2 = r_2 + u32(1);\n    }\n    workgroupBarrier();\n    if(_S20)\n    {\n        var _S25 : u32 = atomicLoad(&(sHist_0[_S19]));\n        blockHist_0[_S19 * activeBlocks_0() + _S21] = _S25;\n    }\n    return;\n}\n\nvar<workgroup> sScanBuf_0 : array<u32, i32(512)>;\n\n@compute\n@workgroup_size(256, 1, 1)\nfn scanChunks(@builtin(local_invocation_id) lid_3 : vec3<u32>, @builtin(workgroup_id) gid_3 : vec3<u32>)\n{\n    var t_0 : u32 = lid_3.x;\n    var _S26 : u32 = gid_3.x;\n    var n_1 : u32 = scanParams_0.count_1;\n    var _S27 : u32 = u32(2) * t_0;\n    var _S28 : u32 = _S26 * u32(512) + _S27;\n    var _S29 : bool = _S28 < (scanParams_0.count_1);\n    var d_0 : u32;\n    if(_S29)\n    {\n        d_0 = scanData_0[_S28];\n    }\n    else\n    {\n        d_0 = u32(0);\n    }\n    sScanBuf_0[_S27] = d_0;\n    var _S30 : u32 = _S27 + u32(1);\n    var _S31 : u32 = _S28 + u32(1);\n    var _S32 : bool = _S31 < n_1;\n    if(_S32)\n    {\n        d_0 = scanData_0[_S31];\n    }\n    else\n    {\n        d_0 = u32(0);\n    }\n    sScanBuf_0[_S30] = d_0;\n    d_0 = u32(256);\n    var offset_0 : u32 = u32(1);\n    for(;;)\n    {\n        if(d_0 > u32(0))\n        {\n        }\n        else\n        {\n            break;\n        }\n        workgroupBarrier();\n        if(t_0 < d_0)\n        {\n            sScanBuf_0[offset_0 * (_S27 + u32(2)) - u32(1)] = sScanBuf_0[offset_0 * (_S27 + u32(2)) - u32(1)] + sScanBuf_0[offset_0 * _S30 - u32(1)];\n        }\n        var offset_1 : u32 = (offset_0 << (u32(1)));\n        d_0 = (d_0 >> (u32(1)));\n        offset_0 = offset_1;\n    }\n    workgroupBarrier();\n    if(t_0 == u32(0))\n    {\n        chunkSums_0[_S26] = sScanBuf_0[u32(511)];\n        sScanBuf_0[u32(511)] = u32(0);\n    }\n    d_0 = u32(1);\n    for(;;)\n    {\n        if(d_0 < u32(512))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var offset_2 : u32 = (offset_0 >> (u32(1)));\n        workgroupBarrier();\n        if(t_0 < d_0)\n        {\n            var v_0 : u32 = sScanBuf_0[offset_2 * _S30 - u32(1)];\n            sScanBuf_0[offset_2 * _S30 - u32(1)] = sScanBuf_0[offset_2 * (_S27 + u32(2)) - u32(1)];\n            sScanBuf_0[offset_2 * (_S27 + u32(2)) - u32(1)] = sScanBuf_0[offset_2 * (_S27 + u32(2)) - u32(1)] + v_0;\n        }\n        d_0 = (d_0 << (u32(1)));\n        offset_0 = offset_2;\n    }\n    workgroupBarrier();\n    if(_S29)\n    {\n        scanData_0[_S28] = sScanBuf_0[_S27];\n    }\n    if(_S32)\n    {\n        scanData_0[_S31] = sScanBuf_0[_S30];\n    }\n    return;\n}\n\n@compute\n@workgroup_size(256, 1, 1)\nfn addChunkOffsets(@builtin(global_invocation_id) tid_0 : vec3<u32>)\n{\n    var i_3 : u32 = tid_0.x;\n    if(i_3 < (scanParams_0.count_1))\n    {\n        scanData_0[i_3] = scanData_0[i_3] + chunkSums_0[i_3 / u32(512)];\n    }\n    return;\n}\n\nvar<workgroup> sBase_0 : array<u32, i32(16)>;\n\nfn oneHot_0( digit_0 : u32) -> vec4<u32>\n{\n    var v_1 : vec4<u32> = vec4<u32>(u32(0));\n    v_1[(digit_0 >> (u32(2)))] = (u32(1) << ((u32(8) * ((digit_0 & (u32(3)))))));\n    return v_1;\n}\n\nvar<workgroup> sScan_0 : array<vec4<u32>, i32(128)>;\n\nfn lane_0( v_2 : vec4<u32>,  digit_1 : u32) -> u32\n{\n    return ((((v_2[(digit_1 >> (u32(2)))]) >> ((u32(8) * ((digit_1 & (u32(3)))))))) & (u32(255)));\n}\n\n@compute\n@workgroup_size(128, 1, 1)\nfn radixScatter(@builtin(local_invocation_id) lid_4 : vec3<u32>, @builtin(workgroup_id) gid_4 : vec3<u32>)\n{\n    var t_1 : u32 = lid_4.x;\n    var _S33 : bool = t_1 < u32(16);\n    if(_S33)\n    {\n        sBase_0[t_1] = blockHist_0[t_1 * activeBlocks_0() + gid_4.x];\n    }\n    var _S34 : u32 = gid_4.x * u32(1024);\n    var _S35 : u32 = activeCount_0();\n    var r_3 : u32 = u32(0);\n    for(;;)\n    {\n        if(r_3 < u32(8))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var i_4 : u32 = _S34 + r_3 * u32(128) + t_1;\n        var valid_0 : bool = i_4 < _S35;\n        var key_1 : u32;\n        if(valid_0)\n        {\n            key_1 = keysIn_0[i_4];\n        }\n        else\n        {\n            key_1 = u32(0);\n        }\n        var val_0 : u32;\n        if(valid_0)\n        {\n            val_0 = valsIn_0[i_4];\n        }\n        else\n        {\n            val_0 = u32(0);\n        }\n        var digit_2 : u32 = digitOf_0(key_1);\n        var mine_1 : vec4<u32>;\n        if(valid_0)\n        {\n            mine_1 = oneHot_0(digit_2);\n        }\n        else\n        {\n            mine_1 = vec4<u32>(u32(0));\n        }\n        sScan_0[t_1] = mine_1;\n        workgroupBarrier();\n        var o_1 : u32 = u32(1);\n        for(;;)\n        {\n            if(o_1 < u32(128))\n            {\n            }\n            else\n            {\n                break;\n            }\n            var add_1 : vec4<u32>;\n            if(t_1 >= o_1)\n            {\n                add_1 = sScan_0[t_1 - o_1];\n            }\n            else\n            {\n                add_1 = vec4<u32>(u32(0));\n            }\n            workgroupBarrier();\n            sScan_0[t_1] = sScan_0[t_1] + add_1;\n            workgroupBarrier();\n            o_1 = (o_1 << (u32(1)));\n        }\n        var inclusive_0 : vec4<u32> = sScan_0[t_1];\n        if(valid_0)\n        {\n            var dst_1 : u32 = sBase_0[digit_2] + lane_0(inclusive_0 - mine_1, digit_2);\n            keysOut_0[dst_1] = key_1;\n            valsOut_0[dst_1] = val_0;\n        }\n        workgroupBarrier();\n        if(_S33)\n        {\n            sBase_0[t_1] = sBase_0[t_1] + lane_0(sScan_0[u32(127)], t_1);\n        }\n        workgroupBarrier();\n        r_3 = r_3 + u32(1);\n    }\n    return;\n}\n\n";
 
 export const reflection = {
   "entries": [
     {
-      "name": "prepareSort",
+      "name": "countActive",
       "stage": "compute",
       "workgroupSize": [
-        256,
+        128,
         1,
         1
       ],
       "uses": [
         "sortMetric",
-        "keysIn",
-        "valsIn",
+        "blockHist",
         "drawArgs",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 64
+    },
+    {
+      "name": "compactKeys",
+      "stage": "compute",
+      "workgroupSize": [
+        128,
+        1,
+        1
+      ],
+      "uses": [
+        "sortMetric",
+        "keysOut",
+        "valsOut",
+        "blockHist",
+        "params"
+      ],
+      "workgroupStorageBytes": 512
+    },
+    {
+      "name": "writeDispatch",
+      "stage": "compute",
+      "workgroupSize": [
+        1,
+        1,
+        1
+      ],
+      "uses": [
+        "sortCount",
+        "dispatchArgs"
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "radixHistogram",
@@ -33,8 +64,10 @@ export const reflection = {
       "uses": [
         "keysIn",
         "blockHist",
+        "sortCount",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 64
     },
     {
       "name": "scanChunks",
@@ -48,7 +81,8 @@ export const reflection = {
         "scanData",
         "chunkSums",
         "scanParams"
-      ]
+      ],
+      "workgroupStorageBytes": 2048
     },
     {
       "name": "addChunkOffsets",
@@ -62,7 +96,8 @@ export const reflection = {
         "scanData",
         "chunkSums",
         "scanParams"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "radixScatter",
@@ -78,8 +113,10 @@ export const reflection = {
         "keysOut",
         "valsOut",
         "blockHist",
+        "sortCount",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 2112
     }
   ],
   "bindings": [
@@ -133,23 +170,37 @@ export const reflection = {
       "elementBytes": 4
     },
     {
-      "name": "scanData",
+      "name": "sortCount",
       "group": 0,
       "binding": 7,
-      "kind": "storage",
+      "kind": "read-only-storage",
       "elementBytes": 4
     },
     {
-      "name": "chunkSums",
+      "name": "dispatchArgs",
       "group": 0,
       "binding": 8,
       "kind": "storage",
       "elementBytes": 4
     },
     {
-      "name": "params",
+      "name": "scanData",
       "group": 0,
       "binding": 9,
+      "kind": "storage",
+      "elementBytes": 4
+    },
+    {
+      "name": "chunkSums",
+      "group": 0,
+      "binding": 10,
+      "kind": "storage",
+      "elementBytes": 4
+    },
+    {
+      "name": "params",
+      "group": 0,
+      "binding": 11,
       "kind": "uniform",
       "bytes": 16,
       "fields": [
@@ -186,7 +237,7 @@ export const reflection = {
     {
       "name": "scanParams",
       "group": 0,
-      "binding": 10,
+      "binding": 12,
       "kind": "uniform",
       "bytes": 16,
       "fields": [

@@ -1,0 +1,152 @@
+# WebGPU backend
+
+Spark can draw splats with WebGPU as well as WebGL2. When the `renderer` you give `SparkRenderer` is three.js's `WebGPURenderer`, the scene's `SplatMesh`es and `SplatGenerator`s go through Spark's WebGPU backend: the same scene graph and the same API, with the GPU work done by compute and render pipelines whose kernels are written in [Slang](https://shader-slang.org) and compiled ahead of time to WGSL.
+
+WebGL2 stays the default. Nothing changes for apps that keep `THREE.WebGLRenderer`.
+
+What the backend does differently from WebGL Spark:
+
+- **Generate** runs as a compute pass, one thread per splat, instead of a fragment-shader pass into a texture.
+- **Sort** is a GPU radix sort in the same frame, with the draw count written straight into indirect draw arguments. WebGL Spark reads the distances back and sorts in a worker, a frame or more behind.
+- **Splat data** lives in storage buffers instead of texture arrays, including the LoD page pool.
+- **Custom dynos** compile to WGSL as well as GLSL.
+
+How it works inside is in [WebGPU architecture](webgpu-architecture.md).
+
+## Switching to WebGPU
+
+Two lines change: the three.js import and the renderer.
+
+```diff
+-import * as THREE from "three";
++import * as THREE from "three/webgpu";
+ ...
+-const renderer = new THREE.WebGLRenderer();
++const renderer = new THREE.WebGPURenderer();
+ const spark = new SparkRenderer({ renderer });
+ scene.add(spark);
+ scene.add(new SplatMesh({ url }));
+ renderer.setAnimationLoop(() => renderer.render(scene, camera));
+```
+
+`"three"` and `"three/webgpu"` share `three.core.js`, so Spark and your app see the same three.js classes. With an import map, also map `"three/webgpu"` to `three.webgpu.js` and `"three/tsl"` to `three.tsl.js`.
+
+`new SparkRenderer({ renderer, backend: "webgpu" })` asks for WebGPU explicitly and throws if `renderer` isn't a `WebGPURenderer`. Without `backend`, Spark picks WebGPU whenever the renderer is a `WebGPURenderer`.
+
+If the browser has no WebGPU, `WebGPURenderer` falls back to WebGL2. Spark can't draw on that fallback and logs an error, so check `navigator.gpu` first if you need to choose a renderer yourself.
+
+The migration guide in the repository, `examples/webgpu/README.md`, lists every difference with examples, and the [WebGPU examples](../../examples/webgpu/) include ports of most of Spark's examples, each changed only where the guide says.
+
+## Browser support
+
+| Browser | Status |
+| ------- | ------ |
+| Chrome (macOS) | Verified: all ported examples, parity and benchmarks were measured here. |
+| Safari 26 (macOS) | Safari 26.5 ran `index.html` and `fx.html` at about 100 fps with no errors (checked through `caps.html?pages=`). |
+| Other browsers and platforms | Not tested. |
+
+The kernels need no optional WebGPU feature. In particular the GPU sort uses no subgroup operations, which Safari doesn't have. Spark also stays within the spec's default limits: at most 8 storage buffers per shader stage (Safari's default) and 128 MiB per storage binding, unless you ask the adapter for more (see [Limits](#limits)).
+
+`examples/webgpu/caps.html` prints what a browser's adapter and device offer and probes the features Spark relies on. `?pages=a.html|b.html` loads other pages in a frame and reports whether they rendered, and `?report=<url>` posts the result, for browsers that can't be automated. `tools/safari/run.mjs` runs example pages in Safari through `safaridriver` when Safari's remote automation is on.
+
+## What's supported
+
+On `WebGPURenderer`, `SparkRenderer` supports:
+
+- `SplatMesh` with PackedSplats and ExtSplats, spherical harmonics up to degree 3, `recolor`, `opacity` and object transforms;
+- Level-of-Detail and paged `.rad` streaming (`WgpuLod`, `WgpuSplatPager`), with the same WASM traversal as WebGL Spark;
+- dyno generators, `objectModifiers` and `worldModifiers`, `SplatEdit`, `SplatSkinning`, `splatRgba`, and custom dynos that give WGSL (see [Custom dynos](#custom-dynos));
+- depth of field (`focalDistance`, `apertureAngle`), `sortRadial`, `maxStdDev`, `minAlpha`, `falloff` and the other draw options;
+- drawing on the canvas (with or without `antialias`), into `RenderTarget`s, and through `PostProcessing`'s `pass()`, depth-tested against three's scene;
+- the `target` option with `renderTarget()` / `readTarget()`, `renderCubeMap()` / `readCubeTargets()`, and `getRgba()`;
+- `SparkPortals` and the portal disk clip (`diskCenter`, `diskNormal`, `diskRadius` and `diskTwoSided` extra uniforms);
+- raycasting against packed, ext and LoD meshes.
+
+The lower-level `WgpuSplatRenderer` also takes `covSplats` and `enable2DGS`, and has the WebGPU-only extras: [per-Gaussian attributes](webgpu-attributes.md) with picking, and [aofx post effects](webgpu-fx.md).
+
+### Not supported yet
+
+These throw or warn on WebGPU:
+
+- `renderEnvMap` (use `WgpuCubeMap.renderEnvMap`) and `getLodTreeLevel`;
+- a custom `vertexShader` or `fragmentShader` on `SparkRenderer` (the portal disk clip is built in);
+- WebXR and array cameras. three.js's `WebGPURenderer` throws in `XRManager.setSession` on its WebGPU backend, and Chrome and Safari on macOS have no WebXR binding for WebGPU, so XR on WebGPU isn't possible there today. `SparkXr` reports `not_supported` instead of showing a button that fails;
+- `SparkRenderer`'s `covSplats`, `enable2DGS` and `accumExtSplats` (ignored, with a warning);
+- `SplatMesh`es with a custom `SplatSource`;
+- raycasting against paged (`.rad`) meshes, whose splats exist only on the GPU.
+
+## Custom dynos
+
+Built-in dynos and modifiers already have WGSL. A `Dyno` with hand-written GLSL needs WGSL too: pass `wgsl: { globals, statements }` next to the GLSL, with the same inputs and outputs.
+
+```typescript
+const effect = new dyno.Dyno({
+  inTypes: { gsplat: dyno.Gsplat, t: "float" },
+  outTypes: { gsplat: dyno.Gsplat },
+  statements: ({ inputs, outputs }) => dyno.unindentLines(`
+    ${outputs.gsplat} = ${inputs.gsplat};
+    ${outputs.gsplat}.center.y += sin(${inputs.t});
+  `),
+  wgsl: {
+    statements: ({ inputs, outputs }) => dyno.unindentLines(`
+      ${outputs.gsplat} = ${inputs.gsplat};
+      ${outputs.gsplat}.center.y += sin(${inputs.t});
+    `),
+  },
+});
+// In a modifier: gsplat = effect.apply({ gsplat, t }).gsplat;
+```
+
+Much GLSL is valid WGSL once constructor names change, which the backend does for you, but local declarations (`let`/`var`), `?:` (`select`), out parameters and some built-ins differ. A graph that fails to compile drops its mesh and logs the WGSL error with the offending line. `splat-shader-effects.html` and the other ported examples show WGSL versions of their GLSL dynos.
+
+## Limits
+
+A WebGPU device gets the spec's default limits unless it asks for more, and three.js's `WebGPURenderer` asks for none. With the defaults one storage binding is 128 MiB, which bounds:
+
+- the splats drawn in one frame: 4.19M in the 32-byte ext accumulator. Past that, `WgpuSplatRenderer` (`accumulator: "auto"`, the default) switches to the 16-byte packed accumulator, with centres relative to the camera, up to 8.39M;
+- the LoD page pool: 32 to 42 pages of 65,536 splats, depending on the encoding. The SH pool is sized for the SH degrees the pages carry.
+
+Ask the adapter for its limits with `splatRequiredLimits`:
+
+```typescript
+import { splatRequiredLimits } from "@sparkjsdev/spark";
+
+const adapter = await navigator.gpu.requestAdapter();
+const renderer = new THREE.WebGPURenderer({
+  requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
+});
+```
+
+`capabilitiesOf(device)` reports what a device allows in Spark's terms (whether the GPU sort fits, `maxSplats`, `maxSplatsPacked`, `maxSplatsWithSh`, optional features). When the GPU sort doesn't fit, `WgpuSplatRenderer` falls back to a CPU sort and says why.
+
+## Performance
+
+Frame rates in headless Chrome on an Apple GPU at 1280×720 without vsync, with the object turning so that every frame regenerates and re-sorts (medians of three runs, ±10%):
+
+| Scene | WebGL (fps) | WebGPU (fps) | WebGPU vs WebGL |
+| ----- | ----------- | ------------ | --------------- |
+| penguin | 252 | 607 | 2.4× |
+| robot-head | 594 | 705 | 1.2× |
+| valley | 200 | 362 | 1.8× |
+| synthetic 1M splats | 127 | 106 | 0.8× |
+| synthetic 2M splats | 54 | 59 | 1.1× |
+| synthetic 4M splats | 14 | 28 | 2.0× |
+
+Earlier runs on the same machine measured real scenes at 1.6–2.8× and 1–2M synthetic splats at about 0.9×. Your numbers depend on the GPU, the screen size and how much of the screen the splats cover.
+
+On WebGPU the draw takes 80–85% of the GPU time, bound by rasterizing and blending the splat quads (about 4 ms per million splats drawn on that Apple GPU), and the sort most of the rest (about 1 ms per million splats sorted). So the backend draws and sorts only what can be seen: generate drops the splats the draw would skip (outside the frustum, under `minAlpha`; `WgpuSplatRenderer`'s `cull` option, on by default), and the sort only sorts the rest.
+
+`examples/webgpu/compare-webgl.html` and `compare-webgpu.html` render the same scene on each backend (`?n=` for a synthetic cloud, `?file=`, `?lod=1`, `?rad=1`), and `window.__fps(seconds)` measures the animation loop. On WebGPU, `?profile=1` turns on `WgpuSplatRenderer`'s `profile` option, which times generate, each sort stage and the draw with timestamp queries into `stats.gpuMs`, and `window.__profile(frames)` returns the medians. The Performance section of `examples/webgpu/README.md` has the latest measurements.
+
+Like WebGL Spark, the WebGPU renderer skips generate and sort on frames where the camera, the meshes, their transforms and colours, and their dyno uniforms didn't change, and redraws the last order. For splats changed some other way, call `WgpuSplatRenderer.markDirty()` or set its `alwaysGenerate` option.
+
+## Known differences
+
+- **Clear colour.** `WebGPURenderer` clears the canvas to transparent black, where `WebGLRenderer` clears to opaque black, so a page with a light background shows through. Set `scene.background` or call `renderer.setClearColor(0x000000, 1)`.
+- **Initialization.** `render()` does nothing before `await renderer.init()`. `setAnimationLoop` waits for it; apps that render on demand should await `init()` first.
+- **Colour-space blending.** WebGL Spark blends splats in sRGB space on the canvas, but three.js's `WebGPURenderer` renders into a linear half-float target and converts at the end. On the canvas Spark ends three's pass where the `SparkRenderer` comes in the transparent order, draws the splats into an 8-bit layer of their own and composites it in sRGB, so transparent objects after the splats still draw over them. Into render targets the splats blend in the target's linear space, as WebGL Spark does there; `new SparkRenderer({ srgbBlend: true })` blends them in sRGB there too.
+- **Tone mapping.** Splats aren't tone mapped, as on WebGL. With tone mapping on, they're drawn after three's output pass, over all transparent objects.
+- **three.js r180 internals.** Drawing inside three's render pass uses parts of `WebGPURenderer` that aren't public API (the render context, the backend's per-resource data and its utils). Spark is tested with three.js r180; other versions may need changes.
+- **three.js materials.** `ShaderMaterial`s become TSL node materials (`Sky` becomes `SkyMesh`), and three's WebGPU backend converts every material's output to sRGB, which WebGL's `ShaderMaterial` and `MeshDepthMaterial` skip. `three/webgpu` has no `MeshDepthMaterial`.
+- **Render targets on meshes.** three's `WebGPURenderer` shows a render target's texture upside down on a mesh's UVs compared to WebGL, and doesn't pick up a `map` that replaced a plain texture after the material compiled.
+- **Generator time.** Generators and `onFrame` get `performance.now()` on WebGPU; WebGL `SparkRenderer`'s own timer stays at 0.

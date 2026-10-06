@@ -21,33 +21,45 @@ import type {
   WgpuSplatMesh,
   WgpuSplatRenderer,
 } from "../WgpuSplatRenderer";
+import {
+  drawSplatAttribDraw as attribDraw,
+  kernelsAttribGather,
+} from "../generated/constants";
 import attribDrawModule from "../generated/draw/splat_attrib_draw";
 import gatherModule from "../generated/kernels/attrib_gather";
-import { createStorage, upload } from "../gpuBuffers";
+import {
+  createReadback,
+  createStorage,
+  createUniform,
+  readAndDestroy,
+  reuseTexture,
+  upload,
+} from "../gpuBuffers";
 import {
   type ReflectedRenderPipeline,
   createReflectedRenderPipeline,
 } from "../renderPipeline";
 import { UniformWriter } from "../uniforms";
 import {
+  ATTRIB_FORMATS,
   ATTRIB_NONE,
   type AttribPool,
   type AttributeSpec,
   type PoolLayout,
+  attribGroupWords,
   poolHeader,
   poolLayout,
   poolWords,
 } from "./schema";
 
-const GATHER_USE_LOD = 4;
 const _position = new THREE.Vector3();
 const _scale = new THREE.Vector3();
 const COLOR_MODES = {
-  splat: 0,
-  label: 1,
-  relight: 2,
-  project: 3,
-  value: 4,
+  splat: attribDraw.COLOR_SPLAT,
+  label: attribDraw.COLOR_LABEL,
+  relight: attribDraw.COLOR_RELIGHT,
+  project: attribDraw.COLOR_PROJECT,
+  value: attribDraw.COLOR_VALUE,
 } as const;
 export type AttribColorMode = keyof typeof COLOR_MODES;
 
@@ -121,11 +133,11 @@ export class SplatAttributes implements SplatRendererStage {
       "empty attribs",
     );
     this.empty = createStorage(this.device, 16, "empty");
-    this.uniform = this.device.createBuffer({
-      label: "attrib draw params",
-      size: UniformWriter.for(attribDrawModule, "attribParams").data.byteLength,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    this.uniform = createUniform(
+      this.device,
+      UniformWriter.for(attribDrawModule, "attribParams").data.byteLength,
+      "attrib draw params",
+    );
     renderer.stages.push(this);
   }
 
@@ -136,6 +148,7 @@ export class SplatAttributes implements SplatRendererStage {
 
   // A source pool on the GPU, re-uploaded when it changed.
   private gpuPool(pool: AttribPool): GPUBuffer {
+    if (pool.gpuBuffer) return pool.gpuBuffer;
     let g = this.gpuPools.get(pool);
     if (!g || g.version !== pool.version) {
       g?.buffer.destroy();
@@ -228,7 +241,7 @@ export class SplatAttributes implements SplatRendererStage {
       const params = UniformWriter.for(gatherModule).setAll({
         numSplats: count,
         outBase: base,
-        flags: mesh.lodIndices ? GATHER_USE_LOD : 0,
+        flags: mesh.lodIndices ? kernelsAttribGather.GATHER_USE_LOD : 0,
         rotate: [q.x, q.y, q.z, q.w],
       });
       kernel.dispatch(pass, {
@@ -252,16 +265,7 @@ export class SplatAttributes implements SplatRendererStage {
     height: number,
     label: string,
   ): GPUTexture {
-    if (
-      current &&
-      current.width === width &&
-      current.height === height &&
-      current.format === format
-    ) {
-      return current;
-    }
-    current?.destroy();
-    return this.device.createTexture({
+    return reuseTexture(this.device, current, {
       label,
       size: [width, height],
       format,
@@ -353,19 +357,34 @@ export class SplatAttributes implements SplatRendererStage {
 
   private writeParams() {
     const o = this.options;
+    // Per slot: format (ATTRIB_NONE: unused), first word in the record,
+    // words and valid components of its comp4 group.
+    const { layout } = this;
     const slots = (o.slots ?? []).slice(0, 4).map((s) => {
       const { name, comp4 = 0 } = typeof s === "string" ? { name: s } : s;
       const id = this.drawId(name);
-      return [id < 0 ? ATTRIB_NONE : id, comp4];
+      const spec = layout.specs[id];
+      const [first, words] = spec ? attribGroupWords(spec, comp4) : [0, 0];
+      if (!words) return [ATTRIB_NONE, 0, 1, 0];
+      return [
+        ATTRIB_FORMATS[spec.format],
+        layout.offsets[id] + first,
+        words,
+        Math.min(spec.components - 4 * comp4, 4),
+      ];
     });
-    while (slots.length < 4) slots.push([ATTRIB_NONE, 0]);
+    while (slots.length < 4) slots.push([ATTRIB_NONE, 0, 1, 0]);
     const [r, g, b] = o.projection ?? [[1], [0, 1], [0, 0, 1]];
     const row = (v: number[], k: number) =>
       Array.from({ length: 4 }, (_, i) => v[4 * k + i] ?? 0);
     const light = o.light ?? [0.4, 0.8, 0.5];
     const params = UniformWriter.for(attribDrawModule, "attribParams").setAll({
-      slotAttrib: slots.map((s) => s[0]),
-      slotComp4: slots.map((s) => s[1]),
+      slotFormat: slots.map((s) => s[0]),
+      slotWord: slots.map((s) => s[1]),
+      slotWords: slots.map((s) => s[2]),
+      slotCount: slots.map((s) => s[3]),
+      strideWords: layout.strideWords,
+      headerWords: layout.headerWords,
       colorMode: COLOR_MODES[o.colorMode ?? "splat"],
       colorSlot: o.colorSlot ?? 0,
       pickAlpha: o.pickAlpha ?? 0.3,
@@ -393,10 +412,7 @@ export class SplatAttributes implements SplatRendererStage {
     const px = Math.floor(x);
     const py = Math.floor(y);
     if (px < 0 || py < 0 || px >= tex.width || py >= tex.height) return null;
-    const staging = this.device.createBuffer({
-      size: 256,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
+    const staging = createReadback(this.device, 256, "pick");
     const encoder = this.device.createCommandEncoder({ label: "pick" });
     encoder.copyTextureToBuffer(
       { texture: tex, origin: [px, py] },
@@ -404,10 +420,7 @@ export class SplatAttributes implements SplatRendererStage {
       [1, 1],
     );
     this.device.queue.submit([encoder.finish()]);
-    await staging.mapAsync(GPUMapMode.READ);
-    const [r, g, b, a] = new Uint8Array(staging.getMappedRange(0, 4));
-    staging.unmap();
-    staging.destroy();
+    const [r, g, b, a] = new Uint8Array(await readAndDestroy(staging), 0, 4);
     const id = r | (g << 8) | (b << 16);
     if (a === 0 || id === 0) return null;
     const slot = id - 1;

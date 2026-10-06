@@ -10,9 +10,16 @@ import { setPackedSplat, unpackSplat } from "../../src/utils";
 import { GpuSplatSource } from "../../src/webgpu/GpuSplatSource";
 import { KernelRegistry } from "../../src/webgpu/KernelRegistry";
 import { WgpuSplatPager } from "../../src/webgpu/WgpuSplatPager";
+import { kernelsGenerate } from "../../src/webgpu/generated/constants";
 import generate from "../../src/webgpu/generated/kernels/generate";
 import { UniformWriter } from "../../src/webgpu/uniforms";
 import { device, readBack, storage } from "./device";
+
+const {
+  GEN_USE_LOD: USE_LOD,
+  GEN_LOD_OPACITY: LOD_OPACITY,
+  GEN_OUT_EXT: OUT_EXT,
+} = kernelsGenerate;
 
 // test/unit/setup.ts stubs the wasm package; these tests need the real one.
 const wasm = await vi.importActual<typeof import("spark-rs")>("spark-rs");
@@ -23,9 +30,6 @@ wasm.initSync({
 });
 
 const PAGE = 65536;
-const USE_LOD = 4;
-const LOD_OPACITY = 8;
-const OUT_EXT = 2;
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -260,6 +264,12 @@ describe.skipIf(!device)("LoD", () => {
       }
     ).uploadPage(1, fill(1, 4), shArrays, fill(2, 4));
     expect(pager.curSh).toBe(3);
+    // The CPU copy of the core pool that SplatMesh.raycast reads.
+    const ext1 = pager.packedTexture.value.image.data as Uint32Array;
+    const ext2 = pager.extTexture.value.image.data as Uint32Array;
+    expect(ext1.length).toBe(pager.maxSplats * 4);
+    expect(ext1[(PAGE + 57) * 4 + 1]).toBe(1000000 + 4 * 57 + 1);
+    expect(ext2[(PAGE + 57) * 4 + 2]).toBe(2000000 + 4 * 57 + 2);
     const core = new Uint32Array(
       await readBack(pager.pools.core.buffer as GPUBuffer),
     );

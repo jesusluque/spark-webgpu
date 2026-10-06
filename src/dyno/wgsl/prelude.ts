@@ -2,18 +2,34 @@
 // constants and helpers its ops and users call, and the Gsplat/CovSplat
 // structs. Always in front of the generated code, as splatDefines is in GLSL.
 
+import {
+  SPLAT_TEX_HEIGHT_BITS,
+  SPLAT_TEX_HEIGHT_MASK,
+  SPLAT_TEX_LAYER_BITS,
+  SPLAT_TEX_WIDTH_BITS,
+  SPLAT_TEX_WIDTH_MASK,
+} from "../../defines";
+import { coreMath, coreSplatTypes } from "../../webgpu/generated/constants";
 import { defineCovSplat, defineGsplat, defineGsplatNormal } from "../splats";
 
+// A WGSL f32 literal: integral values still need the decimal point.
+export function f32Literal(v: number): string {
+  const s = String(v);
+  return /[.e]/.test(s) ? s : `${s}.0`;
+}
+
+// The numbers come from the Slang kernels (generated constants) and, for the
+// texture layout Slang doesn't have, from defines.ts, so they can't drift.
 export const WGSL_PRELUDE = /* wgsl */ `
-const PI: f32 = 3.1415926535897932384626433832795;
-const LN_SCALE_MIN: f32 = -12.0;
-const LN_SCALE_MAX: f32 = 9.0;
-const SPLAT_TEX_WIDTH_BITS: u32 = 11u;
-const SPLAT_TEX_HEIGHT_BITS: u32 = 11u;
-const SPLAT_TEX_LAYER_BITS: u32 = 22u;
-const SPLAT_TEX_WIDTH_MASK: u32 = 2047u;
-const SPLAT_TEX_HEIGHT_MASK: u32 = 2047u;
-const GSPLAT_FLAG_ACTIVE: u32 = 1u;
+const PI: f32 = ${f32Literal(coreMath.PI)};
+const LN_SCALE_MIN: f32 = ${f32Literal(coreMath.LN_SCALE_MIN)};
+const LN_SCALE_MAX: f32 = ${f32Literal(coreMath.LN_SCALE_MAX)};
+const SPLAT_TEX_WIDTH_BITS: u32 = ${SPLAT_TEX_WIDTH_BITS}u;
+const SPLAT_TEX_HEIGHT_BITS: u32 = ${SPLAT_TEX_HEIGHT_BITS}u;
+const SPLAT_TEX_LAYER_BITS: u32 = ${SPLAT_TEX_LAYER_BITS}u;
+const SPLAT_TEX_WIDTH_MASK: u32 = ${SPLAT_TEX_WIDTH_MASK}u;
+const SPLAT_TEX_HEIGHT_MASK: u32 = ${SPLAT_TEX_HEIGHT_MASK}u;
+const GSPLAT_FLAG_ACTIVE: u32 = ${coreSplatTypes.GSPLAT_FLAG_ACTIVE}u;
 
 struct Gsplat {
     center: vec3f,

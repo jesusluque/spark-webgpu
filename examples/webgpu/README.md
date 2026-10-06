@@ -53,9 +53,20 @@ things:
   transmittance), composites that over the target in sRGB
   (`src/webgpu/SrgbComposite.ts`) and resumes three's pass, as three's own
   `copyFramebufferToTexture` does. Transparent objects sorted after the
-  splats (by `renderOrder` or depth) draw over them, as on WebGL. With tone
-  mapping the splats instead go on the canvas after three's output pass, so
-  they are not tone mapped (as on WebGL), but over all transparent objects.
+  splats (by `renderOrder` or depth) draw over them, as on WebGL.
+- **With tone mapping**, three/webgpu tone-maps the whole picture in its
+  output pass (it has no per-material `toneMapped`), while WebGL Spark
+  draws untone-mapped splats over the tone-mapped picture. So the composite
+  blends the layer over the picture as it will show, `srgb(T(dst))`, and
+  writes back `T⁻¹` of the result (`src/webgpu/toneMapping.ts` inverts each
+  of three's operators), which the output pass maps to the composited
+  colour. Transparent objects in front still draw over the splats, blended
+  in three's linear space as all of three/webgpu's are. Colours an operator
+  never produces stay out of reach: AgX and ACES desaturate bright colours
+  and AgX's white is 0.997, so such splat colours show as the nearest the
+  operator gives. With a custom tone mapping node, a linear output colour
+  space or `rawColor`, the splats go on the canvas after the output pass
+  instead, over all transparent objects.
 - **Into a RenderTarget or through `PostProcessing`'s `pass()`**, the splats
   are drawn inside three's own pass, sorted with the transparent objects,
   and blend in the target's linear space, as WebGL Spark does in render
@@ -80,20 +91,31 @@ things:
 - **Large paged scenes.** The page pool is limited by the device's
   `maxStorageBufferBindingSize` (128 MB by default, 32–42 pages). Pass
   `requiredLimits: splatRequiredLimits(adapter)` to `WebGPURenderer` to get
-  more pages.
+  more pages. The SH pool is sized for the SH degrees the pages carry.
+- **Many splats.** With default limits one draw holds 4.19M splats in the
+  ext accumulator; past that `WgpuSplatRenderer` switches to the packed one
+  (`accumulator: "auto"`), up to 8.39M. `splatRequiredLimits` raises both.
 - **Render targets on meshes.** The `target` option, `renderTarget` and
   `readTarget` work as on WebGL. three's WebGPURenderer (r180) shows a
   target's texture upside down on a mesh's UVs compared to WebGL, and doesn't
   pick up a `map` that replaced a plain texture after the material compiled
   (see `multiple-viewpoints.html`).
-- **Raycasting.** Raycasting works for packed, ext and LoD meshes, but not
-  for paged (`.rad`) ones, whose splats live only on the GPU.
+- **Raycasting.** Raycasting works for packed, ext, LoD and paged (`.rad`)
+  meshes, with SparkRenderer's coarser LoD raycast selection (`lodRaycast`).
+  `WgpuSplatPager` keeps the page pool's core data on the CPU for it, as
+  WebGL's pager keeps its texture data.
 
 - **Offscreen renders.** The `target` option with `renderTarget()` /
   `readTarget()`, and `renderCubeMap()` / `readCubeTargets()`, work as on
   WebGL: the SparkRenderer in the scene draws as the one rendering
   (`sparkOverride`). `rawColor: true` writes splat colours as they are,
   with no colour conversion, for data packed into RGB (render-cube-depth).
+  `renderEnvMap()` prefilters with three/webgpu's `PMREMGenerator`: Spark's
+  `THREE.PMREMGenerator` when "three" resolves to three/webgpu, or the one
+  passed as `renderEnvMap({ PMREMGenerator })`. Without either (Vite resolves
+  Spark's "three" to three's WebGL build) it returns the cube map, which
+  three/webgpu's materials prefilter themselves. `getLodTreeLevel()` works
+  as on WebGL.
 - **Baking colours.** `RgbaArray.render()` runs GLSL readers. On WebGPU,
   `spark.getRgba({ generator })` gives a generator's RGBA as it generates
   it (modifiers, recolor), in a GPU-backed `RgbaArray` usable as
@@ -107,21 +129,63 @@ things:
   every material's output to sRGB, which WebGL's ShaderMaterial and
   MeshDepthMaterial skip (splat-portal, render-cube-depth). three/webgpu has
   no `MeshDepthMaterial`.
-- **Generator time.** WebGL SparkRenderer's own `Timer` is never updated
-  (`ownsTimer` is inverted in SparkRenderer.ts), so generators and
-  `onFrame` see time 0 there; on WebGPU they get `performance.now()`.
+- **Generator time.** On WebGL generators see SparkRenderer's `Timer`
+  (which an inverted `ownsTimer` used to leave at 0); on WebGPU,
+  `performance.now()`.
+- **three versions.** The WebGPU path uses some of three r180's internals
+  (render context, backend pass state, pipeline cache), all in
+  `src/webgpu/threeInternals.ts`, which throws `ThreeInternalsError` on
+  another three revision or when an internal it reads is gone.
 
 ## Not supported yet
 
 These throw or warn:
 
-- `renderEnvMap` (use `WgpuCubeMap.renderEnvMap`), `getLodTreeLevel`;
 - custom `vertexShader`/`fragmentShader` (the portal disk clip is built in);
 - WebXR and array cameras;
 - `covSplats`, `enable2DGS`, `accumExtSplats`;
 - SplatMeshes with a custom `SplatSource`.
 
-Splats are not tone mapped, as on WebGL.
+## Performance
+
+`compare-webgl.html` and `compare-webgpu.html` render the same scene with
+each backend (`?n=` synthetic splats, `?file=`, `?lod=1`, `?rad=1` for the
+paged hobbiton scene). `window.__fps(seconds)` measures the animation loop
+with the object turning, so every frame regenerates and re-sorts; run Chrome
+with `--disable-gpu-vsync --disable-frame-rate-limit`. On WebGPU,
+`?profile=1` turns on `WgpuSplatRenderer`'s `profile` option (timestamp
+queries, where the browser has them) and `window.__profile(frames)` returns
+the median GPU milliseconds of generate, each sort stage and the draw.
+`?opts=<JSON>` sets any other renderer option.
+
+Where the time goes (Apple GPU, 1280×720): the draw is 80–85% of the GPU
+time. It is bound by rasterizing and blending the quads, not by the vertex
+shader or by what it reads: the packed accumulator, flat varyings and
+quads cut to the minAlpha radius all measured the same. The sort is next
+(~1 ms per million splats sorted), generate well under 1 ms. JS costs
+0.1–0.5 ms a frame. So the WebGPU path does less work instead: generate
+drops the splats the draw would skip (outside the frustum, under
+minAlpha; `cull`, default on), and the sort only sorts the rest.
+
+Medians of 3 interleaved runs, fps, headless Chrome on an Apple GPU shared
+with other jobs (so ±10%), 1280×720, before and after the culling and
+compacted sort:
+
+| Scene | WebGL | WebGPU before | WebGPU after |
+|---|---|---|---|
+| synthetic 1M | 127 | 107 | 106 |
+| synthetic 2M | 54 | 62 | 59 |
+| synthetic 4M | 14 | 27 | 28 |
+| penguin | 252 | 664 | 607 |
+| robot-head | 594 | 839 | 705 |
+| valley | 200 | 350 | 362 |
+| hobbiton .rad, 2.5M LoD budget | – | 68 | 64 |
+
+GPU time per frame (sequential, `__profile`): hobbiton 5.9 → 5.5 ms (draw
+3.9 → 3.5), valley 2.8 → 2.9 ms. The hobbiton LoD selection keeps ~0.2M of
+its 2.5M slots active and the traversal already culls the frustum, and
+inactive keys sort almost for free (all equal, coherent scatter), so the
+compacted sort mostly helps when many active splats are off screen.
 
 ## Examples
 

@@ -16,6 +16,12 @@
 import * as THREE from "three";
 import { rowStride } from "./WgpuReadTarget";
 import type { WgpuSplatRenderer } from "./WgpuSplatRenderer";
+import {
+  type ThreeWebGPURenderer,
+  generateMipmaps,
+  gpuTexture,
+} from "./threeInternals";
+import type { WebGPURendererLike } from "./threeRenderer";
 
 export interface WgpuCubeMapOptions {
   /** three objects to draw under the splats (lights, meshes...). */
@@ -29,32 +35,6 @@ export interface WgpuCubeMapOptions {
   hideObjects?: THREE.Object3D[];
   /** Mipmapped and linear, for filtering (renderEnvMap sets it). */
   filter?: boolean;
-}
-
-interface TextureBackend {
-  get(resource: object): { texture?: GPUTexture } | undefined;
-  generateMipmaps?(texture: THREE.Texture): void;
-}
-
-interface RendererLike {
-  backend: TextureBackend;
-  getRenderTarget(): THREE.RenderTarget | null;
-  getActiveCubeFace(): number;
-  getActiveMipmapLevel(): number;
-  setRenderTarget(target: THREE.RenderTarget | null, face?: number): void;
-  render(scene: THREE.Object3D, camera: THREE.Camera): void;
-  initTexture(texture: THREE.Texture): void;
-  readRenderTargetPixelsAsync(
-    target: THREE.RenderTarget,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    textureIndex?: number,
-    faceIndex?: number,
-  ): Promise<ArrayBufferView>;
-  coordinateSystem: THREE.CoordinateSystem;
-  xr?: { enabled: boolean };
 }
 
 export class WgpuCubeMap {
@@ -81,8 +61,8 @@ export class WgpuCubeMap {
     } = {},
   ) {}
 
-  private get renderer(): RendererLike {
-    return this.splats.renderer as unknown as RendererLike;
+  private get renderer(): WebGPURendererLike {
+    return this.splats.renderer;
   }
 
   /** The cube target the last renderCubeMap drew into. */
@@ -171,7 +151,7 @@ export class WgpuCubeMap {
     if (renderer.xr) renderer.xr.enabled = false;
     try {
       renderer.initTexture(target.texture);
-      const cubeTexture = renderer.backend.get(target.texture)?.texture;
+      const cubeTexture = gpuTexture(renderer, target.texture);
       if (!cubeTexture) throw new Error("WgpuCubeMap: no cube texture");
       const device = splats.device;
       camera.children.forEach((faceCamera, i) => {
@@ -179,7 +159,7 @@ export class WgpuCubeMap {
         renderer.render(scene, faceCamera as THREE.Camera);
         splats.markDirty();
         splats.render(faceCamera as THREE.Camera, face);
-        const faceTexture = renderer.backend.get(face.texture)?.texture;
+        const faceTexture = gpuTexture(renderer, face.texture);
         if (!faceTexture) throw new Error("WgpuCubeMap: no face texture");
         const encoder = device.createCommandEncoder({ label: "cube face" });
         encoder.copyTextureToTexture(
@@ -189,7 +169,7 @@ export class WgpuCubeMap {
         );
         device.queue.submit([encoder.finish()]);
       });
-      if (filter) renderer.backend.generateMipmaps?.(target.texture);
+      if (filter) generateMipmaps(renderer, target.texture);
     } finally {
       splats.meshes.splice(0, splats.meshes.length, ...all);
       splats.markDirty();
@@ -242,7 +222,7 @@ export class WgpuCubeMap {
  */
 export async function readCubeFaces(
   renderer: Pick<
-    RendererLike,
+    WebGPURendererLike,
     "readRenderTargetPixelsAsync" | "coordinateSystem"
   >,
   target: THREE.RenderTarget,

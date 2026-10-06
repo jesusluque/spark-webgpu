@@ -8,21 +8,29 @@
 //
 // Nothing here needs an optional feature. The kernels use plain WGSL:
 // atomics (sort_radix's histogram and the indirect count), 256-thread
-// workgroups, at most 4.2 KiB of workgroup storage, two read-only storage
-// buffers in the vertex stage, drawIndirect from a buffer compute wrote with
-// firstInstance 0 (so no indirect-first-instance), and rgba16float render
-// targets with depth. Subgroups, timestamp queries, float32-filterable and
-// bgra8unorm-storage are reported for callers that want them, never assumed.
+// workgroups, at most 2.1 KiB of workgroup storage, two read-only storage
+// buffers in the vertex stage, drawIndirect (firstInstance 0, so no
+// indirect-first-instance) and dispatchWorkgroupsIndirect from buffers
+// compute wrote, and rgba16float render targets with depth. Subgroups,
+// timestamp queries, float32-filterable and bgra8unorm-storage are reported for callers that want them, never assumed.
+
+import sortModule from "./generated/kernels/sort_radix";
 
 /** Workgroup threads sort_radix's histogram and scatter entries declare. */
 export const SORT_WORKGROUP_THREADS = 256;
 /**
- * Largest workgroup storage of a sort entry: sHist (16 atomic u32) + sScan
- * (128 vec4<u32>) + sBase (16 u32) + sScanBuf (512 u32), from the WGSL.
+ * Workgroup storage a sort entry may need, at most: the largest of the
+ * entries' own totals (radixScatter's sScan + sBase), as slang-build measures
+ * them from each entry's WGSL. WebGPU checks the limit per pipeline, so the
+ * entries' arrays don't add up.
  */
-export const SORT_WORKGROUP_BYTES = 16 * 4 + 128 * 16 + 16 * 4 + 512 * 4;
+export const SORT_WORKGROUP_BYTES = Math.max(
+  ...sortModule.reflection.entries.map((e) => e.workgroupStorageBytes ?? 0),
+);
 /** Bytes per splat in the largest per-splat buffer (the ext accumulator). */
 export const ACCUMULATOR_BYTES_PER_SPLAT = 32;
+/** The packed accumulator (WgpuSplatRenderer accumulator "packed"). */
+export const PACKED_ACCUMULATOR_BYTES_PER_SPLAT = 16;
 /** Packed SH: three uint4 per splat. */
 export const SH_BYTES_PER_SPLAT = 48;
 /** Storage buffers the draw's vertex stage reads (ordering, splats). */
@@ -42,6 +50,8 @@ export interface GpuCapabilities {
   readonly gpuSortReason: string;
   /** Most splats one draw can hold, from the storage binding and buffer limits. */
   readonly maxSplats: number;
+  /** Most splats with the packed accumulator (twice maxSplats, up to dispatch limits). */
+  readonly maxSplatsPacked: number;
   /** Most splats with spherical harmonics. */
   readonly maxSplatsWithSh: number;
   /** Storage buffers the vertex stage may bind. */
@@ -112,6 +122,10 @@ export function capabilitiesOf(
       Math.floor(perBuffer / ACCUMULATOR_BYTES_PER_SPLAT),
       dispatchable,
     ),
+    maxSplatsPacked: Math.min(
+      Math.floor(perBuffer / PACKED_ACCUMULATOR_BYTES_PER_SPLAT),
+      dispatchable,
+    ),
     maxSplatsWithSh: Math.min(
       Math.floor(perBuffer / SH_BYTES_PER_SPLAT),
       dispatchable,
@@ -146,19 +160,4 @@ export function splatRequiredLimits(
     if (a[k] !== undefined) out[k] = a[k];
   }
   return out;
-}
-
-/** A canvas format and alpha mode that every WebGPU implementation accepts. */
-export function canvasConfiguration(): {
-  format: GPUTextureFormat;
-  alphaMode: GPUCanvasAlphaMode;
-} {
-  // bgra8unorm on Apple GPUs in both browsers; rgba8unorm elsewhere. Both
-  // are always valid canvas formats, and "premultiplied" is what the splat
-  // draw writes and what Safari and Chrome both support.
-  const format =
-    typeof navigator !== "undefined" && navigator.gpu
-      ? navigator.gpu.getPreferredCanvasFormat()
-      : "bgra8unorm";
-  return { format, alphaMode: "premultiplied" };
 }

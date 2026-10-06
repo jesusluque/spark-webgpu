@@ -19,7 +19,8 @@ export const reflection = {
         "mask",
         "dst",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [

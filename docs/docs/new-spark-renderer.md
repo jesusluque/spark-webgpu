@@ -66,7 +66,7 @@ The Spark LoD renderer computes these cuts in a background worker thread, using 
 
 This algorithm can run in `O(N log N)` time, a function of the number of *rendered* splats, and independent of the total number of splats in the splat tree. A generalization of this algorithm is to compute multiple cuts simultaneously across multiple splat trees, distributing these N splats across multiple SplatMeshes, globally optimizing for screen-space detail.
 
-For details on this algorithm, refer to `lod_tree::traverse_lod_trees()` in [rust/spark-internal-rs/src/lod_tree.rs](../../rust/spark-internal-rs/src/lod_tree.rs).
+For details on this algorithm, refer to `lod_tree::traverse_lod_trees()` in [rust/spark-rs/src/lod_tree.rs](https://github.com/sparkjsdev/spark/blob/main/rust/spark-rs/src/lod_tree.rs).
 
 ---
 
@@ -74,7 +74,7 @@ For details on this algorithm, refer to `lod_tree::traverse_lod_trees()` in [rus
 
 We downsample splats by merging a set of splats into a single "average" splat. We follow the literature cited by Kerbl et al. to efficiently compute the center and 3D covariance of a downsampled splat that best represents the input splats, analgous how the convolution of Gaussian kernels yields another Gaussian. The splat contributions are weighted by the product of their opacity and "surface area" (modeled as an ellipsoid): `weight = opacity * area`. Splat colors (including spherical harmonics) are computed as a weighted sum of the individal slat colors.
 
-For downsampling code, refer to `GsplatArray::new_merged()` in [rust/spark-lib/src/gsplat.rs](../../rust/spark-lib/src/gsplat.rs).
+For downsampling code, refer to `GsplatArray::new_merged()` in [rust/spark-lib/src/gsplat.rs](https://github.com/sparkjsdev/spark/blob/main/rust/spark-lib/src/gsplat.rs).
 
 The downsampled splat opacity is a more complicated matter, however. In traditional Gaussian splatting the maximum opacity parameter is `A=1.0` which results in `opacity(x) = A * e^(-0.5 * x^2)`. If we had `K` identical splats at the same location, the combined opacity is `opacity(x) = 1 - (1 - (e^(-0.5 * x^2))) ^ K`. As `K` grows larger, this becomes a very non-Gaussian profile, so the traditional opacity parameterization is insufficient to represent the appearance of these downsampled/merged splats.
 
@@ -124,7 +124,7 @@ We continue merging up the hierarchy until our remaining splats are all within a
 
 As a final step, we take a linearized array of all splats in the tree and shuffle them so that the root node is at index 0, the children indices are always greater than the parent index, and the direct children of a node are located consecutively in the array. We traverse the tree in a top-down manner to create a new index ordering and then shuffles all the splat data accordingly. This tree node ordering allows us to encode the node children lists compactly: we can simply store `child_count` and `child_start` since the children are located consecutively, resulting in a fixed storage cost per splat node
 
-For more details on the algorithm, refer to `quick_lod::compute_lod_tree()` in [rust/spark-lib/src/quick_lod.rs](../../rust/spark-lib/src/quick_lod.rs).
+For more details on the algorithm, refer to `quick_lod::compute_lod_tree()` in [rust/spark-lib/src/quick_lod.rs](https://github.com/sparkjsdev/spark/blob/main/rust/spark-lib/src/quick_lod.rs).
 
 ---
 
@@ -146,7 +146,7 @@ In addition to the `lod: true` and `nonLod: true` options for `SplatMesh` and `P
 
 With an LoD splat tree Spark is able to compute a subset of the splats in the tree with the "right amount of detail for the screen" and "within a maximum splat budget of N".
 
-For the complete algorithm, refer to `lod_tree::traverse_lod_trees()` in [rust/spark-internal-rs/src/lod_tree.rs](../../rust/spark-internal-rs/src/lod_tree.rs), which includes the extension to traverse multiple splat trees simultaneously.
+For the complete algorithm, refer to `lod_tree::traverse_lod_trees()` in [rust/spark-rs/src/lod_tree.rs](https://github.com/sparkjsdev/spark/blob/main/rust/spark-rs/src/lod_tree.rs), which includes the extension to traverse multiple splat trees simultaneously.
 
 The algorithm starts with a set of "frontier nodes" that starts out containing only the root. These frontier nodes are stored in a priority queue (implemented using a binary heap) on a metric `pixel_scale`, the angular size of the splat from the viewpoint. This metric is derived from the splat's object-space size `2 * max(scale.x, scale.y, scale.z) * max(1, D)`, the splat's center, the transformation between object-space and view-space, the view frustum, parameters `outside_foveate` and `behind_foveate`, and a perspective divide (implemented in `lod_tree::compute_pixel_scale()`). Note that `pixel_scale` isn't strictly screen-space size, as we use radial distance rather than Z depth for the perspective normalization so that it's more stable under viewpoint rotation.
 
@@ -164,7 +164,7 @@ When we've finished or stopped the priority queue loop, any remaining splats in 
 
 In order to support efficient traversal, we pre-compute and pack a subset of splat tree data into a `LodTree`: splat center, feature size ("splat size" above), child count, child indedx start (children are located consecutively in the array). These are packed into 4 elements of a `Uint32Array` for each splat/node. This way we minimize the memory and bandwidth footprint of each node access during traversal.
 
-For details of this encoding, refer to `packed_splats::encode_lod_tree()` in [rust/spark-internal-rs/src/packed_splats.rs](../../rust/spark-internal-rs/src/packed_splats.rs).
+For details of this encoding, refer to `splat_encode::encode_lod_tree()` in [rust/spark-lib/src/splat_encode.rs](https://github.com/sparkjsdev/spark/blob/main/rust/spark-lib/src/splat_encode.rs).
 
 ---
 
@@ -172,7 +172,7 @@ For details of this encoding, refer to `packed_splats::encode_lod_tree()` in [ru
 
 Spark extends this algorithm to support multiple splat trees, including multiple instances of the same splat tree, each positioned independently relative to the viewpoint. We take the root of each splat tree instance and add it to the initial splat priority queue. The same metric can be used to prioritize splats across multiple objects simultaneously, balancing the splat count evenly across all objects within a viewpoint.
 
-For details, refer to `lod_tree::traverse_lod_trees()` in [rust/spark-internal-rs/src/lod_tree.rs](../../rust/spark-internal-rs/src/lod_tree.rs).
+For details, refer to `lod_tree::traverse_lod_trees()` in [rust/spark-rs/src/lod_tree.rs](https://github.com/sparkjsdev/spark/blob/main/rust/spark-rs/src/lod_tree.rs).
 
 ---
 
@@ -186,7 +186,7 @@ For details, refer to `lod_tree::traverse_lod_trees()` in [rust/spark-internal-r
 
 The splat tree traversal algorithm runs in a background WebWorker so as not to impact the main rendering/UI thread. It is implemented in Rust and compiled to WebAssembly for efficient execution. After loading a splat tree (or after running Quick LoD with input splats) we precompute a `LodTree` as described at the end of "Splat Tree Traversal" above. Because the traversal is implemented in Rust, the `LodTree` is also stored in a Wasm instance's memory. To limit the memory footprint of these precomputed data structures, we create a single, dedicated `SparkRenderer.lodWorker` instance whose sole purpose is to perform tree traversals on behalf of the renderer, serialized through an async/await RPC mechanism.
 
-The entrypoint to tree traversal in the worker is in `newWorker::traverseLodTrees()` in [src/newWorker.ts](../../src/newWorker.ts) with the following signature:
+The entrypoint to tree traversal in the worker is in `worker::traverseLodTrees()` in [src/worker.ts](https://github.com/sparkjsdev/spark/blob/main/src/worker.ts) with the following signature:
 ```
 function traverseLodTrees({
   maxSplats,
@@ -226,7 +226,7 @@ Extended splats are written into two Uint32Arrays, with 4 consecutive Uint32 val
 
 ### <a id="byte-layout-of-extended-splat-encoding"></a>Byte Layout of "Extended Splat" Encoding
 
-Each "Extended Splat" occupies **32 bytes** (8 × `uint32`, stored as two consecutive `uvec4` values), with the following layout by byte offset, as implemented by `packSplatExt()` and `unpackSplatExt()` in shader code (see [`src/shaders/splatDefines.glsl`](../../src/shaders/splatDefines.glsl)):
+Each "Extended Splat" occupies **32 bytes** (8 × `uint32`, stored as two consecutive `uvec4` values), with the following layout by byte offset, as implemented by `packSplatExt()` and `unpackSplatExt()` in shader code (see [`src/shaders/splatDefines.glsl`](https://github.com/sparkjsdev/spark/blob/main/src/shaders/splatDefines.glsl)):
 
 | Layer | Offset (bytes) | Field                  | Size (bytes) | Description                                                |
 |-------|----------------|------------------------|--------------|------------------------------------------------------------|
@@ -261,7 +261,7 @@ packed2.z = packHalf2x16(log(scales.yz));                    // bytes 24–27
 packed2.w = encodeQuatOctXy1010R12(quaternion);              // bytes 28–31
 ```
 
-See [src/shaders/splatDefines.glsl](../../src/shaders/splatDefines.glsl) for packing/unpacking code.
+See [src/shaders/splatDefines.glsl](https://github.com/sparkjsdev/spark/blob/main/src/shaders/splatDefines.glsl) for packing/unpacking code.
 
 ### <a id="requires-threejs-r179-or-later"></a>Requires Three.js r179 or later
 
@@ -307,7 +307,7 @@ In order to store the LoD tree in a SPZ file, we make a few modifications:
 - Encode 8-bit opacity such that 0..255 maps to 0..2 (0..0.5 maps to the normal range 0..1), and the expanded range 1..2 is used to encode the range 1..4 for the opacity parameter `D` described above.
 - After the final block of data (quaternion or SH coefficients if it has them), we store two additional parameters: `child_count` (a uint16 count of # of children of a nodes, maximum 65535) and `child_start` (a uint32 index of the starting child of the node, or 0 if no children).
 
-Spark will auto-detect and decode these extended SPZ files and render them in LoD mode. See [rust/spark-lib/src/spz.rs](../../rust/spark-lib/src/spz.rs)
+Spark will auto-detect and decode these extended SPZ files and render them in LoD mode. See [rust/spark-lib/src/spz.rs](https://github.com/sparkjsdev/spark/blob/main/rust/spark-lib/src/spz.rs)
 
 ## <a id="multi-viewpoint-rendering"></a>Multi-Viewpoint Rendering
 

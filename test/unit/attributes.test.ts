@@ -2,12 +2,32 @@ import { describe, expect, it } from "vitest";
 import { PlyAttributeReader } from "../../src/webgpu/attributes/plyAttributes";
 import {
   AttribPool,
+  attribGroupWords,
   fromHalf,
   toHalf,
   toHalfJs,
 } from "../../src/webgpu/attributes/schema";
 
 describe("attribute schema", () => {
+  it("spans a comp4 group's words as the Slang side does", () => {
+    const f32x7 = { format: "f32", components: 7 } as const;
+    expect(attribGroupWords(f32x7, 0)).toEqual([0, 4]);
+    expect(attribGroupWords(f32x7, 1)).toEqual([4, 3]);
+    expect(attribGroupWords(f32x7, 2)).toEqual([8, 0]);
+    expect(attribGroupWords({ format: "f16", components: 8 }, 1)).toEqual([
+      2, 2,
+    ]);
+    expect(attribGroupWords({ format: "u16", components: 3 }, 0)).toEqual([
+      0, 2,
+    ]);
+    expect(attribGroupWords({ format: "snorm8", components: 3 }, 0)).toEqual([
+      0, 1,
+    ]);
+    expect(attribGroupWords({ format: "u8", components: 1 }, 1)).toEqual([
+      1, 0,
+    ]);
+  });
+
   it("rounds to half floats like Float16Array", () => {
     const values = [
       0,

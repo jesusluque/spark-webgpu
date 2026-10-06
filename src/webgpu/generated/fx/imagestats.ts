@@ -18,7 +18,8 @@ export const reflection = {
         "src",
         "sums",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "statsFold",
@@ -31,7 +32,8 @@ export const reflection = {
       "uses": [
         "sums",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "statsCopy",
@@ -45,7 +47,8 @@ export const reflection = {
         "src",
         "dst",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [

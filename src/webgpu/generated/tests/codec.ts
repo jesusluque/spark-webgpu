@@ -18,7 +18,8 @@ export const reflection = {
         "encoded",
         "decoded",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "shEvaluate",
@@ -33,7 +34,8 @@ export const reflection = {
         "shDirs",
         "shWords",
         "shRgb"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "codecRoundTrip",
@@ -48,7 +50,8 @@ export const reflection = {
         "encoded",
         "decoded",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [

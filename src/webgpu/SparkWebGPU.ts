@@ -26,7 +26,7 @@ import { SplatGenerator } from "../SplatGenerator";
 import { SplatMesh } from "../SplatMesh";
 import { DepthResolve } from "./DepthResolve";
 import { GpuSplatSource } from "./GpuSplatSource";
-import { SRGB_LAYER_FORMAT } from "./SrgbComposite";
+import { type CompositeToneMapping, SRGB_LAYER_FORMAT } from "./SrgbComposite";
 import { WgpuLod, type WgpuLodMesh } from "./WgpuLod";
 import {
   type SplatDiskClip,
@@ -36,58 +36,17 @@ import {
 } from "./WgpuSplatRenderer";
 import type { WgpuDyno } from "./dyno/DynoKernels";
 import { splatGeneratorDyno, splatMeshDyno } from "./dyno/adapters";
+import {
+  type OpenPass,
+  type ThreeWebGPURenderer,
+  canvasContext,
+  openPass,
+  webgpuBackend,
+} from "./threeInternals";
+import type { WebGPURendererLike } from "./threeRenderer";
+import { INVERTIBLE_TONE_MAPPINGS } from "./toneMapping";
 
-// The parts of three's WebGPURenderer (r180) this module uses. The render
-// context, its backend data and the backend utils are internal to three.
-interface RenderContextLike {
-  textures: THREE.Texture[] | null;
-  scissor?: boolean;
-  scissorValue?: THREE.Vector4;
-  renderTarget?: THREE.RenderTarget | null;
-  depthTexture: THREE.Texture | null;
-  width: number;
-  height: number;
-  viewport: boolean;
-  viewportValue: THREE.Vector4;
-}
-
-interface BackendLike {
-  isWebGPUBackend?: boolean;
-  device: GPUDevice;
-  context: GPUCanvasContext;
-  get(resource: object): {
-    texture?: GPUTexture;
-    msaaTexture?: GPUTexture;
-    format?: GPUTextureFormat;
-    currentPass?: GPURenderPassEncoder | null;
-    descriptor?: GPURenderPassDescriptor;
-    encoder?: GPUCommandEncoder;
-    currentSets?: unknown;
-  };
-  updateViewport(rc: RenderContextLike): void;
-  utils: {
-    getCurrentColorFormat(rc: RenderContextLike): GPUTextureFormat;
-    getCurrentDepthStencilFormat(
-      rc: RenderContextLike,
-    ): GPUTextureFormat | undefined;
-    getSampleCountRenderContext(rc: RenderContextLike): number;
-    getCurrentColorSpace(rc: RenderContextLike): string;
-  };
-  pipelineUtils?: { _activePipelines?: WeakMap<object, unknown> };
-}
-
-export interface WebGPURendererLike {
-  isWebGPURenderer?: boolean;
-  backend: BackendLike;
-  info: { frame: number };
-  xr?: { isPresenting?: boolean };
-  outputColorSpace: string;
-  toneMapping?: THREE.ToneMapping;
-  getOutputRenderTarget(): THREE.RenderTarget | null;
-  _currentRenderContext?: RenderContextLike | null;
-  /** Where three renders the scene before its output (color space) pass. */
-  _frameBufferTarget?: THREE.RenderTarget | null;
-}
+export type { WebGPURendererLike };
 
 /** Whether `renderer` is three's WebGPURenderer (either backend). */
 export function isWebGPURenderer(
@@ -137,6 +96,13 @@ export class SparkWebGPU {
   private lastCamera: THREE.Camera | null = null;
   private failed = false;
   private depthResolve?: DepthResolve;
+  private pmrem?: {
+    Class: unknown;
+    generator: {
+      fromCubemap(t: THREE.Texture): THREE.RenderTarget;
+      dispose(): void;
+    };
+  };
 
   constructor(
     readonly spark: SparkRenderer,
@@ -162,8 +128,7 @@ export class SparkWebGPU {
   ) {
     if (this.failed) return;
     const { renderer } = this;
-    const { backend } = renderer;
-    if (!backend.isWebGPUBackend) {
+    if (!webgpuBackend(renderer)) {
       this.failed = true;
       console.error(
         "SparkRenderer: WebGPURenderer fell back to WebGL; splats need its WebGPU backend",
@@ -177,13 +142,12 @@ export class SparkWebGPU {
       warnOnce("XR and array cameras are not supported yet");
       return;
     }
-    const rc = renderer._currentRenderContext;
-    const data = rc ? backend.get(rc) : undefined;
-    const pass = data?.currentPass;
-    if (!rc || !data || !pass) {
+    const open = openPass(renderer);
+    if (!open) {
       warnOnce("no open render pass to draw into (render bundles?)");
       return;
     }
+    const rc = open.context;
 
     const splats = this.ensureRenderer();
     this.lastCamera = camera;
@@ -196,30 +160,25 @@ export class SparkWebGPU {
       this.lastFrame = frame;
       this.applyOptions();
       this.sync(scene, camera);
-      if (this.lod?.meshes.length && this.spark.enableDriveLod) {
+      if (this.lod?.active && this.spark.enableDriveLod) {
         this.lod.update(this.lodCamera ?? camera, { x: width, y: height });
       }
     }
 
-    const { utils } = backend;
-    const format = utils.getCurrentColorFormat(rc);
+    const format = open.colorFormat;
     // An -srgb format (three's for 8-bit sRGB targets) encodes on store, so
     // the shader writes linear values to it, as three's materials do.
     const srgbFormat = format.endsWith("-srgb");
     const target: SplatPassTarget = {
       format,
-      depthFormat: data.descriptor?.depthStencilAttachment
-        ? (utils.getCurrentDepthStencilFormat(rc) ?? null)
-        : null,
-      sampleCount: utils.getSampleCountRenderContext(rc),
+      depthFormat: open.depthFormat,
+      sampleCount: open.sampleCount,
       width,
       height,
       linear: this.spark.rawColor
         ? srgbFormat
-        : srgbFormat || utils.getCurrentColorSpace(rc) !== THREE.SRGBColorSpace,
-      extraFormats: rc.textures
-        ?.slice(1)
-        .map((t) => backend.get(t).format as GPUTextureFormat),
+        : srgbFormat || open.colorSpace !== THREE.SRGBColorSpace,
+      extraFormats: open.extraFormats,
       depthCompare: (camera as { reversedDepth?: boolean }).reversedDepth
         ? "greater-equal"
         : "less-equal",
@@ -229,13 +188,26 @@ export class SparkWebGPU {
     // On the canvas three renders into a linear half-float target, then
     // converts it in an output pass.
     const canvas =
-      !!rc.renderTarget &&
-      rc.renderTarget === renderer._frameBufferTarget &&
+      open.isFrameBufferTarget &&
       !renderer.getOutputRenderTarget() &&
       (scene as THREE.Scene).isScene;
-    const toneMapped = (renderer.toneMapping ?? THREE.NoToneMapping) !== 0;
-    if (canvas && toneMapped && target.sampleCount === 1) {
-      this.drawAfterOutput(scene, camera, rc);
+    // three tone-maps the canvas in its output pass; WebGL Spark doesn't
+    // tone map splats. The composite inverts three's operators (see
+    // SrgbComposite); for others (a custom node) splats go on the canvas
+    // after the output pass.
+    const toneMapping = canvas
+      ? (renderer.toneMapping ?? THREE.NoToneMapping)
+      : THREE.NoToneMapping;
+    const invertible =
+      INVERTIBLE_TONE_MAPPINGS.includes(toneMapping) &&
+      renderer.outputColorSpace === THREE.SRGBColorSpace &&
+      !this.spark.rawColor;
+    if (
+      toneMapping !== THREE.NoToneMapping &&
+      !invertible &&
+      target.sampleCount === 1
+    ) {
+      this.drawAfterOutput(scene, camera, open);
       return;
     }
     if (
@@ -244,24 +216,15 @@ export class SparkWebGPU {
       !this.spark.rawColor &&
       (canvas || this.spark.srgbBlend)
     ) {
-      this.drawSrgbBlended(camera, rc, target);
+      this.drawSrgbBlended(camera, open, target, {
+        toneMapping: invertible ? toneMapping : THREE.NoToneMapping,
+        exposure: renderer.toneMappingExposure ?? 1,
+      });
       return;
     }
-    splats.renderInPass(camera, pass, target);
-    this.resetPassState(pass);
-  }
-
-  // three skips setting a pipeline or bind group it believes is still set.
-  private resetPassState(pass: GPURenderPassEncoder) {
-    const { backend } = this.renderer;
-    const data = backend.get(this.renderer._currentRenderContext as object);
-    backend.pipelineUtils?._activePipelines?.delete(pass);
-    data.currentSets = {
-      attributes: {},
-      bindingGroups: [],
-      pipeline: null,
-      index: null,
-    };
+    splats.renderInPass(camera, open.pass, target);
+    // three skips setting a pipeline or bind group it believes is still set.
+    open.resetState();
   }
 
   // Splats blend in sRGB space, as WebGL Spark blends them on the canvas and
@@ -272,21 +235,17 @@ export class SparkWebGPU {
   // objects in front of the splats still draw over them.
   private drawSrgbBlended(
     camera: THREE.Camera,
-    rc: RenderContextLike,
+    open: OpenPass,
     target: SplatPassTarget,
+    toneMapping: CompositeToneMapping,
   ) {
-    const { backend } = this.renderer;
     const splats = this.splats as WgpuSplatRenderer;
-    const data = backend.get(rc);
-    const descriptor = data.descriptor as GPURenderPassDescriptor;
-    const encoder = data.encoder as GPUCommandEncoder;
+    const { descriptor, encoder, context: rc } = open;
     const attachment = [
       ...descriptor.colorAttachments,
     ][0] as GPURenderPassColorAttachment;
-    const textureData = backend.get((rc.textures as THREE.Texture[])[0]);
-    const color = (textureData.msaaTexture ??
-      textureData.texture) as GPUTexture;
-    (data.currentPass as GPURenderPassEncoder).end();
+    const color = open.colorTexture();
+    open.end();
 
     const depth = descriptor.depthStencilAttachment;
     const composite = splats.srgbComposite;
@@ -320,36 +279,23 @@ export class SparkWebGPU {
       color,
       { view: attachment.view, resolveTarget: attachment.resolveTarget },
       viewport,
+      toneMapping,
     );
-
-    for (const a of descriptor.colorAttachments) {
-      if (a) a.loadOp = "load";
-    }
-    if (depth?.depthLoadOp) depth.depthLoadOp = "load";
-    if (depth?.stencilLoadOp) depth.stencilLoadOp = "load";
-    const pass = encoder.beginRenderPass(descriptor);
-    data.currentPass = pass;
-    this.resetPassState(pass);
-    if (rc.viewport) backend.updateViewport(rc);
-    if (rc.scissor && rc.scissorValue) {
-      const { x, y, z, w } = rc.scissorValue;
-      pass.setScissorRect(x, y, z, w);
-    }
+    open.resume();
   }
 
-  // With tone mapping, splats (which WebGL Spark doesn't tone map) go on
-  // the canvas after three's output pass, blended in sRGB, tested against
-  // the scene's depth, which three keeps. Transparent objects in front of
-  // the splats are then drawn under them.
+  // With tone mapping the composite can't invert (a custom node, a linear
+  // output colour space, rawColor), splats (which WebGL Spark doesn't tone
+  // map) go on the canvas after three's output pass, blended in sRGB,
+  // tested against the scene's depth, which three keeps. Transparent
+  // objects in front of the splats are then drawn under them.
   private drawAfterOutput(
     scene: THREE.Scene,
     camera: THREE.Camera,
-    rc: RenderContextLike,
+    open: OpenPass,
   ) {
-    const { backend } = this.renderer;
-    const depth = rc.depthTexture
-      ? (backend.get(rc.depthTexture).texture ?? null)
-      : null;
+    const rc = open.context;
+    const depth = open.depthTexture();
     const viewport = rc.viewport ? rc.viewportValue.clone() : null;
     const size = { x: rc.width, y: rc.height };
     const previous = scene.onAfterRender;
@@ -370,7 +316,7 @@ export class SparkWebGPU {
     const { renderer } = this;
     const splats = this.splats as WgpuSplatRenderer;
     let depth = sceneDepth;
-    const color = renderer.backend.context.getCurrentTexture();
+    const color = canvasContext(renderer).getCurrentTexture();
     const encoder = splats.device.createCommandEncoder({
       label: "splats on canvas",
     });
@@ -427,6 +373,38 @@ export class SparkWebGPU {
     this.splats.bakeRgba(mesh, this.lastCamera, texture);
   }
 
+  /**
+   * SparkRenderer.renderEnvMap: prefilters a cube map with three/webgpu's
+   * PMREMGenerator (three's WebGL one can't run on WebGPURenderer), as WebGL
+   * does, into a texture of its own. That is THREE.PMREMGenerator when the
+   * "three" Spark imports is three/webgpu, or the one passed. Otherwise
+   * (Spark resolving "three" to three's WebGL build, as Vite does) the cube
+   * texture itself is returned: three/webgpu's materials prefilter a cube
+   * envMap themselves, but the next renderCubeMap or renderEnvMap redraws it.
+   */
+  prefilterEnvMap(cube: THREE.Texture, PMREMGenerator?: unknown) {
+    type Generator = {
+      fromCubemap(t: THREE.Texture): THREE.RenderTarget;
+      dispose(): void;
+    };
+    const Class =
+      PMREMGenerator ??
+      ("WebGPURenderer" in THREE ? THREE.PMREMGenerator : undefined);
+    if (!Class) {
+      // Re-prefiltered where it is used.
+      cube.needsPMREMUpdate = true;
+      return cube;
+    }
+    if (this.pmrem?.Class !== Class) {
+      this.pmrem?.generator.dispose();
+      const generator = new (Class as new (renderer: unknown) => Generator)(
+        this.renderer,
+      );
+      this.pmrem = { Class, generator };
+    }
+    return this.pmrem.generator.fromCubemap(cube).texture;
+  }
+
   private ensureRenderer() {
     if (!this.splats) {
       const spark = this.spark;
@@ -477,6 +455,9 @@ export class SparkWebGPU {
     l.coneFov = spark.coneFov;
     l.coneFoveate = spark.coneFoveate;
     l.enableLodFetching = spark.enableLodFetching;
+    l.lodCleanupTimeoutMs = spark.lodCleanupTimeoutMs;
+    l.lodRaycast = spark.lodRaycast;
+    l.lodRaycastIntervalMs = spark.lodRaycastIntervalMs;
   }
 
   // Matches the WgpuSplatRenderer meshes to the scene's visible generators.
@@ -517,7 +498,8 @@ export class SparkWebGPU {
     }
     for (const [node, entry] of this.entries) {
       if (shown.has(node)) continue;
-      this.detach(entry);
+      // Hidden LoD meshes keep their WgpuLod mesh, to be shown again.
+      this.detach(entry, all.has(node));
       if (!all.has(node)) this.entries.delete(node);
     }
   }
@@ -615,15 +597,20 @@ export class SparkWebGPU {
     return true;
   }
 
-  // What SplatMesh.update leaves for raycast(): the splats drawn, as source
-  // indices into lodSplats for a LoD selection. Paged splats live only on
-  // the GPU here, so they can't be raycast.
+  // What SplatMesh.update leaves for raycast(): for a LoD selection, the
+  // raycast traversal's indices into lodSplats (paged: into the page pool,
+  // which WgpuSplatPager mirrors on the CPU), else the splats drawn.
   private updateRaycast(node: SplatMesh, entry: Entry) {
+    const lodMesh = entry.lodMesh;
+    const drawn = lodMesh?.mesh.lodIndices;
+    node.raycastIndices =
+      lodMesh && drawn
+        ? (lodMesh.raycastIndices ?? {
+            numSplats: drawn.length,
+            indices: drawn,
+          })
+        : undefined;
     if (node.paged) return;
-    const indices = entry.lodMesh?.mesh.lodIndices;
-    node.raycastIndices = indices
-      ? { numSplats: indices.length, indices }
-      : undefined;
     node.context.enableLod.value = false;
     const base = node.packedSplats ?? node.extSplats;
     node.context.numSplats.value = entry.pending ? 0 : (base?.numSplats ?? 0);
@@ -661,12 +648,14 @@ export class SparkWebGPU {
       .add(splats as PackedSplats, node, { lodScale: node.lodScale })
       .then((lodMesh) => {
         entry.pending = false;
-        if (entry.detached) {
+        // Dropped, or rebuilt for new splats, while loading.
+        if (this.entries.get(node) !== entry) {
           lod.remove(lodMesh);
           return;
         }
         lodMesh.mesh.dyno = entry.dyno;
         entry.lodMesh = lodMesh;
+        if (entry.detached) lod.setVisible(lodMesh, false);
         this.spark.setDirty();
       })
       .catch((error) => {
@@ -682,21 +671,28 @@ export class SparkWebGPU {
       // Uploaded again if no other mesh kept the splats.
       entry.shared = this.acquire(entry.shared.splats);
       entry.mesh = splats.add(entry.shared.source, node, entry.dyno);
+    } else if (entry.lodMesh) {
+      // LoD: shown again, with its sources and tree.
+      this.lod?.setVisible(entry.lodMesh, true);
     } else if (node instanceof SplatMesh) {
-      // LoD: added again, as WgpuLod releases its trees on removal.
       if (!entry.pending) this.addLod(node, entry);
     } else {
       entry.mesh = splats.addGenerator(node.numSplats, entry.dyno, node);
     }
   }
 
-  private detach(entry: Entry) {
+  // Stops drawing an entry. `keep`: a hidden LoD mesh stays in WgpuLod,
+  // hidden, as SparkRenderer keeps a LoD mesh's tree and textures.
+  private detach(entry: Entry, keep = false) {
+    if (entry.lodMesh && !keep) {
+      this.lod?.remove(entry.lodMesh);
+      entry.lodMesh = undefined;
+    }
     if (entry.detached) return;
     entry.detached = true;
     if (entry.mesh) this.splats?.remove(entry.mesh);
     entry.mesh = undefined;
-    if (entry.lodMesh) this.lod?.remove(entry.lodMesh);
-    entry.lodMesh = undefined;
+    if (entry.lodMesh) this.lod?.setVisible(entry.lodMesh, false);
     if (entry.shared) this.release(entry.shared);
   }
 
@@ -756,6 +752,8 @@ export class SparkWebGPU {
     this.splats?.dispose();
     this.depthResolve?.dispose();
     this.depthResolve = undefined;
+    this.pmrem?.generator.dispose();
+    this.pmrem = undefined;
     this.lod = undefined;
     this.splats = undefined;
   }

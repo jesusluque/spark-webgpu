@@ -23,9 +23,11 @@ const gpu = (limits: Record<string, number>, features: string[] = []) => ({
 describe("capabilitiesOf", () => {
   it("takes the GPU sort on default limits and sizes by the storage binding", () => {
     const c = capabilitiesOf(gpu(DEFAULTS));
-    expect(SORT_WORKGROUP_BYTES).toBe(4224);
+    // radixScatter: sScan (128 x vec4<u32>) + sBase (16 x u32).
+    expect(SORT_WORKGROUP_BYTES).toBe(2112);
     expect(c.gpuSort).toBe(true);
     expect(c.maxSplats).toBe(4194304);
+    expect(c.maxSplatsPacked).toBe(8388608);
     expect(c.vertexStorage).toBe(true);
     expect(c.subgroups).toBe(false);
   });
@@ -36,6 +38,18 @@ describe("capabilitiesOf", () => {
     );
     expect(c.gpuSort).toBe(false);
     expect(c.gpuSortReason).toMatch(/maxComputeInvocationsPerWorkgroup/);
+  });
+
+  it("falls back to the CPU sort when workgroup storage is too small", () => {
+    const ok = capabilitiesOf(
+      gpu({ ...DEFAULTS, maxComputeWorkgroupStorageSize: 2112 }),
+    );
+    expect(ok.gpuSort).toBe(true);
+    const c = capabilitiesOf(
+      gpu({ ...DEFAULTS, maxComputeWorkgroupStorageSize: 2048 }),
+    );
+    expect(c.gpuSort).toBe(false);
+    expect(c.gpuSortReason).toMatch(/maxComputeWorkgroupStorageSize/);
   });
 
   it("reads compatibility mode's vertex-stage storage limit", () => {

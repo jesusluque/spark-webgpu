@@ -242,4 +242,101 @@ describe.skipIf(!device)("splat attributes in the renderer", () => {
     attrs.dispose();
     splats.dispose();
   });
+
+  // Slots resolve on the host to a word span of the draw layout: a later
+  // comp4 group of a 3-word f32 tail, and a 2-word u16 group behind it.
+  it("reads slots of any format and group into the slot targets", async () => {
+    const splats = new WgpuSplatRenderer(fakeRenderer as never, {
+      depthTest: false,
+    });
+    const attrs = new SplatAttributes(splats, {
+      slots: [{ name: "wide", comp4: 1 }, "count"],
+      colorMode: "splat",
+      targets: { slot0: true, slot1: true },
+    });
+    const count = 3;
+    const source = rowSource(count, 0.15, 1.2);
+    const wide = Array.from({ length: count * 7 }, (_, k) =>
+      k % 7 < 4 ? 9 : (k % 7) * 0.1 + Math.floor(k / 7) * 0.05,
+    );
+    const counts = [2, 30, 300, 5, 50, 500, 7, 70, 700];
+    source.setAttribute("wide", wide, "f32", 7, { toDraw: true });
+    source.setAttribute("count", counts, "u16", 3, { toDraw: true });
+    splats.add(source);
+
+    clearCanvas();
+    splats.render(camera());
+    await d.queue.onSubmittedWorkDone();
+
+    const slots = await Promise.all(
+      attrs.slotTextures.map(
+        async (t) =>
+          new Uint16Array((await readTexture(t as GPUTexture, 8)).buffer),
+      ),
+    );
+    const cam = camera();
+    for (let i = 0; i < count; i++) {
+      const p = new THREE.Vector3((i - 1) * 1.2, 0, 0).project(cam);
+      const x = Math.floor(((p.x + 1) / 2) * W);
+      const y = Math.floor(((1 - p.y) / 2) * H);
+      const px = y * W + x;
+      const expected = [
+        wide.slice(7 * i + 4, 7 * i + 7),
+        counts.slice(3 * i, 3 * i + 3),
+      ];
+      slots.forEach((half, k) => {
+        const alpha = fromHalf(half[px * 4 + 3]);
+        expect(alpha).toBeGreaterThan(0.5);
+        for (let c = 0; c < 3; c++) {
+          const v = fromHalf(half[px * 4 + c]) / alpha;
+          expect(Math.abs(v - expected[k][c])).toBeLessThan(
+            0.01 * Math.max(1, expected[k][c]),
+          );
+        }
+      });
+    }
+    attrs.dispose();
+    splats.dispose();
+  });
+
+  // The portal clip applies to the attribute variant as to the default draw.
+  it("clips attribute draws by the portal disk", async () => {
+    const splats = new WgpuSplatRenderer(fakeRenderer as never, {
+      depthTest: false,
+    });
+    const attrs = new SplatAttributes(splats, {
+      colorMode: "splat",
+      targets: { id: true },
+    });
+    splats.add(rowSource(3, 0.15, 1.2));
+    const cam = camera();
+    const pixel = (i: number): [number, number] => {
+      const p = new THREE.Vector3((i - 1) * 1.2, 0, 0).project(cam);
+      return [Math.floor(((p.x + 1) / 2) * W), Math.floor(((1 - p.y) / 2) * H)];
+    };
+    // A disk in front of the middle splat only, facing the camera.
+    const drawn = async (radius: number) => {
+      splats.diskClip = {
+        center: new THREE.Vector3(0, 0, -3.5),
+        normal: new THREE.Vector3(0, 0, 1),
+        radius,
+        twoSided: false,
+      };
+      clearCanvas();
+      splats.render(cam);
+      await d.queue.onSubmittedWorkDone();
+      const out: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        if ((await attrs.pick(...pixel(i)))?.index === i) out.push(i);
+      }
+      return out;
+    };
+    // Behind the disk, seen through it: the middle splat only...
+    expect(await drawn(0.5)).toEqual([1]);
+    // ...and dropping that: the other two.
+    expect(await drawn(-0.5)).toEqual([0, 2]);
+    expect(await drawn(0)).toEqual([0, 1, 2]);
+    attrs.dispose();
+    splats.dispose();
+  });
 });

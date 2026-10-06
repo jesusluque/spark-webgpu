@@ -19,7 +19,8 @@ export const reflection = {
         "decoded",
         "raw",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "attribEncode",
@@ -33,7 +34,8 @@ export const reflection = {
         "pool",
         "rewritten",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [

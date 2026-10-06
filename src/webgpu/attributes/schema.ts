@@ -5,6 +5,8 @@
 // AttribPool holds only plain data, so it survives postMessage from the
 // loader worker; AttribPool.from() restores the methods on the other side.
 
+import { coreAttrib } from "../generated/constants";
+
 export type AttribFormat =
   | "f32"
   | "f16"
@@ -34,18 +36,17 @@ export interface AttributeSpec {
   direction?: boolean;
 }
 
-/** Format codes, as ATTRIB_* in slang/core/attrib.slang. */
+/** Format codes, ATTRIB_* in slang/core/attrib.slang. */
 export const ATTRIB_FORMATS: Record<AttribFormat, number> = {
-  f32: 0,
-  f16: 1,
-  unorm8: 2,
-  snorm8: 3,
-  u8: 4,
-  u16: 5,
-  u32: 6,
+  f32: coreAttrib.ATTRIB_F32,
+  f16: coreAttrib.ATTRIB_F16,
+  unorm8: coreAttrib.ATTRIB_UNORM8,
+  snorm8: coreAttrib.ATTRIB_SNORM8,
+  u8: coreAttrib.ATTRIB_U8,
+  u16: coreAttrib.ATTRIB_U16,
+  u32: coreAttrib.ATTRIB_U32,
 };
-export const ATTRIB_NONE = 0xffffffff;
-export const ATTRIB_DIRECTION = 1;
+export const { ATTRIB_NONE, ATTRIB_DIRECTION } = coreAttrib;
 
 export function formatBytes(format: AttribFormat): number {
   return format === "f32" || format === "u32"
@@ -63,6 +64,21 @@ export function attribWords(
   spec: Pick<AttributeSpec, "format" | "components">,
 ) {
   return Math.ceil((spec.components * formatBytes(spec.format)) / 4);
+}
+
+/**
+ * Word span of components 4 * comp4 .. + 3 within a splat's record of the
+ * attribute: first word and count (0 past the end), as attribGroupWords in
+ * slang/core/attrib.slang.
+ */
+export function attribGroupWords(
+  spec: Pick<AttributeSpec, "format" | "components">,
+  comp4: number,
+): [number, number] {
+  const per = formatBytes(spec.format); // words per four components
+  const first = comp4 * per;
+  const total = attribWords(spec);
+  return [first, first < total ? Math.min(per, total - first) : 0];
 }
 
 export function defaultLodMerge(spec: AttributeSpec): LodMerge {
@@ -276,6 +292,11 @@ export class AttribPool {
   columns: AttributeColumn[] = [];
   /** Bumped on every change, so GPU copies know to re-upload. */
   version = 0;
+  /**
+   * The packed pool already on the GPU (paged .rad attributes, see
+   * PagedAttribPool): renderers bind it instead of uploading pack().
+   */
+  gpuBuffer?: GPUBuffer;
 
   constructor(public count: number) {}
 
