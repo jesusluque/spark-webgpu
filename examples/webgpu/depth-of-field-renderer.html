@@ -14,13 +14,15 @@
         "three": "../js/vendor/three/build/three.webgpu.js",
         "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
         "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js",
         "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three/webgpu";
-    import { GpuSplatSource, PackedSplats, SparkControls, WgpuSplatRenderer } from "@sparkjsdev/spark";
+    import { PackedSplats, SparkControls } from "@sparkjsdev/spark";
+    import { GpuSplatSource, WgpuSplatRenderer } from "@sparkjsdev/spark/webgpu";
     import GUI from "lil-gui";
     import { getAssetFileURL } from "../js/get-asset-url.js";
 

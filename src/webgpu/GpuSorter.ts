@@ -17,8 +17,8 @@ export class GpuSorter {
   readonly device: GPUDevice;
   /** Indirect draw arguments: 4 vertices, one instance per active splat. */
   readonly drawArgs: GPUBuffer;
-  // Workgroup counts of the radix passes, for the active keys only.
-  private dispatchArgs: GPUBuffer;
+  /** Workgroup counts of the radix passes: one per TILE active keys. */
+  readonly dispatchArgs: GPUBuffer;
   private capacity = 0;
   private keys: GPUBuffer[] = [];
   private vals: GPUBuffer[] = [];
@@ -26,7 +26,11 @@ export class GpuSorter {
   private scanLevels: GPUBuffer[] = [];
   private empty: GPUBuffer;
 
-  constructor(readonly registry: KernelRegistry) {
+  /** `label` prefixes the profiler's stage labels. */
+  constructor(
+    readonly registry: KernelRegistry,
+    readonly label = "sort",
+  ) {
     this.device = registry.device;
     this.drawArgs = storage(
       this.device,
@@ -57,12 +61,11 @@ export class GpuSorter {
       this.keys.push(storage(this.device, n * 4, `sort keys ${k}`));
       this.vals.push(storage(this.device, n * 4, `sort vals ${k}`));
     }
-    let size = BINS * Math.ceil(n / TILE);
-    this.scanLevels.push(storage(this.device, size * 4, "sort block hist"));
-    do {
-      size = Math.ceil(size / SCAN_CHUNK);
-      this.scanLevels.push(storage(this.device, size * 4, "sort chunk sums"));
-    } while (size > 1);
+    this.scanLevels = createScanLevels(
+      this.device,
+      BINS * Math.ceil(n / TILE),
+      "sort block hist",
+    );
   }
 
   /**
@@ -92,21 +95,70 @@ export class GpuSorter {
     count: number,
     bits: 16 | 24 | 32 = 32,
   ) {
-    let open: GPUComputePassEncoder | null = null;
-    this.encodeStages(
-      (stage) => {
-        open?.end();
-        const label = `sort.${stage}`;
-        open = encoder.beginComputePass({
-          label,
-          timestampWrites: profiler.timestampWrites(label),
-        });
-        return open;
-      },
-      metric,
-      count,
-      bits,
+    this.withStagePasses(encoder, profiler, (stagePass) =>
+      this.encodeStages(stagePass, metric, count, bits),
     );
+  }
+
+  /**
+   * Buffers of at least `capacity` keys and values for encodeKeys, which
+   * the caller's kernels fill; their count goes in drawArgs[1].
+   */
+  keyInput(capacity: number): { keys: GPUBuffer; vals: GPUBuffer } {
+    this.ensure(capacity);
+    return { keys: this.keys[0], vals: this.vals[0] };
+  }
+
+  /**
+   * Records a stable sort of the keyInput keys and values on their low
+   * `bits` (a multiple of 4), for drawArgs[1] of them (at most `capacity`),
+   * into `encoder`: one pass, or one per stage when `profiler` is given.
+   * Returns the buffers holding the sorted keys and values.
+   */
+  encodeKeys(
+    encoder: GPUCommandEncoder,
+    profiler: GpuProfiler | null,
+    capacity: number,
+    bits: number,
+  ): { keys: GPUBuffer; vals: GPUBuffer } {
+    this.ensure(capacity);
+    const passes = Math.ceil(bits / 4);
+    this.withStagePasses(encoder, profiler, (stagePass) => {
+      this.registry
+        .get(sortModule, "writeDispatch")
+        .dispatch(stagePass("prepare"), {
+          grid: [1],
+          buffers: {
+            sortCount: this.drawArgs,
+            dispatchArgs: this.dispatchArgs,
+          },
+        });
+      this.encodeRadixPasses(stagePass, capacity, 0, passes);
+    });
+    const out = passes & 1;
+    return { keys: this.keys[out], vals: this.vals[out] };
+  }
+
+  // Calls `record` with a stage-pass function: every stage in one compute
+  // pass, or with `profiler`, a timed pass per stage.
+  private withStagePasses(
+    encoder: GPUCommandEncoder,
+    profiler: GpuProfiler | null,
+    record: (stagePass: (stage: string) => GPUComputePassEncoder) => void,
+  ) {
+    let open: GPUComputePassEncoder | null = null;
+    let openStage = "";
+    record((stage) => {
+      if (open && (!profiler || stage === openStage)) return open;
+      open?.end();
+      openStage = stage;
+      const label = `${this.label}${profiler ? `.${stage}` : ""}`;
+      open = encoder.beginComputePass({
+        label,
+        timestampWrites: profiler?.timestampWrites(label),
+      });
+      return open;
+    });
     (open as GPUComputePassEncoder | null)?.end();
   }
 
@@ -162,12 +214,27 @@ export class GpuSorter {
       buffers: { sortCount: this.drawArgs, dispatchArgs: this.dispatchArgs },
     });
 
-    // The radix passes run over the active blocks only (dispatchArgs).
-    const passes = bits / 4;
+    this.encodeRadixPasses(stagePass, count, 32 - bits, bits / 4);
+  }
+
+  // `passes` radix passes from bit `shift` over the active blocks only
+  // (dispatchArgs), from keys[0] and vals[0], alternating buffers.
+  private encodeRadixPasses(
+    stagePass: (stage: string) => GPUComputePassEncoder,
+    count: number,
+    shift: number,
+    passes: number,
+  ) {
+    const numBlocks = Math.ceil(count / TILE);
+    const get = (entry: string) => this.registry.get(sortModule, entry);
     for (let p = 0; p < passes; p++) {
       const src = p & 1;
       const dst = src ^ 1;
-      const uniforms = sortParams(32 - bits + 4 * p);
+      const uniforms = UniformWriter.for(sortModule, "params").setAll({
+        count,
+        shift: shift + 4 * p,
+        numBlocks,
+      }).data;
       get("radixHistogram").dispatchIndirect(
         stagePass("histogram"),
         {
@@ -201,38 +268,7 @@ export class GpuSorter {
 
   // Exclusive scan of scanLevels[0][0..n), level by level.
   private encodeScan(pass: GPUComputePassEncoder, n: number) {
-    const scan = this.registry.get(sortModule, "scanChunks");
-    const add = this.registry.get(sortModule, "addChunkOffsets");
-    const sizes: number[] = [];
-    let size = n;
-    for (let level = 0; ; level++) {
-      sizes.push(size);
-      const chunks = Math.ceil(size / SCAN_CHUNK);
-      scan.dispatch(pass, {
-        grid: [chunks * 256],
-        buffers: {
-          scanData: this.scanLevels[level],
-          chunkSums: this.scanLevels[level + 1] ?? this.empty,
-        },
-        uniforms: UniformWriter.for(sortModule, "scanParams").set("count", size)
-          .data,
-      });
-      if (chunks <= 1) break;
-      size = chunks;
-    }
-    for (let level = sizes.length - 2; level >= 0; level--) {
-      add.dispatch(pass, {
-        grid: [sizes[level]],
-        buffers: {
-          scanData: this.scanLevels[level],
-          chunkSums: this.scanLevels[level + 1],
-        },
-        uniforms: UniformWriter.for(sortModule, "scanParams").set(
-          "count",
-          sizes[level],
-        ).data,
-      });
-    }
+    encodeExclusiveScan(this.registry, pass, this.scanLevels, n, this.empty);
   }
 
   private destroyBuffers() {
@@ -248,5 +284,69 @@ export class GpuSorter {
     this.drawArgs.destroy();
     this.dispatchArgs.destroy();
     this.empty.destroy();
+  }
+}
+
+/**
+ * Buffers for encodeExclusiveScan of `n` u32: the data, then the chunk sums
+ * of each level.
+ */
+export function createScanLevels(
+  device: GPUDevice,
+  n: number,
+  label: string,
+): GPUBuffer[] {
+  const levels = [storage(device, n * 4, label)];
+  let size = n;
+  do {
+    size = Math.ceil(size / SCAN_CHUNK);
+    levels.push(storage(device, size * 4, `${label} chunk sums`));
+  } while (size > 1);
+  return levels;
+}
+
+/**
+ * Records an in-place exclusive scan of levels[0][0..n) into `pass`, level
+ * by level (sort_radix.slang's scanChunks and addChunkOffsets). `empty`
+ * takes the top level's sum when `levels` has no buffer for it.
+ */
+export function encodeExclusiveScan(
+  registry: KernelRegistry,
+  pass: GPUComputePassEncoder,
+  levels: readonly GPUBuffer[],
+  n: number,
+  empty: GPUBuffer,
+) {
+  const scan = registry.get(sortModule, "scanChunks");
+  const add = registry.get(sortModule, "addChunkOffsets");
+  const sizes: number[] = [];
+  let size = n;
+  for (let level = 0; ; level++) {
+    sizes.push(size);
+    const chunks = Math.ceil(size / SCAN_CHUNK);
+    scan.dispatch(pass, {
+      grid: [chunks * 256],
+      buffers: {
+        scanData: levels[level],
+        chunkSums: levels[level + 1] ?? empty,
+      },
+      uniforms: UniformWriter.for(sortModule, "scanParams").set("count", size)
+        .data,
+    });
+    if (chunks <= 1) break;
+    size = chunks;
+  }
+  for (let level = sizes.length - 2; level >= 0; level--) {
+    add.dispatch(pass, {
+      grid: [sizes[level]],
+      buffers: {
+        scanData: levels[level],
+        chunkSums: levels[level + 1],
+      },
+      uniforms: UniformWriter.for(sortModule, "scanParams").set(
+        "count",
+        sizes[level],
+      ).data,
+    });
   }
 }

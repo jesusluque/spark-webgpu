@@ -8,7 +8,11 @@ import { PackedSplats } from "../../src/PackedSplats";
 import { RgbaArray } from "../../src/RgbaArray";
 import { SparkRenderer } from "../../src/SparkRenderer";
 import { SplatMesh } from "../../src/SplatMesh";
+import { loadWebGPU } from "../../src/webgpuLoader";
 import { device } from "./device";
+
+// SparkRenderer constructs its WebGPU backend at once when it has loaded.
+await loadWebGPU();
 
 const W = 64;
 const H = 64;
@@ -150,7 +154,72 @@ describe.skipIf(!device)("SparkRenderer on WebGPU", () => {
     await render(spark, scene, camera);
     expect(splats?.options.maxStdDev).toBe(2);
     expect(splats?.meshes[0].recolor.w).toBe(0.5);
+    spark.material.depthTest = false;
+    await render(spark, scene, camera);
+    expect(splats?.options.depthTest).toBe(false);
     spark.dispose();
+  });
+
+  // Tone mapping the composite can't invert (a custom node here) puts the
+  // splats on the canvas after three's output pass, with MSAA too (its
+  // depth resolved to one sample), not into the tone-mapped frame.
+  it("draws after the output pass under custom tone mapping with MSAA", async () => {
+    const { spark, scene, camera } = setup();
+    scene.add(new SplatMesh({ packedSplats: ball() }));
+    const r = fakeRenderer as Record<string, unknown>;
+    const utils = fakeRenderer.backend.utils;
+    const frameBufferTarget = {};
+    r.toneMapping = THREE.CustomToneMapping;
+    r._frameBufferTarget = frameBufferTarget;
+    Object.assign(rc, { renderTarget: frameBufferTarget, textures: [{}] });
+    utils.getSampleCountRenderContext = () => 4;
+    try {
+      await render(spark, scene, camera);
+      expect(Object.hasOwn(scene, "onAfterRender")).toBe(true);
+      scene.onAfterRender(
+        fakeRenderer as never,
+        scene,
+        camera,
+        null as never,
+        null as never,
+        null as never,
+      );
+      await d.queue.onSubmittedWorkDone();
+      expect(await litPixels()).toBeGreaterThan(W * H * 0.1);
+    } finally {
+      r.toneMapping = undefined;
+      r._frameBufferTarget = null;
+      Object.assign(rc, { renderTarget: null, textures: null });
+      utils.getSampleCountRenderContext = () => 1;
+      spark.dispose();
+    }
+  });
+
+  // rawColor on the canvas: three's output pass would encode the values
+  // the splats store in its linear frame, so they go on after it, unconverted,
+  // as WebGL Spark writes them to its canvas.
+  it("draws rawColor splats on the canvas after the output pass", async () => {
+    const spark = new SparkRenderer({
+      renderer: fakeRenderer as never,
+      rawColor: true,
+    });
+    const { spark: other, scene, camera } = setup();
+    scene.remove(other);
+    other.dispose();
+    scene.add(spark);
+    scene.add(new SplatMesh({ packedSplats: ball() }));
+    const r = fakeRenderer as Record<string, unknown>;
+    const frameBufferTarget = {};
+    r._frameBufferTarget = frameBufferTarget;
+    Object.assign(rc, { renderTarget: frameBufferTarget, textures: [{}] });
+    try {
+      await render(spark, scene, camera);
+      expect(Object.hasOwn(scene, "onAfterRender")).toBe(true);
+    } finally {
+      r._frameBufferTarget = null;
+      Object.assign(rc, { renderTarget: null, textures: null });
+      spark.dispose();
+    }
   });
 
   it("follows visibility, shared splats and removal", async () => {

@@ -65,7 +65,11 @@ interface Compiled {
   module: KernelModule;
   layouts: TextureLayouts;
   /** What the last refresh saw: uniform bytes and texture versions. */
-  state?: { uniforms: Uint8Array; textures: number[] };
+  state?: {
+    uniforms: Uint8Array;
+    textures: number[];
+    sources: (THREE.Texture | undefined)[];
+  };
 }
 
 function chain(modifiers: GsplatModifier[]): Dyno<IOTypes, IOTypes> {
@@ -145,17 +149,20 @@ export class DynoKernels {
     const { program } = compiled;
     program.update();
     const uniforms = new Uint8Array(program.packUniforms());
-    const textures = program.backend.textures.map(
-      (t) => (t.uniform.value as THREE.Texture | undefined)?.version ?? -1,
+    // The texture objects too: two uploaded once have the same version.
+    const sources = program.backend.textures.map(
+      (t) => t.uniform.value as THREE.Texture | undefined,
     );
+    const textures = sources.map((t) => t?.version ?? -1);
     const last = compiled.state;
-    compiled.state = { uniforms, textures };
+    compiled.state = { uniforms, textures, sources };
     return (
       before !== compiled ||
       !last ||
       last.uniforms.length !== uniforms.length ||
       last.uniforms.some((b, i) => b !== uniforms[i]) ||
-      last.textures.some((v, i) => v !== textures[i])
+      last.textures.some((v, i) => v !== textures[i]) ||
+      last.sources.some((t, i) => t !== sources[i])
     );
   }
 

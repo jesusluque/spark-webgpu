@@ -119,50 +119,7 @@ export {
   DISK_PORTAL_FRAGMENT_SHADER,
 } from "./SparkPortals";
 
-export {
-  WgpuSplatRenderer,
-  GpuSplatSource,
-  type WgpuSplatMesh,
-  type WgpuSplatRendererOptions,
-} from "./webgpu/WgpuSplatRenderer";
-export { KernelRegistry } from "./webgpu/KernelRegistry";
-export {
-  WgpuLod,
-  type WgpuLodMesh,
-  type WgpuLodMeshOptions,
-  type WgpuLodOptions,
-} from "./webgpu/WgpuLod";
-export { WgpuSplatPager } from "./webgpu/WgpuSplatPager";
-export {
-  WgpuReadTarget,
-  type WgpuReadTargetOptions,
-} from "./webgpu/WgpuReadTarget";
-export {
-  WgpuCubeMap,
-  type WgpuCubeMapOptions,
-} from "./webgpu/WgpuCubeMap";
-export { UniformWriter } from "./webgpu/uniforms";
-export * as fx from "./webgpu/fx";
-export {
-  capabilitiesOf,
-  splatRequiredLimits,
-  type GpuCapabilities,
-} from "./webgpu/capabilities";
-export {
-  splatGeneratorDyno,
-  splatMeshDyno,
-} from "./webgpu/dyno/adapters";
-export type { WgpuDyno, WgpuDynoFrame } from "./webgpu/dyno/DynoKernels";
-export {
-  SplatAttributes,
-  type SplatAttributesOptions,
-  type AttribColorMode,
-  type PickResult,
-} from "./webgpu/attributes/SplatAttributes";
-export {
-  AttribPool,
-  type AttribFormat,
-  type AttributeSpec,
-  type LodMerge,
-} from "./webgpu/attributes/schema";
-export { PlyAttributeReader } from "./webgpu/attributes/plyAttributes";
+// The WebGPU backend and its API live in "@sparkjsdev/spark/webgpu"
+// (src/webgpu/index.ts), loaded on demand so WebGL apps don't download it.
+export { isWebGPURenderer, loadWebGPU } from "./webgpuLoader";
+export type { SparkWebGPU, WebGPURendererLike } from "./webgpu/SparkWebGPU";

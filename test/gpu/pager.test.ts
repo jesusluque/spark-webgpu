@@ -298,3 +298,57 @@ describe.skipIf(!device)("WgpuSplatPager", () => {
     pager.dispose();
   });
 });
+
+// 256 pages of 65536 splats are 65536 restride workgroups, one more than a
+// dispatch dimension allows: a device with the adapter's buffer limits
+// fits them all.
+describe.skipIf(!device)("WgpuSplatPager at 256 pages", () => {
+  it("widens the SH pool past one dispatch's workgroups", async () => {
+    const { create, globals } = await import("webgpu");
+    Object.assign(globalThis, globals);
+    const gpu = create([]);
+    const adapter = await gpu.requestAdapter();
+    const limits = adapter?.limits;
+    const needed = 256 * PAGE * 32;
+    if (!adapter || !limits || limits.maxStorageBufferBindingSize < needed) {
+      return;
+    }
+    const dev = await adapter.requestDevice({
+      requiredLimits: {
+        maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
+        maxBufferSize: limits.maxBufferSize,
+      },
+    });
+    const pager = new WgpuSplatPager(dev, { onUpdate: () => {} });
+    expect(pager.maxSplats).toBe(256 * PAGE);
+    const upload = (
+      pager as unknown as {
+        uploadPage(p: number, packed: Uint32Array, sh: Uint32Array[]): void;
+      }
+    ).uploadPage.bind(pager);
+    const n = 16;
+    const packed = new Uint32Array(n * 4);
+    dev.pushErrorScope("validation");
+    upload(255, packed, [new Uint32Array(n * 2).fill(7)]);
+    upload(0, packed, [new Uint32Array(n * 2), new Uint32Array(n * 4)]);
+    expect(await dev.popErrorScope()).toBeNull();
+    // The last page's SH moved to the wider stride.
+    const sh = pager.pools.sh.buffer as GPUBuffer;
+    const read = dev.createBuffer({
+      size: 32,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const encoder = dev.createCommandEncoder();
+    encoder.copyBufferToBuffer(sh, 255 * PAGE * 32, read, 0, 32);
+    dev.queue.submit([encoder.finish()]);
+    await read.mapAsync(GPUMapMode.READ);
+    expect(Array.from(new Uint32Array(read.getMappedRange()))).toEqual([
+      7, 7, 0, 0, 0, 0, 0, 0,
+    ]);
+    read.unmap();
+    pager.dispose();
+    dev.destroy();
+    // Dawn's instance must outlive the device (see device.ts).
+    (globalThis as { keepGpu?: unknown }).keepGpu = [gpu, adapter];
+  }, 60000);
+});

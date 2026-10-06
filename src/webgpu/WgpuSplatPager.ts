@@ -167,11 +167,19 @@ export class WgpuSplatPager extends SplatPager {
     const buffer = this.ensurePool(sh, "SH pages");
     if (old) {
       this.registry ??= new KernelRegistry(this.device);
-      this.registry.get(restrideModule, "restride").run({
-        grid: [this.maxSplats],
-        buffers: { src: old, dst: buffer },
-        uniforms: new Uint32Array([this.maxSplats, oldSlots, newSlots, 0]),
-      });
+      const kernel = this.registry.get(restrideModule, "restride");
+      // In slices: 256 pages need 65536 workgroups, one over the limit.
+      const slice =
+        this.device.limits.maxComputeWorkgroupsPerDimension *
+        (kernel.entry.workgroupSize?.[0] ?? 1);
+      for (let first = 0; first < this.maxSplats; first += slice) {
+        const count = Math.min(slice, this.maxSplats - first);
+        kernel.run({
+          grid: [count],
+          buffers: { src: old, dst: buffer },
+          uniforms: new Uint32Array([count, oldSlots, newSlots, first]),
+        });
+      }
       old.destroy();
     }
     this.shDegree = degree;

@@ -12,6 +12,11 @@
       "types": "./dist/types/index.d.ts",
       "import": "./dist/spark.module.js",
       "require": "./dist/spark.cjs.js"
+    },
+    "./webgpu": {
+      "types": "./dist/types/webgpu/index.d.ts",
+      "import": "./dist/spark.webgpu.module.js",
+      "require": "./dist/spark.webgpu.cjs.js"
     }
   },
   "scripts": {

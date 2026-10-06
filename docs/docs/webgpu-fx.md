@@ -2,7 +2,7 @@
 
 On the WebGPU backend, a rendered frame can go through image effects written for the **AOFX SDK** (`aopenfx`), a C++ plugin interface for GPU effects whose kernels are written in Slang. Spark runs the same Slang kernels, compiled to WGSL, under a TypeScript port of the SDK's effect model. So an effect is written once in Slang and runs in an aofx host on Metal or CUDA and in the browser on WebGPU.
 
-The code is in `src/webgpu/fx/` (exported as the `fx` namespace) and `slang/fx/`. `examples/webgpu/fx.html` runs a chain of effects over a splat render, with a panel built from each effect's description.
+The code is in `src/webgpu/fx/` (exported as the `fx` namespace of `@sparkjsdev/spark/webgpu`) and `slang/fx/`. `examples/webgpu/fx.html` runs a chain of effects over a splat render, with a panel built from each effect's description.
 
 ## Applying effects to a frame
 
@@ -10,7 +10,7 @@ The code is in `src/webgpu/fx/` (exported as the `fx` namespace) and `slang/fx/`
 
 ```typescript
 import * as THREE from "three/webgpu";
-import { fx, GpuSplatSource, WgpuSplatRenderer } from "@sparkjsdev/spark";
+import { fx, GpuSplatSource, WgpuSplatRenderer } from "@sparkjsdev/spark/webgpu";
 
 const chain = new fx.FxChain(renderer.backend.device);
 chain.add(new fx.Grade(), { gamma: [1.2, 1.2, 1.2, 1] });

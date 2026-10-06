@@ -685,7 +685,7 @@ export class CombineGsplat
         b,
       },
       globals: () => [defineGsplat],
-      statements: ({ inputs, outputs }) => {
+      statements: ({ inputs, outputs, compile }) => {
         const { gsplat: outGsplat } = outputs;
         if (!outGsplat) {
           return [];
@@ -714,7 +714,12 @@ export class CombineGsplat
           `${outGsplat}.scales = ${scales ?? (gsplat ? `${gsplat}.scales` : "vec3(0.0, 0.0, 0.0)")};`,
           `${outGsplat}.quaternion = ${quaternion ?? (gsplat ? `${gsplat}.quaternion` : "vec4(0.0, 0.0, 0.0, 1.0)")};`,
           `${outGsplat}.rgba = ${rgba ?? (gsplat ? `${gsplat}.rgba` : "vec4(0.0, 0.0, 0.0, 0.0)")};`,
-          !rgb ? null : `${outGsplat}.rgba.rgb = ${rgb};`,
+          !rgb
+            ? null
+            : // WGSL can't assign to a swizzle.
+              compile.target === "wgsl"
+              ? `${outGsplat}.rgba = vec4f(${rgb}, ${outGsplat}.rgba.a);`
+              : `${outGsplat}.rgba.rgb = ${rgb};`,
           !opacity ? null : `${outGsplat}.rgba.a = ${opacity};`,
           !x ? null : `${outGsplat}.center.x = ${x};`,
           !y ? null : `${outGsplat}.center.y = ${y};`,
@@ -1077,7 +1082,7 @@ export class CombineCovSplat
         b,
       },
       globals: () => [defineCovSplat],
-      statements: ({ inputs, outputs }) => {
+      statements: ({ inputs, outputs, compile }) => {
         const { covsplat: outCovSplat } = outputs;
         if (!outCovSplat) {
           return [];
@@ -1102,7 +1107,12 @@ export class CombineCovSplat
           `${outCovSplat}.index = ${index ?? (covsplat ? `${covsplat}.index` : "0")};`,
           `${outCovSplat}.center = ${center ?? (covsplat ? `${covsplat}.center` : "vec3(0.0, 0.0, 0.0)")};`,
           `${outCovSplat}.rgba = ${rgba ?? (covsplat ? `${covsplat}.rgba` : "vec4(0.0, 0.0, 0.0, 0.0)")};`,
-          !rgb ? null : `${outCovSplat}.rgba.rgb = ${rgb};`,
+          !rgb
+            ? null
+            : // WGSL can't assign to a swizzle.
+              compile.target === "wgsl"
+              ? `${outCovSplat}.rgba = vec4f(${rgb}, ${outCovSplat}.rgba.a);`
+              : `${outCovSplat}.rgba.rgb = ${rgb};`,
           !opacity ? null : `${outCovSplat}.rgba.a = ${opacity};`,
           !x ? null : `${outCovSplat}.center.x = ${x};`,
           !y ? null : `${outCovSplat}.center.y = ${y};`,

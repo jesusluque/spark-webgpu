@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { encodeExtSplat } from "../../src/utils";
-import { drawSplatDraw } from "../../src/webgpu/generated/constants";
+import { drawSplatShape } from "../../src/webgpu/generated/constants";
 import generated from "../../src/webgpu/generated/draw/splat_draw";
 import {
   createBindGroups,
@@ -12,7 +12,7 @@ import {
 import { UniformWriter } from "../../src/webgpu/uniforms";
 import { device, storage } from "./device";
 
-const { DRAW_EXT } = drawSplatDraw;
+const { DRAW_EXT } = drawSplatShape;
 const SIZE = 64;
 const FOV_Y = Math.PI / 3;
 const NEAR = 0.1;

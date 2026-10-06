@@ -202,10 +202,12 @@ export class SparkWebGPU {
       INVERTIBLE_TONE_MAPPINGS.includes(toneMapping) &&
       renderer.outputColorSpace === THREE.SRGBColorSpace &&
       !this.spark.rawColor;
+    // With MSAA too: drawOnCanvas tests against the resolved depth. Raw
+    // colours too, which three's output pass would encode, unlike WebGL's
+    // canvas.
     if (
-      toneMapping !== THREE.NoToneMapping &&
-      !invertible &&
-      target.sampleCount === 1
+      (toneMapping !== THREE.NoToneMapping && !invertible) ||
+      (canvas && this.spark.rawColor)
     ) {
       this.drawAfterOutput(scene, camera, open);
       return;
@@ -445,6 +447,7 @@ export class SparkWebGPU {
     o.apertureAngle = spark.apertureAngle;
     o.sortRadial = spark.sortRadial;
     o.lodInflate = spark.lodInflate;
+    o.depthTest = spark.material.depthTest;
     const l = (this.lod as WgpuLod).options;
     l.lodSplatCount = spark.lodSplatCount;
     l.lodSplatScale = spark.lodSplatScale;

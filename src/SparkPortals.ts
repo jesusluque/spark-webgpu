@@ -268,9 +268,10 @@ export class SparkPortals {
     // On WebGPU both passes draw with portalRenderer's splats (one copy of
     // the LoD pages), its LoD traversed from the main camera, as the
     // shared lodInstances do on WebGL.
-    if (this.portalRenderer.webgpu) {
-      this.portalRenderer.webgpu.lodCamera = this.camera;
-    }
+    const portalRenderer = this.portalRenderer;
+    void portalRenderer.webgpuReady.then(() => {
+      if (portalRenderer.webgpu) portalRenderer.webgpu.lodCamera = this.camera;
+    });
     this.scene.add(this.portalRenderer);
 
     // Secondary renderer for behind-portal pass
@@ -668,7 +669,7 @@ export class SparkPortals {
     // Pass 1: Behind portal view (uses shared lodInstances)
     this.setPortalDiskUniforms(this.camera2, otherPortal, pair.radius, true);
     this.renderer.autoClear = true;
-    const behind = this.portalRenderer.webgpu
+    const behind = this.portalRenderer.isWebGPU
       ? this.portalRenderer
       : this.behindRenderer;
     behind.render(this.scene, this.camera2);

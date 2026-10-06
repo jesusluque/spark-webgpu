@@ -22,6 +22,13 @@ the same three classes. With an import map, add
 If the browser has no WebGPU, WebGPURenderer falls back to WebGL2. Spark can't
 draw on that fallback and logs an error.
 
+The backend is a file of its own, `dist/spark.webgpu.module.js`, which
+`SparkRenderer` loads the first time it gets a WebGPURenderer: splats appear
+once `spark.webgpuReady` resolves. `await loadWebGPU()` first, or import
+`"@sparkjsdev/spark/webgpu"`, to have `spark.webgpu` from the constructor on.
+The WebGPU-only API (`WgpuSplatRenderer`, `GpuSplatSource`, `WgpuLod`, `fx`,
+`SplatAttributes`, `splatRequiredLimits`, ...) comes from
+`"@sparkjsdev/spark/webgpu"`; the pages here map it in their import maps.
 
 ### Clear colour
 

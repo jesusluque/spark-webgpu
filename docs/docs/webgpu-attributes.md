@@ -134,7 +134,7 @@ Six labelled shapes whose splats carry a normal, a label and an 8-component feat
 
 ```typescript
 import * as THREE from "three/webgpu";
-import { GpuSplatSource, SplatAttributes, WgpuSplatRenderer } from "@sparkjsdev/spark";
+import { GpuSplatSource, SplatAttributes, WgpuSplatRenderer } from "@sparkjsdev/spark/webgpu";
 
 const renderer = new THREE.WebGPURenderer();
 await renderer.init();
