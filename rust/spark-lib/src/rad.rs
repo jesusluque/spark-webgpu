@@ -17,7 +17,7 @@ use miniz_oxide::inflate::decompress_to_vec;
 //     encode_all(data, 19).unwrap()
 // }
 
-use crate::attrib::AttribSpec;
+use crate::attrib::{AttribSpec, LodMerge};
 use crate::decoder::{ChunkReceiver, SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatReceiver};
 use crate::sh_clustering::ShClusters;
 use crate::splat_encode::{self, decode_scale8, encode_scale8_zero};
@@ -998,6 +998,34 @@ fn decode_attrib(prop: &RadChunkProperty, data: &[u8], dims: usize, count: usize
     })
 }
 
+// The spec and values of an "attrib" property without the file's schema:
+// the GPU format the encoder wrote it from (encode_chunk_attrib), and the
+// components from its decompressed size. The file meta has the real spec.
+fn lone_attrib(prop: &RadChunkProperty, data: &[u8], count: usize) -> anyhow::Result<Option<(AttribSpec, Vec<f64>)>> {
+    let Some(name) = prop.name.clone() else {
+        return Ok(None);
+    };
+    let (format, bytes) = match prop.encoding {
+        RadChunkPropertyEncoding::F32 => ("f32", 4),
+        RadChunkPropertyEncoding::F16 => ("f16", 2),
+        RadChunkPropertyEncoding::R8 => ("unorm8", 1),
+        RadChunkPropertyEncoding::S8 => ("snorm8", 1),
+        RadChunkPropertyEncoding::U16 => ("u16", 2),
+        RadChunkPropertyEncoding::U32 => ("u32", 4),
+        _ => return Ok(None),
+    };
+    if count == 0 || data.len() % (count * bytes) != 0 {
+        return Ok(None);
+    }
+    let components = data.len() / (count * bytes);
+    if components == 0 {
+        return Ok(None);
+    }
+    let values = decode_attrib(prop, data, components, count)?;
+    let spec = AttribSpec { name, format: format.to_string(), components, lod_merge: LodMerge::WeightedMean };
+    Ok(Some((spec, values)))
+}
+
 fn roundup8(size: usize) -> usize {
     (size + 7) & !7
 }
@@ -1456,6 +1484,9 @@ pub struct RadDecoder<T: SplatReceiver> {
     prop_index: usize,
     base: usize,
     count: usize,
+    /// Attributes of a chunk read alone (no file meta, so no schema): specs
+    /// inferred from each "attrib" property, handed over at finish.
+    lone_attribs: Vec<(AttribSpec, Vec<f64>)>,
 }
 
 impl<T: SplatReceiver> RadDecoder<T> {
@@ -1476,6 +1507,7 @@ impl<T: SplatReceiver> RadDecoder<T> {
             prop_index: 0,
             base: 0,
             count: 0,
+            lone_attribs: Vec::new(),
         }
     }
 
@@ -1855,6 +1887,12 @@ impl<T: SplatReceiver> RadDecoder<T> {
                     if let Some((k, dims)) = found {
                         let values = decode_attrib(prop, data, dims, self.count)?;
                         self.splats.set_attrib(k, self.base, self.count, &values);
+                    } else if self.meta.is_none() {
+                        // A chunk read alone (paged .rad): the property gives the
+                        // name, the format and, from its size, the components.
+                        if let Some(attrib) = lone_attrib(prop, data, self.count)? {
+                            self.lone_attribs.push(attrib);
+                        }
                     }
                 },
                 // _ => return Err(anyhow::anyhow!("Unknown property type: {:?}", prop.property)),
@@ -1897,6 +1935,14 @@ impl<T: SplatReceiver> ChunkReceiver for RadDecoder<T> {
         self.poll()?;
         if !self.done {
             return Err(anyhow::anyhow!("Incomplete RAD chunk"));
+        }
+        if !self.lone_attribs.is_empty() {
+            let attribs = std::mem::take(&mut self.lone_attribs);
+            let specs: Vec<AttribSpec> = attribs.iter().map(|(spec, _)| spec.clone()).collect();
+            self.splats.init_attribs(&specs);
+            for (k, (_, values)) in attribs.iter().enumerate() {
+                self.splats.set_attrib(k, 0, self.count, values);
+            }
         }
         self.splats.finish()?;
         Ok(())

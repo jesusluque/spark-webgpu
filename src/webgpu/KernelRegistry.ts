@@ -140,7 +140,28 @@ export class Kernel {
 
     const [gx, gy, gz] = workgroupCount(this.entry, args.grid);
     if (gx === 0 || gy === 0 || gz === 0) return;
+    this.bind(pass, args);
+    pass.dispatchWorkgroups(gx, gy, gz);
+  }
 
+  /**
+   * Records a dispatch whose workgroup counts a kernel wrote to `indirect`
+   * (three u32 at `offset`); args.grid is not used.
+   */
+  dispatchIndirect(
+    pass: GPUComputePassEncoder,
+    args: Omit<DispatchArgs, "grid">,
+    indirect: GPUBuffer,
+    offset = 0,
+  ) {
+    const full = { ...args, grid: [0] as const };
+    const errors = validateDispatch(this.module, this.entry, full);
+    if (errors.length) throw new Error(errors.join("\n"));
+    this.bind(pass, full);
+    pass.dispatchWorkgroupsIndirect(indirect, offset);
+  }
+
+  private bind(pass: GPUComputePassEncoder, args: DispatchArgs) {
     const device = this.registry.device;
     pass.setPipeline(this.pipeline);
     for (const group of this.groups) {
@@ -160,7 +181,6 @@ export class Kernel {
         device.createBindGroup({ layout: this.layouts[group], entries }),
       );
     }
-    pass.dispatchWorkgroups(gx, gy, gz);
   }
 
   /** Dispatches on its own pass and submits. */

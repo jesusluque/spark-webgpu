@@ -9,10 +9,10 @@
 // Nothing here needs an optional feature. The kernels use plain WGSL:
 // atomics (sort_radix's histogram and the indirect count), 256-thread
 // workgroups, at most 4.2 KiB of workgroup storage, two read-only storage
-// buffers in the vertex stage, drawIndirect from a buffer compute wrote with
-// firstInstance 0 (so no indirect-first-instance), and rgba16float render
-// targets with depth. Subgroups, timestamp queries, float32-filterable and
-// bgra8unorm-storage are reported for callers that want them, never assumed.
+// buffers in the vertex stage, drawIndirect (firstInstance 0, so no
+// indirect-first-instance) and dispatchWorkgroupsIndirect from buffers
+// compute wrote, and rgba16float render targets with depth. Subgroups,
+// timestamp queries, float32-filterable and bgra8unorm-storage are reported for callers that want them, never assumed.
 
 /** Workgroup threads sort_radix's histogram and scatter entries declare. */
 export const SORT_WORKGROUP_THREADS = 256;
@@ -23,6 +23,8 @@ export const SORT_WORKGROUP_THREADS = 256;
 export const SORT_WORKGROUP_BYTES = 16 * 4 + 128 * 16 + 16 * 4 + 512 * 4;
 /** Bytes per splat in the largest per-splat buffer (the ext accumulator). */
 export const ACCUMULATOR_BYTES_PER_SPLAT = 32;
+/** The packed accumulator (WgpuSplatRenderer accumulator "packed"). */
+export const PACKED_ACCUMULATOR_BYTES_PER_SPLAT = 16;
 /** Packed SH: three uint4 per splat. */
 export const SH_BYTES_PER_SPLAT = 48;
 /** Storage buffers the draw's vertex stage reads (ordering, splats). */
@@ -42,6 +44,8 @@ export interface GpuCapabilities {
   readonly gpuSortReason: string;
   /** Most splats one draw can hold, from the storage binding and buffer limits. */
   readonly maxSplats: number;
+  /** Most splats with the packed accumulator (twice maxSplats, up to dispatch limits). */
+  readonly maxSplatsPacked: number;
   /** Most splats with spherical harmonics. */
   readonly maxSplatsWithSh: number;
   /** Storage buffers the vertex stage may bind. */
@@ -110,6 +114,10 @@ export function capabilitiesOf(
     gpuSortReason: reasons.join(", "),
     maxSplats: Math.min(
       Math.floor(perBuffer / ACCUMULATOR_BYTES_PER_SPLAT),
+      dispatchable,
+    ),
+    maxSplatsPacked: Math.min(
+      Math.floor(perBuffer / PACKED_ACCUMULATOR_BYTES_PER_SPLAT),
       dispatchable,
     ),
     maxSplatsWithSh: Math.min(
