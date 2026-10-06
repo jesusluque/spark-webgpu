@@ -88,7 +88,7 @@ Splats are not tone mapped, as on WebGL.
 | interactivity.html (GLB, lights, shadows) | asset paths | 0.16 |
 | extsplats.html | – | 0.13 |
 | nonlod.html | – | 0.16 |
-| lod.html | – | 0.25 |
+| lod-example.html (examples/lod) | – | 0.25 |
 | multi-lod.html, streaming-lod.html | – | 0.58, 0.67 |
 | depth-of-field.html | – | 0.97 |
 | on-demand.html | `await renderer.init()` | 0.70 |
