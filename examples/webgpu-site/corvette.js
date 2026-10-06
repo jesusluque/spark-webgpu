@@ -56,7 +56,14 @@ export async function createCorvette({
     0.05,
     200,
   );
-  camera.position.fromArray(cam.position);
+  // athenea's camera, pulled back along its view (?distance=, default 1.5x)
+  // so the whole car and its floor are in frame.
+  {
+    const target = new THREE.Vector3().fromArray(cam.target);
+    const away = new THREE.Vector3().fromArray(cam.position).sub(target);
+    const pull = Number(params.get("distance")) || 1.5;
+    camera.position.copy(target).addScaledVector(away, pull);
+  }
   const hfov = THREE.MathUtils.degToRad(cam.horizontalFov);
 
   const target = new THREE.RenderTarget(1, 1, {
@@ -216,7 +223,7 @@ export async function createCorvette({
   status.textContent = `loading the car (${megabytes.toFixed(0)} MB)…`;
 
   const state = {
-    hdri: fullResHdri(params.get("hdri") ?? info.hdriDefault ?? info.hdri[0]),
+    hdri: fullResHdri(params.get("hdri") ?? "golden_gate_hills_4k.hdr"),
     rotation: info.domeRotation ?? 0,
     intensity: 1,
     sun: false,
