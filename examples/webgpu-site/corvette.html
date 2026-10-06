@@ -50,8 +50,8 @@
     // Two sets on R2: light (about 71 MB) and detailed (?quality=hd, about
     // 250 MB, three times the splats); ?base= points anywhere else (testing).
     const QUALITY = {
-      light: { folder: "corvette", megabytes: 71, label: "light (~95 MB)" },
-      hd: { folder: "corvette-hd", megabytes: 250, label: "detailed (~275 MB)" },
+      light: { folder: "corvette-v3-light", megabytes: 68, label: "light (~95 MB)" },
+      hd: { folder: "corvette-v2-hd", megabytes: 289, label: "detailed (~315 MB)" },
     };
     const quality = QUALITY[params.get("quality")] ? params.get("quality") : "light";
     const base =
