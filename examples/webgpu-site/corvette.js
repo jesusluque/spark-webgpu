@@ -151,7 +151,11 @@ export async function createCorvette({
   if ((info.upAxis ?? "Z") === "Z") car.rotation.x = -Math.PI / 2;
   scene.add(car);
 
-  const relight = atheneaRelightPlugin();
+  // Per-pixel slope and sharp coat (?detail=1): the paint's 0.03-0.07 rough
+  // coat reads its mirror per pixel; several times slower.
+  const relight = atheneaRelightPlugin({
+    pixelDetail: params.get("detail") === "1",
+  });
   const display = atheneaOutputPlugin({
     // athenea's look for the car: the Standard view on sRGB.
     view: params.get("view") ?? "standard",
@@ -264,6 +268,10 @@ export async function createCorvette({
       .name("dome intensity")
       .onChange(applySky);
     gui.add(state, "ground").name("ground + shadow").onChange(applySky);
+    gui
+      .add({ detail: relight.options.pixelDetail }, "detail")
+      .name("per-pixel detail (slow)")
+      .onChange((on) => relight.set({ pixelDetail: on }));
     // A direct-only transfer (t16, the light set) has no bounce to turn off.
     if (parts.some((p) => (p.transferCount ?? 0) >= 36)) {
       gui.add(state, "indirect").name("indirect + field").onChange(applySky);
@@ -329,6 +337,9 @@ export async function createCorvette({
   let frames = 0;
   let last = performance.now();
   Object.assign(window.__athenea, {
+    renderer,
+    target,
+    chain,
     corrector,
     relight,
     display,
