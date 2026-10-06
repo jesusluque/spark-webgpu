@@ -9,15 +9,14 @@
 
 import * as THREE from "three";
 import type { WgpuSplatRenderer } from "./WgpuSplatRenderer";
+import { copyBytesPerRow } from "./gpuBuffers";
 
 /**
  * Bytes per row of an RGBA8 readback from readRenderTargetPixelsAsync: rows
  * come padded to 256 bytes (WebGPU's copy alignment) unless tightly packed.
  */
 export function rowStride(length: number, width: number, height: number) {
-  return length === width * height * 4
-    ? width * 4
-    : Math.ceil((width * 4) / 256) * 256;
+  return length === width * height * 4 ? width * 4 : copyBytesPerRow(width * 4);
 }
 
 /**

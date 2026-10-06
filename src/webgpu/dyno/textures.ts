@@ -8,6 +8,7 @@
 // don't count against the 8 storage buffers a stage may use.
 
 import * as THREE from "three";
+import { reuseTexture } from "../gpuBuffers";
 
 interface FormatInfo {
   format: GPUTextureFormat;
@@ -105,7 +106,6 @@ export class TextureCache {
     const entry = this.entries.get(texture);
     if (entry && entry.version === texture.version) return entry.texture;
     const gpu = this.upload(texture, entry?.texture);
-    if (entry?.texture && entry.texture !== gpu) entry.texture.destroy();
     this.entries.set(texture, { texture: gpu, version: texture.version });
     return gpu;
   }
@@ -147,17 +147,11 @@ export class TextureCache {
     if (!isData(texture)) {
       const image = texture.image as ImageBitmap;
       const size = { width: image.width, height: image.height };
-      const gpu =
-        previous &&
-        previous.width === size.width &&
-        previous.height === size.height &&
-        previous.format === "rgba8unorm"
-          ? previous
-          : device.createTexture({
-              size,
-              format: "rgba8unorm",
-              usage: usage | GPUTextureUsage.RENDER_ATTACHMENT,
-            });
+      const gpu = reuseTexture(device, previous, {
+        size: [size.width, size.height],
+        format: "rgba8unorm",
+        usage: usage | GPUTextureUsage.RENDER_ATTACHMENT,
+      });
       device.queue.copyExternalImageToTexture(
         { source: image, flipY: texture.flipY },
         { texture: gpu },
@@ -173,16 +167,12 @@ export class TextureCache {
       height: image.height,
       depthOrArrayLayers: image.depth ?? 1,
     };
-    const dimension: GPUTextureDimension = is3D ? "3d" : "2d";
-    const gpu =
-      previous &&
-      previous.width === size.width &&
-      previous.height === size.height &&
-      previous.depthOrArrayLayers === size.depthOrArrayLayers &&
-      previous.format === format &&
-      previous.dimension === dimension
-        ? previous
-        : device.createTexture({ size, format, usage, dimension });
+    const gpu = reuseTexture(device, previous, {
+      size: [size.width, size.height, size.depthOrArrayLayers],
+      format,
+      usage,
+      dimension: is3D ? "3d" : "2d",
+    });
     const { data } = image;
     device.queue.writeTexture(
       { texture: gpu },

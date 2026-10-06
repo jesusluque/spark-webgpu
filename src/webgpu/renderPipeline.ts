@@ -5,6 +5,18 @@
 import type { BindingReflection, KernelModule } from "./KernelModule";
 import { usedBindings } from "./KernelRegistry";
 
+/**
+ * A vertex entry `fullscreenVertex` for `draw(3)`: one triangle covering the
+ * target, for full-screen passes.
+ */
+export const FULLSCREEN_TRIANGLE_WGSL = /* wgsl */ `
+@vertex
+fn fullscreenVertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  let uv = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+`;
+
 export interface RenderPipelineOptions {
   vertex: string;
   fragment: string;

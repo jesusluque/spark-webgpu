@@ -10,6 +10,7 @@
 
 import { fxBridge } from "../generated/constants";
 import bridgeModule from "../generated/fx/bridge";
+import { copyBytesPerRow } from "../gpuBuffers";
 import { UniformWriter } from "../uniforms";
 import type { Gpu } from "./Gpu";
 import { type FxBuffer, type Rect, placed, rect } from "./types";
@@ -70,7 +71,7 @@ export class TextureBridge {
 
   private layout(texture: GPUTexture) {
     const f = formatOf(texture);
-    const bytesPerRow = Math.ceil((texture.width * f.bytes) / 256) * 256;
+    const bytesPerRow = copyBytesPerRow(texture.width * f.bytes);
     return { bytesPerRow, bytes: bytesPerRow * texture.height };
   }
 

@@ -27,7 +27,14 @@ import {
 } from "../generated/constants";
 import attribDrawModule from "../generated/draw/splat_attrib_draw";
 import gatherModule from "../generated/kernels/attrib_gather";
-import { createStorage, upload } from "../gpuBuffers";
+import {
+  createReadback,
+  createStorage,
+  createUniform,
+  readAndDestroy,
+  reuseTexture,
+  upload,
+} from "../gpuBuffers";
 import {
   type ReflectedRenderPipeline,
   createReflectedRenderPipeline,
@@ -124,11 +131,11 @@ export class SplatAttributes implements SplatRendererStage {
       "empty attribs",
     );
     this.empty = createStorage(this.device, 16, "empty");
-    this.uniform = this.device.createBuffer({
-      label: "attrib draw params",
-      size: UniformWriter.for(attribDrawModule, "attribParams").data.byteLength,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    this.uniform = createUniform(
+      this.device,
+      UniformWriter.for(attribDrawModule, "attribParams").data.byteLength,
+      "attrib draw params",
+    );
     renderer.stages.push(this);
   }
 
@@ -255,16 +262,7 @@ export class SplatAttributes implements SplatRendererStage {
     height: number,
     label: string,
   ): GPUTexture {
-    if (
-      current &&
-      current.width === width &&
-      current.height === height &&
-      current.format === format
-    ) {
-      return current;
-    }
-    current?.destroy();
-    return this.device.createTexture({
+    return reuseTexture(this.device, current, {
       label,
       size: [width, height],
       format,
@@ -396,10 +394,7 @@ export class SplatAttributes implements SplatRendererStage {
     const px = Math.floor(x);
     const py = Math.floor(y);
     if (px < 0 || py < 0 || px >= tex.width || py >= tex.height) return null;
-    const staging = this.device.createBuffer({
-      size: 256,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
+    const staging = createReadback(this.device, 256, "pick");
     const encoder = this.device.createCommandEncoder({ label: "pick" });
     encoder.copyTextureToBuffer(
       { texture: tex, origin: [px, py] },
@@ -407,10 +402,7 @@ export class SplatAttributes implements SplatRendererStage {
       [1, 1],
     );
     this.device.queue.submit([encoder.finish()]);
-    await staging.mapAsync(GPUMapMode.READ);
-    const [r, g, b, a] = new Uint8Array(staging.getMappedRange(0, 4));
-    staging.unmap();
-    staging.destroy();
+    const [r, g, b, a] = new Uint8Array(await readAndDestroy(staging), 0, 4);
     const id = r | (g << 8) | (b << 16);
     if (a === 0 || id === 0) return null;
     const slot = id - 1;

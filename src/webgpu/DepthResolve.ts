@@ -5,15 +5,12 @@
 // attach that depth, and WebGPU can't resolve depth textures, so a
 // full-screen pass copies it into a depth32float texture they test against.
 
+import { reuseTexture } from "./gpuBuffers";
+import { FULLSCREEN_TRIANGLE_WGSL } from "./renderPipeline";
+
 const SHADER = /* wgsl */ `
 @group(0) @binding(0) var depthMs: texture_depth_multisampled_2d;
-
-@vertex
-fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
-  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
-  return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
-}
-
+${FULLSCREEN_TRIANGLE_WGSL}
 @fragment
 fn fs(@builtin(position) pos: vec4f) -> @builtin(frag_depth) f32 {
   return textureLoad(depthMs, vec2i(pos.xy), 0);
@@ -39,7 +36,7 @@ export class DepthResolve {
       this.pipeline = device.createRenderPipeline({
         label: "depth resolve",
         layout: "auto",
-        vertex: { module, entryPoint: "vs" },
+        vertex: { module, entryPoint: "fullscreenVertex" },
         fragment: { module, entryPoint: "fs", targets: [] },
         depthStencil: {
           format: RESOLVED_DEPTH_FORMAT,
@@ -48,21 +45,13 @@ export class DepthResolve {
         },
       });
     }
-    let texture = this.texture;
-    if (
-      !texture ||
-      texture.width !== source.width ||
-      texture.height !== source.height
-    ) {
-      texture?.destroy();
-      texture = device.createTexture({
-        label: "resolved depth",
-        size: [source.width, source.height],
-        format: RESOLVED_DEPTH_FORMAT,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-      });
-      this.texture = texture;
-    }
+    const texture = reuseTexture(device, this.texture, {
+      label: "resolved depth",
+      size: [source.width, source.height],
+      format: RESOLVED_DEPTH_FORMAT,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    this.texture = texture;
     const bindGroup = device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries: [
