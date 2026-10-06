@@ -31,6 +31,10 @@ nav:
   - Level-of-Detail Deep Dive: docs/new-spark-renderer.md
   - Controls: docs/controls.md
   - Performance tuning: docs/performance.md
+  - WebGPU backend: docs/webgpu.md
+  - WebGPU architecture: docs/webgpu-architecture.md
+  - WebGPU attributes: docs/webgpu-attributes.md
+  - WebGPU effects: docs/webgpu-fx.md
   - Community Resources: docs/community-resources.md
 markdown_extensions:
   - pymdownx.highlight:
@@ -39,4 +43,8 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
