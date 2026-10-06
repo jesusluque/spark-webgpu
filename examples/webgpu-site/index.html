@@ -32,13 +32,13 @@
     <p class="lede">Demos of the WebGPU backend for <a href="https://github.com/sparkjsdev/spark">Spark</a>, the 3D Gaussian splatting renderer for three.js: relighting, streaming level of detail, per-splat attributes, GPU effects and dyno shaders.</p>
     <p id="gpu">These demos need WebGPU: current Chrome, Edge or Safari 26+. This browser has no WebGPU.</p>
     <div class="grid">
-      <a class="card" href="./pawn.html">
-        <img src="./thumbs/pawn.png" alt="A marble chess pawn with a glass head, relit under a sunset sky" width="640" height="400">
-        <div><h2>Relightable pawn</h2><p>1.4M splats that each know how they receive light: switch the HDRI and they are relit live on the GPU.</p></div>
+      <a class="card" href="./corvette.html?quality=light">
+        <img src="./thumbs/corvette-light.png" alt="A dark green Corvette C7 Stingray on a grassy field, relit from its HDRI" width="640" height="400">
+        <div><h2>Relightable Corvette · light</h2><p>A whole car in 1.1M splats, about 95 MB: pick a 4k HDRI and every part is relit live, coat reflections, glass and ground shadow included.</p></div>
       </a>
-      <a class="card" href="./corvette.html">
-        <img src="./thumbs/corvette.png" alt="A green Corvette C7 Stingray in a workshop, relit from its HDRI" width="640" height="400">
-        <div><h2>Relightable Corvette</h2><p>A whole car in 1.1M splats, about 71 MB: pick an HDRI and every part is relit live, glass and ground shadow included.</p></div>
+      <a class="card" href="./corvette.html?quality=hd">
+        <img src="./thumbs/corvette-hd.png" alt="A closer view of the dark green Corvette C7 Stingray, relit from its HDRI" width="640" height="400">
+        <div><h2>Relightable Corvette · HD</h2><p>The detailed version: 5.2M splats, the paint at full bake resolution, about 315 MB. Same live relighting.</p></div>
       </a>
       <a class="card" href="./lod.html">
         <img src="./thumbs/lod.png" alt="A spaceship interior rendered from streamed splats" width="640" height="400">
@@ -59,7 +59,7 @@
     </div>
     <footer>
       <p>Sample splats from <a href="https://github.com/sparkjsdev/spark">Spark (sparkjsdev/spark)</a>, MIT licence. The attributes scene is generated procedurally, CC0.</p>
-      <p>Pawn: <a href="https://github.com/usd-wg/assets">The Open Chess Set</a> by Moeen and Mujtaba Sayed, Academy Software Foundation, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, baked to splats. Corvette model by Billy Mukhiddinov (<a href="https://www.blendkit.com/asset-gallery-detail/a16f1abf-86d5-4cec-9c89-69224c1b7a42/">BlendKit</a>), baked to Gaussian splats by athenea (modified). HDRIs from <a href="https://polyhaven.com">Poly Haven</a>, CC0.</p>
+      <p>Corvette model by Billy Mukhiddinov (<a href="https://www.blendkit.com/asset-gallery-detail/a16f1abf-86d5-4cec-9c89-69224c1b7a42/">BlendKit</a>), baked to Gaussian splats by athenea (modified). HDRIs from <a href="https://polyhaven.com">Poly Haven</a>, CC0.</p>
       <p><a href="https://github.com/sparkjsdev/spark">Spark</a> (MIT) · <a href="https://threejs.org">three.js</a> (MIT) · <a href="https://lil-gui.georgealways.com">lil-gui</a> (MIT) · <a href="https://github.com/jesusluque/aopenfx">aofx</a></p>
     </footer>
   </main>
