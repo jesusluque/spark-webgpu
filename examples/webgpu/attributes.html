@@ -22,6 +22,12 @@
       <label><input type="radio" name="mode" value="relight"> relight (normal)</label>
       <label><input type="radio" name="mode" value="project"> feature projection</label>
     </div>
+    <div>
+      view
+      <label><input type="radio" name="view" value="scene" checked> scene</label>
+      <label><input type="radio" name="view" value="0"> slot 0 target (label)</label>
+      <label><input type="radio" name="view" value="1"> slot 1 target (normal)</label>
+    </div>
     <div id="pick">click a splat to pick it</div>
     <div id="info">starting…</div>
   </div>
@@ -42,6 +48,7 @@
     // extra render target of splat ids makes clicks pick splats.
     //   ?source=ply   the same scene written as a PLY with extra properties and
     //                 loaded through PackedSplats (attributes from the file)
+    //   ?view=0|1     start showing that slot's rgba16float target
     import * as THREE from "three/webgpu";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import {
@@ -193,6 +200,79 @@
     }
     setMode(document.querySelector("input[name=mode]:checked").value);
 
+    // The slot targets hold each slot's first three components composited
+    // like colour (premultiplied by coverage). Viewing one enables just that
+    // target and draws it over the frame, unpremultiplied and mapped to
+    // 0..1: labels 0..5 as grey levels, normals from -1..1.
+    const slotView = [
+      { scale: [0.2, 0.2, 0.2], bias: [0, 0, 0], mono: 1 },
+      { scale: [0.5, 0.5, 0.5], bias: [0.5, 0.5, 0.5], mono: 0 },
+    ];
+    let view = params.get("view") ?? "scene";
+    function setView(value) {
+      view = value;
+      attributes.options.targets = { id: true, slot0: view === "0", slot1: view === "1" };
+      for (const el of document.querySelectorAll("input[name=view]")) el.checked = el.value === view;
+    }
+    for (const el of document.querySelectorAll("input[name=view]")) {
+      el.addEventListener("change", () => setView(el.value));
+    }
+    setView(view);
+
+    const device = splats.device;
+    const showModule = device.createShaderModule({
+      label: "show slot target",
+      code: /* wgsl */ `
+        struct Params { scale: vec4f, bias: vec4f } // scale.w: one component, as grey
+        @group(0) @binding(0) var slot: texture_2d<f32>;
+        @group(0) @binding(1) var<uniform> params: Params;
+        @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+          let uv = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+          return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+        }
+        @fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f {
+          let v = textureLoad(slot, vec2u(p.xy), 0);
+          if (v.a <= 0.0) { return vec4f(0.06, 0.06, 0.08, 1.0); }
+          let c = select(v.rgb, v.rrr, params.scale.w > 0.0);
+          let rgb = c / v.a * params.scale.rgb + params.bias.rgb;
+          return vec4f(clamp(rgb, vec3f(0.0), vec3f(1.0)), 1.0);
+        }`,
+    });
+    const showParams = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const showPipelines = new Map();
+    function showSlot(k) {
+      const slot = attributes.slotTextures[k];
+      const out = renderer.backend.get(target.texture)?.texture;
+      if (!slot || !out || slot.width !== out.width || slot.height !== out.height) return;
+      let pipeline = showPipelines.get(out.format);
+      if (!pipeline) {
+        pipeline = device.createRenderPipeline({
+          layout: "auto",
+          vertex: { module: showModule, entryPoint: "vs" },
+          fragment: { module: showModule, entryPoint: "fs", targets: [{ format: out.format }] },
+        });
+        showPipelines.set(out.format, pipeline);
+      }
+      const { scale, bias, mono } = slotView[k];
+      device.queue.writeBuffer(showParams, 0, new Float32Array([...scale, mono, ...bias, 0]));
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: slot.createView() },
+          { binding: 1, resource: { buffer: showParams } },
+        ],
+      });
+      const encoder = device.createCommandEncoder({ label: "show slot target" });
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{ view: out.createView(), loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }],
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(3);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    }
+
     renderer.domElement.addEventListener("click", async (event) => {
       const ratio = renderer.getPixelRatio();
       const hit = await attributes.pick(event.offsetX * ratio, event.offsetY * ratio);
@@ -219,6 +299,7 @@
       renderer.setRenderTarget(target);
       renderer.render(scene, camera);
       splats.render(camera, target);
+      if (view !== "scene") showSlot(Number(view));
       renderer.setRenderTarget(null);
       output.render(renderer);
       frames++;
