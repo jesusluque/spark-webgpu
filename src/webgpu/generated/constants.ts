@@ -126,6 +126,7 @@ export const kernelsGenerate = {
   GEN_DYNO_SOURCE: 256,
   GEN_OUT_COV: 512,
   GEN_COV_TRANSFORM: 1024,
+  GEN_CULL: 2048,
 } as const;
 
 /** slang/kernels/sort_radix.slang */
