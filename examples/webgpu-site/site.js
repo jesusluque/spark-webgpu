@@ -148,3 +148,112 @@ export function downloadProgress({
     },
   };
 }
+
+/**
+ * aofx Grade as the scene's colour corrector, after the display transform
+ * (display-referred, as a colourist grades): a step in `chain` and a folder
+ * in `gui`. Lift, gain, gamma, multiply and offset each get a tint and an
+ * amount; alpha is left alone. Call keepLast() after anything else (a
+ * PluginHost's applyFx) has added its steps, so the grade stays the last one.
+ */
+export function addColourCorrector(gui, chain, fx) {
+  const grade = new fx.Grade();
+  const step = chain.add(grade, fx.FxChain.defaults(grade), {
+    enabled: true,
+    channels: [true, true, true, false],
+    instance: "colour-corrector",
+  });
+  const folder = gui.addFolder("colour corrector (aofx Grade)").close();
+  folder.add(step, "enabled");
+  const knobs = [
+    ["black", "lift", 0, -0.5, 0.5],
+    ["white", "gain", 1, 0, 4],
+    ["gamma", "gamma", 1, 0.2, 3],
+    ["multiply", "multiply", 1, 0, 4],
+    ["offset", "offset", 0, -0.5, 0.5],
+  ];
+  const ui = {};
+  const apply = (name) => {
+    const { tint, amount } = ui[name];
+    const rgb = tint.map((c) => c * amount);
+    // A neutral tint keeps lift and offset adding the same to every channel.
+    step.params[name] = [...rgb, step.params[name]?.[3] ?? 1];
+  };
+  for (const [name, label, value, min, max] of knobs) {
+    ui[name] = { tint: [1, 1, 1], amount: value };
+    folder
+      .add(ui[name], "amount", min, max, 0.01)
+      .name(label)
+      .onChange(() => apply(name));
+    folder
+      .addColor(ui[name], "tint")
+      .name(`${label} tint`)
+      .onChange(() => apply(name));
+    apply(name);
+  }
+  folder.add(step.params, "clampWhite").name("clamp white");
+  folder
+    .add(
+      {
+        reset() {
+          for (const [name, , value] of knobs) {
+            ui[name].tint = [1, 1, 1];
+            ui[name].amount = value;
+            apply(name);
+          }
+          for (const c of folder.controllersRecursive()) c.updateDisplay();
+        },
+      },
+      "reset",
+    )
+    .name("reset grade");
+  return {
+    step,
+    keepLast() {
+      chain.steps = [...chain.steps.filter((s) => s !== step), step];
+    },
+  };
+}
+
+/** A desktop with a mouse (not a phone or tablet). */
+export function isWorkstation() {
+  return (
+    matchMedia("(pointer: fine)").matches &&
+    !/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)
+  );
+}
+
+/**
+ * Autodesk Maya's camera on an OrbitControls: Alt + left drag tumbles,
+ * Alt + middle drag tracks, Alt + right drag dollies, the wheel dollies, F
+ * frames the subject again. Without Alt the mouse does nothing to the
+ * camera, so the panels and the scene can be clicked freely.
+ */
+export function mayaControls(controls, frame) {
+  const ROTATE = 0;
+  const DOLLY = 1;
+  const PAN = 2;
+  controls.mouseButtons = { LEFT: ROTATE, MIDDLE: PAN, RIGHT: DOLLY };
+  controls.enableDamping = false;
+  controls.screenSpacePanning = true;
+  const dom = controls.domElement;
+  // OrbitControls listens on pointerdown; decide first, in the capture phase.
+  dom.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (event.pointerType === "mouse") controls.enabled = event.altKey;
+    },
+    { capture: true },
+  );
+  const restore = () => {
+    controls.enabled = true;
+  };
+  dom.addEventListener("pointerup", restore);
+  dom.addEventListener("pointercancel", restore);
+  // Alt + right drag must not open the context menu.
+  dom.addEventListener("contextmenu", (event) => event.preventDefault());
+  addEventListener("keydown", (event) => {
+    if (event.target instanceof HTMLInputElement) return;
+    if (event.key === "f" || event.key === "F") frame();
+  });
+}

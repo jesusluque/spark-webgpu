@@ -20,6 +20,7 @@ import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 //   hdri: [names], hdriDefault, domeRotation (degrees, athenea's DomeLight turn)
 //   ground: { height }   the dome's floor is projected onto y = 0 from this height
 import * as THREE from "three/webgpu";
+import { addColourCorrector, isWorkstation, mayaControls } from "./site.js";
 
 const { TSL } = THREE;
 
@@ -204,6 +205,8 @@ export async function createCorvette({ renderer, base, params, status }) {
     console.error(error);
   }
 
+  let corrector = null;
+  const maya = isWorkstation() && params.get("maya") !== "0";
   if (params.get("gui") !== "0") {
     const gui = new GUI({ title: "Corvette" });
     if (innerWidth < 700) gui.close();
@@ -237,6 +240,16 @@ export async function createCorvette({ renderer, base, params, status }) {
       if (c.type === "select") o.add(v, c.label, c.options).onChange(c.set);
       else o.add(v, c.label, c.min, c.max, c.step).onChange(c.set);
     }
+    corrector = addColourCorrector(gui, chain, fx);
+    if (maya) {
+      gui
+        .add(
+          { help: "Alt+LMB tumble · Alt+MMB track · Alt+RMB dolly · F frame" },
+          "help",
+        )
+        .name("Maya camera")
+        .disable();
+    }
   }
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -246,12 +259,24 @@ export async function createCorvette({ renderer, base, params, status }) {
   controls.maxDistance = 20;
   controls.maxPolarAngle = THREE.MathUtils.degToRad(88);
   controls.update();
+  if (maya) {
+    const home = {
+      position: camera.position.clone(),
+      target: controls.target.clone(),
+    };
+    mayaControls(controls, () => {
+      camera.position.copy(home.position);
+      controls.target.copy(home.target);
+      controls.update();
+    });
+  }
   if (params.get("shot") === "1") controls.enabled = false;
 
   let host = null;
   let frames = 0;
   let last = performance.now();
   Object.assign(window.__athenea, {
+    corrector,
     relight,
     display,
     meshes,
@@ -271,6 +296,7 @@ export async function createCorvette({ renderer, base, params, status }) {
       host = new plugins.PluginHost({ capabilities: splats.capabilities });
       host.register(relight).register(display).attach(splats);
       host.applyFx(chain);
+      corrector?.keepLast();
       window.__athenea.host = host;
       const why = host
         .resolve(splats.meshes[0])

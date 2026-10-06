@@ -18,7 +18,7 @@
 <body>
   <div class="hud">
     <h1><a href="./">&larr;</a>Relightable pawn</h1>
-    <p>A chess pawn baked to 1.4M Gaussian splats, each carrying how it receives light. Pick an HDRI and the splats are relit on the GPU: dome, sun and bounce light, marble body and glass head. Drag to look, WASD / arrows to move.</p>
+    <p>A chess pawn baked to 1.4M Gaussian splats, each carrying how it receives light. Pick an HDRI and the splats are relit on the GPU: dome, sun and bounce light, marble body and glass head. On a desktop, Maya's camera: Alt + left tumble, middle track, right dolly, F to frame; elsewhere drag to look.</p>
     <div class="stats" id="stats">loading… (about 290 MB)</div>
   </div>
   <div class="credits">
@@ -43,7 +43,8 @@
     import GUI from "lil-gui";
     import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
     import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
-    import { downloadProgress, requireWebGPU } from "./site.js";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { addColourCorrector, downloadProgress, isWorkstation, mayaControls, requireWebGPU } from "./site.js";
     import {
       splatRequiredLimits,
       fx,
@@ -193,6 +194,10 @@
     }
     download.done();
 
+    let corrector = null;
+    // On a desktop with a mouse, Autodesk Maya's camera around the pawn;
+    // elsewhere Spark's touch and WASD controls.
+    const maya = isWorkstation() && params.get("maya") !== "0";
     if (params.get("gui") !== "0") {
       const gui = new GUI({ title: "athenea relight" });
       gui.add(state, "hdri", hdris).onChange(setHdri);
@@ -214,11 +219,34 @@
         if (c.type === "select") o.add(v, c.label, c.options).onChange(c.set);
         else o.add(v, c.label, c.min, c.max, c.step).onChange(c.set);
       }
+      corrector = addColourCorrector(gui, chain, fx);
+      if (maya) {
+        gui
+          .add({ help: "Alt+LMB tumble · Alt+MMB track · Alt+RMB dolly · F frame" }, "help")
+          .name("Maya camera")
+          .disable();
+      }
     }
-    Object.assign(window.__athenea, { relight, display, body, top, spark, camera, setHdri, state });
+    Object.assign(window.__athenea, { corrector, relight, display, body, top, spark, camera, setHdri, state });
 
-    const controls = new SparkControls({ canvas: renderer.domElement });
-    controls.fpsMovement.moveSpeed = 0.1;
+    let controls;
+    if (maya) {
+      const orbit = new OrbitControls(camera, renderer.domElement);
+      orbit.target.set(0, 0.048, 0);
+      orbit.minDistance = 0.03;
+      orbit.maxDistance = 2;
+      orbit.update();
+      const home = { position: camera.position.clone(), target: orbit.target.clone() };
+      mayaControls(orbit, () => {
+        camera.position.copy(home.position);
+        orbit.target.copy(home.target);
+        orbit.update();
+      });
+      controls = { update: () => orbit.update() };
+    } else {
+      controls = new SparkControls({ canvas: renderer.domElement });
+      controls.fpsMovement.moveSpeed = 0.1;
+    }
     let frames = 0;
     let last = performance.now();
     renderer.setAnimationLoop(() => {
@@ -230,6 +258,7 @@
         host = new plugins.PluginHost({ capabilities: splats.capabilities });
         host.register(relight).register(display).attach(splats);
         host.applyFx(chain);
+        corrector?.keepLast();
         window.__athenea.host = host;
         const why = host.resolve(splats.meshes[0]).inactive.find((r) => r.id === relight.id);
         if (why) status.textContent = `relight inactive: ${why.reason} ${why.detail ?? ""}`;
