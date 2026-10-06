@@ -674,6 +674,7 @@ export class WgpuSplatRenderer {
     const key = [
       target.format,
       target.depthFormat,
+      depthFormat ? "test" : "",
       target.sampleCount,
       target.depthCompare,
       target.layer ? "layer" : "",

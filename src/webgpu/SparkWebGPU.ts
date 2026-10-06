@@ -447,6 +447,7 @@ export class SparkWebGPU {
     o.apertureAngle = spark.apertureAngle;
     o.sortRadial = spark.sortRadial;
     o.lodInflate = spark.lodInflate;
+    o.depthTest = spark.material.depthTest;
     const l = (this.lod as WgpuLod).options;
     l.lodSplatCount = spark.lodSplatCount;
     l.lodSplatScale = spark.lodSplatScale;

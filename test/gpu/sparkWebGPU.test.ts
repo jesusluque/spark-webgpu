@@ -150,6 +150,9 @@ describe.skipIf(!device)("SparkRenderer on WebGPU", () => {
     await render(spark, scene, camera);
     expect(splats?.options.maxStdDev).toBe(2);
     expect(splats?.meshes[0].recolor.w).toBe(0.5);
+    spark.material.depthTest = false;
+    await render(spark, scene, camera);
+    expect(splats?.options.depthTest).toBe(false);
     spark.dispose();
   });
 
