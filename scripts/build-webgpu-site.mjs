@@ -54,7 +54,12 @@ for (const name of ["spark.module.min.js", "spark.webgpu.module.min.js"]) {
   if (!fs.existsSync(file)) {
     throw new Error(`${file} missing: run npm run build:production`);
   }
-  copy(file, `vendor/spark/${name}`);
+}
+// The entry points and their lazy chunks (plugin kernel variants).
+for (const name of fs.readdirSync(path.join(root, "dist"))) {
+  if (name.endsWith(".module.min.js")) {
+    copy(path.join(root, "dist", name), `vendor/spark/${name}`);
+  }
 }
 for (const name of [
   "three.core.min.js",
@@ -63,7 +68,11 @@ for (const name of [
 ]) {
   copy(path.join(nm, "three/build", name), `vendor/three/${name}`);
 }
-for (const name of ["controls/OrbitControls.js", "postprocessing/Pass.js"]) {
+for (const name of [
+  "controls/OrbitControls.js",
+  "postprocessing/Pass.js",
+  "loaders/HDRLoader.js",
+]) {
   copy(
     path.join(nm, "three/examples/jsm", name),
     `vendor/three/addons/${name}`,

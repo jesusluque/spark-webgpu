@@ -29,9 +29,13 @@
 <body>
   <main>
     <h1>Spark on WebGPU</h1>
-    <p class="lede">Demos of the WebGPU backend for <a href="https://github.com/sparkjsdev/spark">Spark</a>, the 3D Gaussian splatting renderer for three.js: streaming level of detail, per-splat attributes, GPU effects and dyno shaders.</p>
+    <p class="lede">Demos of the WebGPU backend for <a href="https://github.com/sparkjsdev/spark">Spark</a>, the 3D Gaussian splatting renderer for three.js: relighting, streaming level of detail, per-splat attributes, GPU effects and dyno shaders.</p>
     <p id="gpu">These demos need WebGPU: current Chrome, Edge or Safari 26+. This browser has no WebGPU.</p>
     <div class="grid">
+      <a class="card" href="./pawn.html">
+        <img src="./thumbs/pawn.png" alt="A marble chess pawn with a glass head, relit under a sunset sky" width="640" height="400">
+        <div><h2>Relightable pawn</h2><p>1.4M splats that each know how they receive light: switch the HDRI and they are relit live on the GPU.</p></div>
+      </a>
       <a class="card" href="./lod.html">
         <img src="./thumbs/lod.png" alt="A spaceship interior rendered from streamed splats" width="640" height="400">
         <div><h2>Streaming level of detail</h2><p>A 6M-splat scene streamed by pages from one .rad file, with LoD picked per view.</p></div>
@@ -51,6 +55,7 @@
     </div>
     <footer>
       <p>Sample splats from <a href="https://github.com/sparkjsdev/spark">Spark (sparkjsdev/spark)</a>, MIT licence. The attributes scene is generated procedurally, CC0.</p>
+      <p>Pawn: <a href="https://github.com/usd-wg/assets">The Open Chess Set</a> by Moeen and Mujtaba Sayed, Academy Software Foundation, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, baked to splats. HDRIs from <a href="https://polyhaven.com">Poly Haven</a>, CC0.</p>
       <p><a href="https://github.com/sparkjsdev/spark">Spark</a> (MIT) · <a href="https://threejs.org">three.js</a> (MIT) · <a href="https://lil-gui.georgealways.com">lil-gui</a> (MIT) · <a href="https://github.com/jesusluque/aopenfx">aofx</a></p>
     </footer>
   </main>
