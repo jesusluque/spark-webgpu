@@ -52,6 +52,24 @@ export default defineConfig(({ mode }) => {
       slangBuild(),
 
       {
+        // The WebGPU backend (src/webgpu/index.ts) is a chunk SparkRenderer
+        // import()s (src/webgpuLoader.ts), so WebGL apps don't download it,
+        // and the "@sparkjsdev/spark/webgpu" export: a stable name per format.
+        name: "spark-chunk-names",
+        outputOptions(output) {
+          const base = output.format === "es" ? "module" : output.format;
+          const suffix = isMinify ? ".min.js" : ".js";
+          return {
+            ...output,
+            chunkFileNames: (chunk) =>
+              chunk.facadeModuleId?.endsWith("src/webgpu/index.ts")
+                ? `spark.webgpu.${base}${suffix}`
+                : `[name]-[hash].${base}${suffix}`,
+          };
+        },
+      },
+
+      {
         name: "serve-node-modules-alias",
         configureServer(server) {
           const baseUrlPath = "/examples/js/vendor/";
@@ -99,6 +117,9 @@ export default defineConfig(({ mode }) => {
       sourcemap: true,
       rollupOptions: {
         external: ["three", /^three\/addons/],
+        // Lets the main entry export what the WebGPU chunk imports from it,
+        // rather than both importing a third, shared chunk.
+        preserveEntrySignatures: "allow-extension",
         output: {
           globals: {
             three: "THREE",

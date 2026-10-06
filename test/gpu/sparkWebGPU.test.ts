@@ -8,7 +8,11 @@ import { PackedSplats } from "../../src/PackedSplats";
 import { RgbaArray } from "../../src/RgbaArray";
 import { SparkRenderer } from "../../src/SparkRenderer";
 import { SplatMesh } from "../../src/SplatMesh";
+import { loadWebGPU } from "../../src/webgpuLoader";
 import { device } from "./device";
+
+// SparkRenderer constructs its WebGPU backend at once when it has loaded.
+await loadWebGPU();
 
 const W = 64;
 const H = 64;

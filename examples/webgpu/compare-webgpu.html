@@ -8,11 +8,12 @@
 </head>
 <body>
   <script type="importmap">
-    { "imports": { "three": "../js/vendor/three/build/three.webgpu.js", "three/webgpu": "../js/vendor/three/build/three.webgpu.js", "@sparkjsdev/spark": "../../dist/spark.module.js" } }
+    { "imports": { "three": "../js/vendor/three/build/three.webgpu.js", "three/webgpu": "../js/vendor/three/build/three.webgpu.js", "@sparkjsdev/spark": "../../dist/spark.module.js", "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js" } }
   </script>
   <script type="module">
     import * as THREE from "three/webgpu";
-    import { ExtSplats, GpuSplatSource, WgpuReadTarget, PackedSplats, PagedSplats, WgpuLod, WgpuSplatRenderer, utils } from "@sparkjsdev/spark";
+    import { ExtSplats, PackedSplats, PagedSplats, utils } from "@sparkjsdev/spark";
+    import { GpuSplatSource, WgpuReadTarget, WgpuLod, WgpuSplatRenderer } from "@sparkjsdev/spark/webgpu";
     import { getAssetFileURL } from "../js/get-asset-url.js";
     import { bench, setupCompare, syntheticPacked, waitSettled } from "./compare.js";
 

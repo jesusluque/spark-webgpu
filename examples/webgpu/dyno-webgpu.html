@@ -13,15 +13,16 @@
 </head>
 <body>
   <script type="importmap">
-    { "imports": { "three": "../js/vendor/three/build/three.webgpu.js", "three/webgpu": "../js/vendor/three/build/three.webgpu.js", "@sparkjsdev/spark": "../../dist/spark.module.js" } }
+    { "imports": { "three": "../js/vendor/three/build/three.webgpu.js", "three/webgpu": "../js/vendor/three/build/three.webgpu.js", "@sparkjsdev/spark": "../../dist/spark.module.js", "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js" } }
   </script>
   <script type="module">
     import * as THREE from "three/webgpu";
     import * as spark from "@sparkjsdev/spark";
+    import * as sparkWebGPU from "@sparkjsdev/spark/webgpu";
     import { getAssetFileURL } from "../js/get-asset-url.js";
     import { buildScene, sceneParams } from "./dyno-scenes.js";
 
-    const { GpuSplatSource, WgpuSplatRenderer, splatGeneratorDyno, splatMeshDyno } = spark;
+    const { GpuSplatSource, WgpuSplatRenderer, splatGeneratorDyno, splatMeshDyno } = sparkWebGPU;
     const params = sceneParams();
     const { size } = params;
     const renderer = new THREE.WebGPURenderer();
