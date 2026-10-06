@@ -10,9 +10,16 @@ import { setPackedSplat, unpackSplat } from "../../src/utils";
 import { GpuSplatSource } from "../../src/webgpu/GpuSplatSource";
 import { KernelRegistry } from "../../src/webgpu/KernelRegistry";
 import { WgpuSplatPager } from "../../src/webgpu/WgpuSplatPager";
+import { kernelsGenerate } from "../../src/webgpu/generated/constants";
 import generate from "../../src/webgpu/generated/kernels/generate";
 import { UniformWriter } from "../../src/webgpu/uniforms";
 import { device, readBack, storage } from "./device";
+
+const {
+  GEN_USE_LOD: USE_LOD,
+  GEN_LOD_OPACITY: LOD_OPACITY,
+  GEN_OUT_EXT: OUT_EXT,
+} = kernelsGenerate;
 
 // test/unit/setup.ts stubs the wasm package; these tests need the real one.
 const wasm = await vi.importActual<typeof import("spark-rs")>("spark-rs");
@@ -23,9 +30,6 @@ wasm.initSync({
 });
 
 const PAGE = 65536;
-const USE_LOD = 4;
-const LOD_OPACITY = 8;
-const OUT_EXT = 2;
 
 function rng(seed: number) {
   let s = seed >>> 0;

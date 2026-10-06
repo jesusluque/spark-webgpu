@@ -21,15 +21,17 @@ import { makeNormalColorModifier } from "../../src/modifiers/normalColor";
 import { decodeExtSplat, encodeExtSplat } from "../../src/utils";
 import { KernelRegistry } from "../../src/webgpu/KernelRegistry";
 import { DynoKernels, type WgpuDyno } from "../../src/webgpu/dyno/DynoKernels";
+import { kernelsGenerate } from "../../src/webgpu/generated/constants";
 import generate from "../../src/webgpu/generated/kernels/generate";
 import { UniformWriter } from "../../src/webgpu/uniforms";
 import { device, readBack, storage } from "./device";
 
-const SRC_EXT = 1;
-const OUT_EXT = 2;
-const SORT_RADIAL = 16;
-const DYNO_SOURCE = 256;
-
+const {
+  GEN_SRC_EXT: SRC_EXT,
+  GEN_OUT_EXT: OUT_EXT,
+  GEN_SORT_RADIAL: SORT_RADIAL,
+  GEN_DYNO_SOURCE: DYNO_SOURCE,
+} = kernelsGenerate;
 const N = 256;
 const extA = new Uint32Array(N * 4);
 const extB = new Uint32Array(N * 4);
