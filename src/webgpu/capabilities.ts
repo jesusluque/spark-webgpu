@@ -9,10 +9,10 @@
 // Nothing here needs an optional feature. The kernels use plain WGSL:
 // atomics (sort_radix's histogram and the indirect count), 256-thread
 // workgroups, at most 4.2 KiB of workgroup storage, two read-only storage
-// buffers in the vertex stage, drawIndirect from a buffer compute wrote with
-// firstInstance 0 (so no indirect-first-instance), and rgba16float render
-// targets with depth. Subgroups, timestamp queries, float32-filterable and
-// bgra8unorm-storage are reported for callers that want them, never assumed.
+// buffers in the vertex stage, drawIndirect (firstInstance 0, so no
+// indirect-first-instance) and dispatchWorkgroupsIndirect from buffers
+// compute wrote, and rgba16float render targets with depth. Subgroups,
+// timestamp queries, float32-filterable and bgra8unorm-storage are reported for callers that want them, never assumed.
 
 /** Workgroup threads sort_radix's histogram and scatter entries declare. */
 export const SORT_WORKGROUP_THREADS = 256;

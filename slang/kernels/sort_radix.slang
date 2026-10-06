@@ -8,10 +8,14 @@
 // counter never passes 128). No subgroup operations: it runs everywhere
 // WebGPU does.
 //
-// prepareSort turns sortMetric (from generate.slang) into keys: the inverted
-// float bits, so the largest metric (farthest) comes first; inactive splats
-// (+inf) get 0xffffffff and sort last. It counts the active splats into the
-// instance count of the indirect draw arguments.
+// The keys are the metric's (from generate.slang) inverted float bits, so
+// the largest metric (farthest) comes first. Only active splats (finite
+// metric) are sorted: countActive counts them per block (and in total, into
+// the instance count of the indirect draw arguments), the host scans those
+// counts, and compactKeys writes their keys in order, so the radix passes
+// cost what the visible splats cost (generate culls what the draw would
+// skip). writeDispatch sizes the radix passes' indirect dispatches to the
+// active blocks, and they read the active count from drawArgs.
 
 static const uint WG = 128;
 static const uint ROUNDS = 8;
@@ -41,6 +45,8 @@ RWStructuredBuffer<uint> keysOut;
 RWStructuredBuffer<uint> valsOut;
 RWStructuredBuffer<uint> blockHist;
 RWStructuredBuffer<Atomic<uint>> drawArgs; // [vertexCount, instanceCount, firstVertex, firstInstance]
+StructuredBuffer<uint> sortCount;          // drawArgs, read: [1] is the active count
+RWStructuredBuffer<uint> dispatchArgs;     // indirect workgroup counts of the radix passes
 RWStructuredBuffer<uint> scanData;
 RWStructuredBuffer<uint> chunkSums;
 ConstantBuffer<SortParams> params;
@@ -50,22 +56,91 @@ groupshared Atomic<uint> sHist[BINS];
 groupshared uint4 sScan[WG];
 groupshared uint sBase[BINS];
 groupshared uint sScanBuf[SCAN_CHUNK];
+groupshared uint sFlags[WG];
 
+bool isActiveMetric(float m) {
+    return !isinf(m) && !isnan(m);
+}
+
+uint metricKey(float m) {
+    return min(~asuint(max(m, 0.0)), 0xfffffffeu);
+}
+
+// Active splats per block of TILE metrics, into blockHist[block].
 [shader("compute")]
-[numthreads(256, 1, 1)]
-void prepareSort(uint3 tid: SV_DispatchThreadID) {
-    uint i = tid.x;
-    if (i >= params.count) {
-        return;
+[numthreads(128, 1, 1)]
+void countActive(uint3 lid: SV_GroupThreadID, uint3 gid: SV_GroupID) {
+    if (lid.x == 0u) {
+        sHist[0].store(0u);
     }
-    float m = sortMetric[i];
-    uint key = 0xffffffffu;
-    if (!isinf(m) && !isnan(m)) {
-        key = min(~asuint(max(m, 0.0)), 0xfffffffeu);
-        drawArgs[1].add(1u);
+    GroupMemoryBarrierWithGroupSync();
+    uint base = gid.x * TILE;
+    uint n = 0u;
+    for (uint r = 0; r < ROUNDS; r++) {
+        uint i = base + r * WG + lid.x;
+        if (i < params.count && isActiveMetric(sortMetric[i])) {
+            n++;
+        }
     }
-    keysIn[i] = key;
-    valsIn[i] = i;
+    if (n > 0u) {
+        sHist[0].add(n);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (lid.x == 0u) {
+        uint total = sHist[0].load();
+        blockHist[gid.x] = total;
+        drawArgs[1].add(total);
+    }
+}
+
+// The active splats' keys and indices, in index order, from each block's
+// scanned start in blockHist.
+[shader("compute")]
+[numthreads(128, 1, 1)]
+void compactKeys(uint3 lid: SV_GroupThreadID, uint3 gid: SV_GroupID) {
+    uint t = lid.x;
+    uint start = blockHist[gid.x];
+    uint base = gid.x * TILE;
+    for (uint r = 0; r < ROUNDS; r++) {
+        uint i = base + r * WG + t;
+        float m = i < params.count ? sortMetric[i] : 0.0;
+        uint mine = i < params.count && isActiveMetric(m) ? 1u : 0u;
+        sFlags[t] = mine;
+        GroupMemoryBarrierWithGroupSync();
+        for (uint o = 1; o < WG; o <<= 1) {
+            uint add = (t >= o) ? sFlags[t - o] : 0u;
+            GroupMemoryBarrierWithGroupSync();
+            sFlags[t] += add;
+            GroupMemoryBarrierWithGroupSync();
+        }
+        if (mine != 0u) {
+            uint dst = start + sFlags[t] - 1u;
+            keysOut[dst] = metricKey(m);
+            valsOut[dst] = i;
+        }
+        uint roundTotal = sFlags[WG - 1u];
+        GroupMemoryBarrierWithGroupSync();
+        start += roundTotal;
+    }
+}
+
+
+uint activeCount() {
+    return sortCount[1];
+}
+
+// Blocks the radix passes run: dispatched indirectly from dispatchArgs.
+uint activeBlocks() {
+    return (activeCount() + TILE - 1u) / TILE;
+}
+
+// The radix passes' workgroup counts, from the active count.
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void writeDispatch() {
+    dispatchArgs[0] = activeBlocks();
+    dispatchArgs[1] = 1u;
+    dispatchArgs[2] = 1u;
 }
 
 uint digitOf(uint key) {
@@ -80,16 +155,17 @@ void radixHistogram(uint3 lid: SV_GroupThreadID, uint3 gid: SV_GroupID) {
     }
     GroupMemoryBarrierWithGroupSync();
     uint base = gid.x * TILE;
+    uint count = activeCount();
     for (uint r = 0; r < ROUNDS; r++) {
         uint i = base + r * WG + lid.x;
-        if (i < params.count) {
+        if (i < count) {
             sHist[digitOf(keysIn[i])].add(1u);
         }
     }
     GroupMemoryBarrierWithGroupSync();
     if (lid.x < BINS) {
         // Bin-major, so one exclusive scan gives every (bin, block) its start.
-        blockHist[lid.x * params.numBlocks + gid.x] = sHist[lid.x].load();
+        blockHist[lid.x * activeBlocks() + gid.x] = sHist[lid.x].load();
     }
 }
 
@@ -165,12 +241,13 @@ uint lane(uint4 v, uint digit) {
 void radixScatter(uint3 lid: SV_GroupThreadID, uint3 gid: SV_GroupID) {
     uint t = lid.x;
     if (t < BINS) {
-        sBase[t] = blockHist[t * params.numBlocks + gid.x];
+        sBase[t] = blockHist[t * activeBlocks() + gid.x];
     }
     uint base = gid.x * TILE;
+    uint count = activeCount();
     for (uint r = 0; r < ROUNDS; r++) {
         uint i = base + r * WG + t;
-        bool valid = i < params.count;
+        bool valid = i < count;
         uint key = valid ? keysIn[i] : 0u;
         uint val = valid ? valsIn[i] : 0u;
         uint digit = digitOf(key);
