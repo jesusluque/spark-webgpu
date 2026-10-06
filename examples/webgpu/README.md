@@ -56,8 +56,8 @@ things:
   linear half-float target and then converts it to the canvas. WebGL Spark
   blends splats in sRGB space on its canvas. So where the SparkRenderer comes
   in three's transparent order, `SparkWebGPU` ends three's pass, draws the
-  splats into an 8-bit layer of their own (premultiplied sRGB colour and
-  transmittance), composites that over the target in sRGB
+  splats over an 8-bit sRGB copy of the target, clamped as the canvas
+  shows it (transmittance in alpha), writes that back to the target
   (`src/webgpu/SrgbComposite.ts`) and resumes three's pass, as three's own
   `copyFramebufferToTexture` does. Transparent objects sorted after the
   splats (by `renderOrder` or depth) draw over them, as on WebGL.

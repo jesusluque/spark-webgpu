@@ -263,6 +263,8 @@ export class SparkWebGPU {
               : {}),
           }
         : undefined,
+      undefined,
+      toneMapping,
     );
     const viewport = rc.viewport ? rc.viewportValue : null;
     if (viewport) {
@@ -281,7 +283,6 @@ export class SparkWebGPU {
       color,
       { view: attachment.view, resolveTarget: attachment.resolveTarget },
       viewport,
-      toneMapping,
     );
     open.resume();
   }

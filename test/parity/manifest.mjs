@@ -223,13 +223,7 @@ export const cases = [
   ...ex("procedural-splats", [
     { note: "README: random stars differ (drawn in different orders)" },
   ]),
-  ...ex("sogs", [
-    {
-      readme: 0.97,
-      known:
-        "2.07 since at least 5ea8794: the tower's thin cables fade out and the tower tints blue over SkyMesh, while compare:sutro (the same splats over black) is 0.59",
-    },
-  ]),
+  ...ex("sogs", [{ readme: 0.97 }]),
   ...ex("debug-color", [{ readme: 0.13 }]),
   ...ex("lod-on-demand", [{ readme: 0.23 }]),
   ...ex("particle-animation", [
@@ -604,7 +598,7 @@ const PCT = {
   "depth-of-field": 0.5,
   "splat-shader-effects": 1.33,
   "procedural-splats": 11.29,
-  sogs: 5.53,
+  sogs: 1.5,
   "debug-color": 0.5,
   "lod-on-demand": 0.5,
   "particle-animation": 2.31,
