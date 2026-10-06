@@ -179,7 +179,7 @@ export interface WgpuSplatRendererOptions {
   /**
    * Drop splats in generate that the draw would skip (center outside the
    * clipXY frustum, alpha under minAlpha), so the sort and the draw handle
-   * only the rest. Same image; default true.
+   * only the rest. Same image; default true. GPU sort only.
    */
   cull?: boolean;
   /**
@@ -814,7 +814,12 @@ export class WgpuSplatRenderer {
     cameraPos: THREE.Vector3,
     cameraDir: THREE.Vector3,
   ) {
-    const cull = this.options.cull ? this.cullParams(camera) : undefined;
+    // The CPU sort draws a later frame in this metric's order: splats culled
+    // for this camera would be missing when they come into view.
+    const cull =
+      this.options.cull && this.options.sort === "gpu"
+        ? this.cullParams(camera)
+        : undefined;
     const packed = this.packedFor(
       this.meshes.reduce((n, m) => n + this.meshCount(m), 0),
     );
