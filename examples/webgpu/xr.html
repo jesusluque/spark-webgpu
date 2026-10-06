@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  WebXR and the WebGPU path: three's WebGPURenderer can't present XR on its
+  WebGPU backend (XRManager.setSession throws, and neither Chrome nor Safari
+  on macOS has a WebXR/WebGPU binding today), so SparkXr reports
+  "not_supported" with a console warning instead of offering a button that
+  would fail. XR stays on WebGL: examples/webxr, or WebGPURenderer with
+  { forceWebGL: true } (which WgpuSplatRenderer can't drive).
+-->
+<head>
+  <meta charset="utf-8">
+  <title>Spark • XR (WebGPU)</title>
+  <style>body { margin: 0; background: #000; color: #ccc; font: 13px system-ui, sans-serif; } #info { position: absolute; top: 8px; left: 8px; white-space: pre; }</style>
+</head>
+<body>
+  <div id="info">checking…</div>
+  <script type="importmap">
+    { "imports": { "three": "../js/vendor/three/build/three.webgpu.js", "three/webgpu": "../js/vendor/three/build/three.webgpu.js", "@sparkjsdev/spark": "../../dist/spark.module.js" } }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { SparkXr } from "@sparkjsdev/spark";
+
+    const renderer = new THREE.WebGPURenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    await renderer.init();
+    const immersive = navigator.xr ? await navigator.xr.isSessionSupported("immersive-vr").catch(() => false) : false;
+    const xr = new SparkXr({
+      renderer,
+      onReady: (supported) => {
+        document.getElementById("info").textContent =
+          `navigator.xr: ${Boolean(navigator.xr)}, immersive-vr: ${immersive}\n` +
+          `WebGPU backend: ${renderer.backend.isWebGPUBackend === true}\n` +
+          `SparkXr: ${xr.mode} (supported: ${supported})`;
+        window.__xrMode = xr.mode;
+        window.__ready = true;
+      },
+    });
+  </script>
+</body>
+</html>
