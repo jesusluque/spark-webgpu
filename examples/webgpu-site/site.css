@@ -108,3 +108,29 @@ a {
     max-height: 45vh;
   }
 }
+.download {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 40px));
+  background: var(--panel);
+  padding: 12px 14px;
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+  font: 12px ui-monospace, Menlo, monospace;
+  z-index: 10;
+}
+.download-bar {
+  margin-top: 8px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.download-bar > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.25s linear;
+}

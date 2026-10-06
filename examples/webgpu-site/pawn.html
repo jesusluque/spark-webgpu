@@ -5,7 +5,7 @@
   light transfer per splat, relit live under any HDRI by athenea's own
   relighting code running in Spark's WebGPU backend.
     ?base=<url/>    where pawn.json, the .athc clouds and hdri/ are
-    ?transfer=t16|t64|t84   ?hdri=<name>   ?top=0   ?view=agx|aces2|standard
+    ?transfer=t16|t64|t84   ?topTransfer=full|t64 (glass head; default full)   ?hdri=<name>   ?top=0   ?view=agx|aces2|standard
 -->
 <head>
   <meta charset="utf-8">
@@ -19,7 +19,7 @@
   <div class="hud">
     <h1><a href="./">&larr;</a>Relightable pawn</h1>
     <p>A chess pawn baked to 1.4M Gaussian splats, each carrying how it receives light. Pick an HDRI and the splats are relit on the GPU: dome, sun and bounce light, marble body and glass head. Drag to look, WASD / arrows to move.</p>
-    <div class="stats" id="stats">loading… (about 200 MB)</div>
+    <div class="stats" id="stats">loading… (about 290 MB)</div>
   </div>
   <div class="credits">
     Pawn from <a href="https://github.com/usd-wg/assets">The Open Chess Set</a> by Moeen and Mujtaba Sayed, Academy Software Foundation, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, baked to Gaussian splats (modified) · HDRIs from <a href="https://polyhaven.com">Poly Haven</a> (CC0) ·
@@ -43,7 +43,7 @@
     import GUI from "lil-gui";
     import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
     import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
-    import { requireWebGPU } from "./site.js";
+    import { downloadProgress, requireWebGPU } from "./site.js";
     import {
       splatRequiredLimits,
       fx,
@@ -57,10 +57,20 @@
     const base = params.get("base") ?? "https://athenea-assets.lucab.co.uk/sparkwebgpu/pawn/";
     const transfer = params.get("transfer") ?? "t64";
     const suffix = transfer === "full" ? "full-gz" : `${transfer}-gz`;
+    // The glass head is a lens only with its transfer's reflected field
+    // (splat_relight: the sharp sky where the field reads open): full by
+    // default, whatever the body carries.
+    const topTransfer = params.get("topTransfer") ?? (params.has("transfer") ? transfer : "full");
+    const topSuffix = topTransfer === "full" ? "full-gz" : `${topTransfer}-gz`;
     const status = document.getElementById("stats");
     window.__athenea = { loaded: false, error: null };
 
     const adapter = await requireWebGPU();
+    // The clouds and the sky: about 290 MB on the first visit.
+    const download = downloadProgress({
+      match: (url) => /\.(athc|hdr)(\?|$)/.test(url),
+      expectedBytes: 290 * 1024 * 1024,
+    });
     const renderer = new THREE.WebGPURenderer({
       canvas: document.getElementById("canvas"),
       requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
@@ -118,7 +128,7 @@
     scene.add(spark);
     const body = new SplatMesh({ url: `${base}body-${suffix}.athc`, extSplats: true });
     scene.add(body);
-    const top = params.get("top") === "0" ? null : new SplatMesh({ url: `${base}top-${suffix}.athc`, extSplats: true });
+    const top = params.get("top") === "0" ? null : new SplatMesh({ url: `${base}top-${topSuffix}.athc`, extSplats: true });
     if (top) scene.add(top);
 
     const relight = atheneaRelightPlugin();
@@ -176,9 +186,10 @@
       window.__athenea.loaded = true;
     } catch (error) {
       window.__athenea.error = String(error);
-      status.textContent = `error: ${error} (the pawn's files are not under ${base}?)`;
+      status.textContent = `error: ${error}`;
       console.error(error);
     }
+    download.done();
 
     if (params.get("gui") !== "0") {
       const gui = new GUI({ title: "athenea relight" });
