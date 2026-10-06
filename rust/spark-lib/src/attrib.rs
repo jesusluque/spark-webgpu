@@ -408,6 +408,48 @@ mod tests {
         }
     }
 
+    // A paged .rad's chunk files, each decoded alone as the pager does: the
+    // chunk has no schema, so the attributes come from its properties.
+    #[cfg(all(feature = "gsplat", feature = "rad"))]
+    #[test]
+    fn through_rad_chunk_alone() {
+        use crate::decoder::ChunkReceiver;
+        use crate::gsplat::GsplatArray;
+        use crate::rad::{RadDecoder, RadEncoder};
+        use crate::tsplat::TsplatArray;
+        let n = 70000;
+        let mut splats = random_gsplats(n);
+        let mut attribs = AttribArray::new();
+        let fmt = |name: &str, format: &str, components: usize| AttribSpec {
+            name: name.into(), format: format.into(), components, lod_merge: LodMerge::WeightedMean,
+        };
+        attribs.add(fmt("label", "u32", 1), (0..n).map(|i| (i % 251) as f64).collect()).unwrap();
+        attribs.add(fmt("normal", "snorm8", 3), (0..3 * n).map(|k| if k % 3 == 2 { -1.0 } else { 0.25 }).collect()).unwrap();
+        attribs.add(fmt("feature", "f16", 5), (0..5 * n).map(|k| (k % 1000) as f64 * 0.5).collect()).unwrap();
+        attribs.add(fmt("mask", "unorm8", 2), (0..2 * n).map(|k| (k % 256) as f64 / 255.0).collect()).unwrap();
+        splats.attribs = attribs.clone();
+
+        let mut bytes = Vec::new();
+        let chunks = RadEncoder::new(splats).encode_with_chunks(&mut bytes, "chunk").unwrap();
+        assert_eq!(chunks.len(), 2);
+        let base = 65536;
+        let mut decoder = RadDecoder::new(GsplatArray::new());
+        decoder.push(&chunks[1].1).unwrap();
+        decoder.finish().unwrap();
+        let out = decoder.into_splats();
+        assert_eq!(out.len(), n - base);
+        let names: Vec<_> = out.attribs.specs.iter().map(|s| (s.name.as_str(), s.format.as_str(), s.components)).collect();
+        assert_eq!(names, vec![("label", "u32", 1), ("normal", "snorm8", 3), ("feature", "f16", 5), ("mask", "unorm8", 2)]);
+        for (k, spec) in attribs.specs.iter().enumerate() {
+            for i in [0, 1, 4000, n - base - 1] {
+                let (got, want) = (out.attribs.get(k, i), attribs.get(k, base + i));
+                for c in 0..spec.components {
+                    assert!((got[c] - want[c]).abs() <= 1e-2 * (1.0 + want[c].abs()), "{} [{i}][{c}]: {} vs {}", spec.name, got[c], want[c]);
+                }
+            }
+        }
+    }
+
     // A 3DGS PLY with extra properties: decoded into attributes, through
     // LOD, then through a .rad file.
     #[cfg(all(feature = "gsplat", feature = "ply", feature = "rad", feature = "tiny_lod"))]

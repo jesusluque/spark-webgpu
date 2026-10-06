@@ -26,6 +26,7 @@ describe("capabilitiesOf", () => {
     expect(SORT_WORKGROUP_BYTES).toBe(4224);
     expect(c.gpuSort).toBe(true);
     expect(c.maxSplats).toBe(4194304);
+    expect(c.maxSplatsPacked).toBe(8388608);
     expect(c.vertexStorage).toBe(true);
     expect(c.subgroups).toBe(false);
   });

@@ -136,6 +136,7 @@ export class SplatAttributes implements SplatRendererStage {
 
   // A source pool on the GPU, re-uploaded when it changed.
   private gpuPool(pool: AttribPool): GPUBuffer {
+    if (pool.gpuBuffer) return pool.gpuBuffer;
     let g = this.gpuPools.get(pool);
     if (!g || g.version !== pool.version) {
       g?.buffer.destroy();

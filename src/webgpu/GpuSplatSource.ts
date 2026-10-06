@@ -19,6 +19,11 @@ export class GpuSplatSource {
    * on the AttribPool need renderer.markDirty() instead.
    */
   version = 0;
+  /**
+   * uint4s per splat in `sh`; 0 for all degrees (3 packed, 4 ext). Pools
+   * sized for fewer degrees (WgpuSplatPager) set it.
+   */
+  shStride = 0;
 
   constructor(
     readonly format: "packed" | "ext",
