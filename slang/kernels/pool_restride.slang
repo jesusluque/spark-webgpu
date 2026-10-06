@@ -3,10 +3,11 @@
 // src[i * oldStride] to dst[i * newStride], and the new tail is zeroed.
 
 struct RestrideParams {
-    uint count;     // splats
+    uint count;     // splats in this dispatch
     uint oldStride; // uint4s per splat in src
     uint newStride; // uint4s per splat in dst (>= oldStride)
-    uint pad0;
+    uint first;     // first splat: a pool can need more workgroups than one
+                    // dispatch dimension allows
 };
 
 StructuredBuffer<uint4> src;
@@ -16,10 +17,10 @@ ConstantBuffer<RestrideParams> params;
 [shader("compute")]
 [numthreads(256, 1, 1)]
 void restride(uint3 tid: SV_DispatchThreadID) {
-    uint i = tid.x;
-    if (i >= params.count) {
+    if (tid.x >= params.count) {
         return;
     }
+    uint i = params.first + tid.x;
     for (uint k = 0u; k < params.newStride; k++) {
         dst[i * params.newStride + k] = k < params.oldStride ? src[i * params.oldStride + k] : uint4(0u);
     }

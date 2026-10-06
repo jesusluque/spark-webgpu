@@ -151,7 +151,12 @@ export class SrgbComposite {
     });
     if (viewport) {
       pass.setViewport(viewport.x, viewport.y, viewport.z, viewport.w, 0, 1);
-      pass.setScissorRect(viewport.x, viewport.y, viewport.z, viewport.w);
+      // Clamped: the viewport may reach past the target, a scissor can't.
+      const x0 = Math.max(0, Math.floor(viewport.x));
+      const y0 = Math.max(0, Math.floor(viewport.y));
+      const x1 = Math.min(color.width, Math.ceil(viewport.x + viewport.z));
+      const y1 = Math.min(color.height, Math.ceil(viewport.y + viewport.w));
+      pass.setScissorRect(x0, y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0));
     }
     pass.setPipeline(pipeline);
     pass.setBindGroup(

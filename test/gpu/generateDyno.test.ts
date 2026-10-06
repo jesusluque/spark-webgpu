@@ -379,4 +379,31 @@ describe.skipIf(!device)("generate.slang with dyno", () => {
     dyno.objectModifiers = [mod, mod];
     expect(kernels.changed(owner, dyno)).toBe(true);
   });
+
+  // Two textures uploaded once each have the same version: a swap is still
+  // a change.
+  it("reports a texture uniform swapped for another", () => {
+    const texture = (r: number) => {
+      const t = new THREE.DataTexture(new Uint8Array([r, 0, 0, 255]), 1, 1);
+      t.needsUpdate = true;
+      return t;
+    };
+    const tex = d.dynoSampler2D(texture(10));
+    const mod = d.dynoBlock(
+      { gsplat: d.Gsplat },
+      { gsplat: d.Gsplat },
+      ({ gsplat }) => ({
+        gsplat: d.combineGsplat({
+          gsplat: gsplat as never,
+          rgba: d.texelFetch(tex, d.dynoIvec2([0, 0])),
+        }),
+      }),
+    );
+    const owner = {};
+    const dyno = { objectModifiers: [mod] };
+    expect(kernels.changed(owner, dyno)).toBe(true);
+    expect(kernels.changed(owner, dyno)).toBe(false);
+    tex.value = texture(200);
+    expect(kernels.changed(owner, dyno)).toBe(true);
+  });
 });

@@ -2,7 +2,7 @@
 // slang/kernels/pool_restride.slang — do not edit.
 import type { KernelModule } from "../../KernelModule";
 
-export const wgsl = "struct RestrideParams_std140_0\n{\n    @align(16) count_0 : u32,\n    @align(4) oldStride_0 : u32,\n    @align(8) newStride_0 : u32,\n    @align(4) pad0_0 : u32,\n};\n\n@binding(2) @group(0) var<uniform> params_0 : RestrideParams_std140_0;\n@binding(1) @group(0) var<storage, read_write> dst_0 : array<vec4<u32>>;\n\n@binding(0) @group(0) var<storage, read> src_0 : array<vec4<u32>>;\n\n@compute\n@workgroup_size(256, 1, 1)\nfn restride(@builtin(global_invocation_id) tid_0 : vec3<u32>)\n{\n    var i_0 : u32 = tid_0.x;\n    if(i_0 >= (params_0.count_0))\n    {\n        return;\n    }\n    var k_0 : u32 = u32(0);\n    for(;;)\n    {\n        if(k_0 < (params_0.newStride_0))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var _S1 : vec4<u32>;\n        if(k_0 < (params_0.oldStride_0))\n        {\n            _S1 = src_0[i_0 * params_0.oldStride_0 + k_0];\n        }\n        else\n        {\n            _S1 = vec4<u32>(u32(0));\n        }\n        dst_0[i_0 * params_0.newStride_0 + k_0] = _S1;\n        k_0 = k_0 + u32(1);\n    }\n    return;\n}\n\n";
+export const wgsl = "struct RestrideParams_std140_0\n{\n    @align(16) count_0 : u32,\n    @align(4) oldStride_0 : u32,\n    @align(8) newStride_0 : u32,\n    @align(4) first_0 : u32,\n};\n\n@binding(2) @group(0) var<uniform> params_0 : RestrideParams_std140_0;\n@binding(1) @group(0) var<storage, read_write> dst_0 : array<vec4<u32>>;\n\n@binding(0) @group(0) var<storage, read> src_0 : array<vec4<u32>>;\n\n@compute\n@workgroup_size(256, 1, 1)\nfn restride(@builtin(global_invocation_id) tid_0 : vec3<u32>)\n{\n    var _S1 : u32 = tid_0.x;\n    if(_S1 >= (params_0.count_0))\n    {\n        return;\n    }\n    var _S2 : u32 = params_0.first_0 + _S1;\n    var k_0 : u32 = u32(0);\n    for(;;)\n    {\n        if(k_0 < (params_0.newStride_0))\n        {\n        }\n        else\n        {\n            break;\n        }\n        var _S3 : vec4<u32>;\n        if(k_0 < (params_0.oldStride_0))\n        {\n            _S3 = src_0[_S2 * params_0.oldStride_0 + k_0];\n        }\n        else\n        {\n            _S3 = vec4<u32>(u32(0));\n        }\n        dst_0[_S2 * params_0.newStride_0 + k_0] = _S3;\n        k_0 = k_0 + u32(1);\n    }\n    return;\n}\n\n";
 
 export const reflection = {
   "entries": [
@@ -66,7 +66,7 @@ export const reflection = {
           "components": 1
         },
         {
-          "name": "pad0",
+          "name": "first",
           "offset": 12,
           "size": 4,
           "scalar": "uint32",

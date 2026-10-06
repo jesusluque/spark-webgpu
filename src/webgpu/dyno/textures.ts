@@ -1,7 +1,8 @@
 // GPU copies of the three.js textures dyno sampler uniforms hold, uploaded
 // on first use and again when texture.version changes (needsUpdate). Data
 // textures (DataTexture, DataArrayTexture, Data3DTexture) upload their typed
-// array; anything else is treated as an image and copied as rgba8unorm.
+// array; anything else is treated as an image and copied as rgba8unorm
+// (-srgb for sRGB textures, decoded on read as on WebGL).
 //
 // Textures rather than storage buffers: they map one to one onto GLSL
 // samplers (texelFetch -> textureLoad, texture -> textureSampleLevel) and
@@ -60,7 +61,15 @@ export function textureFormat(texture: THREE.Texture): FormatInfo {
       `dyno texture: no WebGPU format for three format ${texture.format} / type ${texture.type}`,
     );
   }
+  // 8-bit sRGB RGBA reads decoded, as WebGL's SRGB8_ALPHA8 (three's choice).
+  if (info.format === "rgba8unorm" && isSrgb(texture)) {
+    return { ...info, format: "rgba8unorm-srgb" };
+  }
   return info;
+}
+
+function isSrgb(texture: THREE.Texture) {
+  return texture.colorSpace === THREE.SRGBColorSpace;
 }
 
 interface DataImage {
@@ -149,12 +158,12 @@ export class TextureCache {
       const size = { width: image.width, height: image.height };
       const gpu = reuseTexture(device, previous, {
         size: [size.width, size.height],
-        format: "rgba8unorm",
+        format: isSrgb(texture) ? "rgba8unorm-srgb" : "rgba8unorm",
         usage: usage | GPUTextureUsage.RENDER_ATTACHMENT,
       });
       device.queue.copyExternalImageToTexture(
         { source: image, flipY: texture.flipY },
-        { texture: gpu },
+        { texture: gpu, premultipliedAlpha: texture.premultiplyAlpha },
         size,
       );
       return gpu;

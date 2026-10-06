@@ -185,4 +185,37 @@ describe.skipIf(!device)("WgpuSplatRenderer", () => {
       splats.dispose();
     },
   );
+
+  // The CPU sort draws a frame behind, in the order of an earlier camera's
+  // metric: generate must not cull for that camera, or splats coming into
+  // view are missing from the order.
+  it("draws splats coming into view with the CPU sort", async () => {
+    const a = new Uint32Array(4);
+    const b = new Uint32Array(4);
+    encodeExtSplat([a, b], 0, 0, 0, 0, 0.5, 0.5, 0.5, 0, 0, 0, 1, 1, 1, 1, 1);
+    const splats = new WgpuSplatRenderer(fakeRenderer as never, {
+      depthTest: false,
+      sort: "cpu",
+    });
+    splats.add(GpuSplatSource.fromExt(d, a, b, 1));
+    const camera = new THREE.PerspectiveCamera(60, W / H, 0.05, 100);
+    camera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+    camera.updateProjectionMatrix();
+    camera.position.set(0, 0, 4);
+    const look = async (x: number) => {
+      camera.lookAt(x, 0, 0);
+      camera.updateMatrixWorld();
+      clearCanvas();
+      splats.render(camera);
+      await d.queue.onSubmittedWorkDone();
+      await new Promise((r) => setTimeout(r, 10));
+    };
+    // Looking away until the sort settles, then at the splat.
+    for (let frame = 0; frame < 3; frame++) await look(100);
+    await look(0);
+    const px = await readCanvas();
+    const centre = ((H / 2) * W + W / 2) * 4;
+    expect(px[centre + 2]).toBeGreaterThan(100);
+    splats.dispose();
+  });
 });

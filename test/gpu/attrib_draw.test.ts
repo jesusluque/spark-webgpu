@@ -299,6 +299,24 @@ describe.skipIf(!device)("splat attributes in the renderer", () => {
     splats.dispose();
   });
 
+  // A stage added after a frame, the camera still: the next frame gathers.
+  it("gathers for a stage added after the first frame", async () => {
+    const splats = new WgpuSplatRenderer(fakeRenderer as never, {
+      depthTest: false,
+    });
+    const source = rowSource(3, 0.15, 1.2);
+    source.setAttribute("label", [1, 2, 3], "u8", 1, { toDraw: true });
+    splats.add(source);
+    const cam = camera();
+    splats.render(cam);
+    const attrs = new SplatAttributes(splats);
+    splats.render(cam);
+    await d.queue.onSubmittedWorkDone();
+    expect(attrs.drawPool).not.toBeNull();
+    attrs.dispose();
+    splats.dispose();
+  });
+
   // The portal clip applies to the attribute variant as to the default draw.
   it("clips attribute draws by the portal disk", async () => {
     const splats = new WgpuSplatRenderer(fakeRenderer as never, {
