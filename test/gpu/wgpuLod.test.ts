@@ -350,6 +350,8 @@ describe.skipIf(!device)("WgpuLod", () => {
           getSampleCountRenderContext: () => 1,
           getCurrentColorSpace: () => THREE.SRGBColorSpace,
         },
+        updateViewport: () => {},
+        pipelineUtils: { _activePipelines: new WeakMap() },
       },
     };
     const spark = new SparkRenderer({ renderer: three as never });

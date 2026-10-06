@@ -16,6 +16,11 @@
 import * as THREE from "three";
 import { rowStride } from "./WgpuReadTarget";
 import type { WgpuSplatRenderer } from "./WgpuSplatRenderer";
+import {
+  type ThreeWebGPURenderer,
+  generateMipmaps,
+  gpuTexture,
+} from "./threeInternals";
 
 export interface WgpuCubeMapOptions {
   /** three objects to draw under the splats (lights, meshes...). */
@@ -31,13 +36,7 @@ export interface WgpuCubeMapOptions {
   filter?: boolean;
 }
 
-interface TextureBackend {
-  get(resource: object): { texture?: GPUTexture } | undefined;
-  generateMipmaps?(texture: THREE.Texture): void;
-}
-
-interface RendererLike {
-  backend: TextureBackend;
+interface RendererLike extends ThreeWebGPURenderer {
   getRenderTarget(): THREE.RenderTarget | null;
   getActiveCubeFace(): number;
   getActiveMipmapLevel(): number;
@@ -171,7 +170,7 @@ export class WgpuCubeMap {
     if (renderer.xr) renderer.xr.enabled = false;
     try {
       renderer.initTexture(target.texture);
-      const cubeTexture = renderer.backend.get(target.texture)?.texture;
+      const cubeTexture = gpuTexture(renderer, target.texture);
       if (!cubeTexture) throw new Error("WgpuCubeMap: no cube texture");
       const device = splats.device;
       camera.children.forEach((faceCamera, i) => {
@@ -179,7 +178,7 @@ export class WgpuCubeMap {
         renderer.render(scene, faceCamera as THREE.Camera);
         splats.markDirty();
         splats.render(faceCamera as THREE.Camera, face);
-        const faceTexture = renderer.backend.get(face.texture)?.texture;
+        const faceTexture = gpuTexture(renderer, face.texture);
         if (!faceTexture) throw new Error("WgpuCubeMap: no face texture");
         const encoder = device.createCommandEncoder({ label: "cube face" });
         encoder.copyTextureToTexture(
@@ -189,7 +188,7 @@ export class WgpuCubeMap {
         );
         device.queue.submit([encoder.finish()]);
       });
-      if (filter) renderer.backend.generateMipmaps?.(target.texture);
+      if (filter) generateMipmaps(renderer, target.texture);
     } finally {
       splats.meshes.splice(0, splats.meshes.length, ...all);
       splats.markDirty();

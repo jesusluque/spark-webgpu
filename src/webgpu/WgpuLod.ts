@@ -27,6 +27,7 @@ import {
   type RadAttributeMeta,
   specsFromRadMeta,
 } from "./attributes/PagedAttribPool";
+import { canvasContext } from "./threeInternals";
 
 type LodSplats = PackedSplats | ExtSplats | PagedSplats;
 
@@ -466,7 +467,7 @@ export class WgpuLod {
   }
 
   private canvasSize() {
-    const canvas = this.renderer.renderer.backend.context.canvas as {
+    const canvas = canvasContext(this.renderer.renderer).canvas as {
       width: number;
       height: number;
     };
