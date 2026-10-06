@@ -83,6 +83,13 @@ export function isFilterable(texture: THREE.Texture): boolean {
   return !isData(texture) || !textureFormat(texture).format.endsWith("32float");
 }
 
+/**
+ * three textures whose contents live in a GPU texture already, made by a
+ * kernel rather than uploaded (RgbaArray from SparkRenderer.getRgba): dyno
+ * bindings use that texture as it is.
+ */
+export const gpuTextures = new WeakMap<THREE.Texture, GPUTexture>();
+
 export class TextureCache {
   private entries = new WeakMap<
     THREE.Texture,
@@ -93,6 +100,8 @@ export class TextureCache {
   constructor(readonly device: GPUDevice) {}
 
   texture(texture: THREE.Texture): GPUTexture {
+    const external = gpuTextures.get(texture);
+    if (external) return external;
     const entry = this.entries.get(texture);
     if (entry && entry.version === texture.version) return entry.texture;
     const gpu = this.upload(texture, entry?.texture);

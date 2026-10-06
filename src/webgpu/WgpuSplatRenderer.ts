@@ -58,6 +58,24 @@ const DRAW_ORTHOGRAPHIC = 16;
 const DRAW_ENCODE_LINEAR = 32;
 const DRAW_PREMULTIPLIED = 64;
 
+// The ext accumulator's RGBA (packSplatExt: rg, b and alpha as halves) into
+// an RgbaArray texture, at splatTexCoord(index).
+const BAKE_RGBA_WGSL = /* wgsl */ `
+@group(0) @binding(0) var<storage, read> splats: array<vec4u>;
+@group(0) @binding(1) var rgba: texture_storage_2d_array<rgba8unorm, write>;
+@group(0) @binding(2) var<uniform> count: vec4u;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= count.x) { return; }
+  let a = splats[2u * i];
+  let b = splats[2u * i + 1u];
+  let value = vec4f(unpack2x16float(b.x), unpack2x16float(b.y).x, unpack2x16float(a.w).x);
+  textureStore(rgba, vec2u(i & 2047u, (i >> 11u) & 2047u), i >> 22u, clamp(value, vec4f(0.0), vec4f(1.0)));
+}
+`;
+
 export interface WgpuSplatMesh {
   source: GpuSplatSource;
   object: THREE.Object3D;
@@ -210,6 +228,7 @@ export class WgpuSplatRenderer {
   private dynoKernels: DynoKernels;
   private lastTime = performance.now() / 1000;
   private dynoDirty = false;
+  private bakePipeline?: GPUComputePipeline;
 
   // Sort state: a readback in flight, and the order last uploaded.
   private sortPending = false;
@@ -653,84 +672,180 @@ export class WgpuSplatRenderer {
     cameraPos: THREE.Vector3,
     cameraDir: THREE.Vector3,
   ) {
-    const kernel = this.registry.get(generateModule, "generate");
     const pass = encoder.beginComputePass({ label: "generate" });
+    let base = 0;
+    for (const mesh of this.meshes) {
+      const count = this.meshCount(mesh);
+      this.encodeGenerate(pass, mesh, {
+        base,
+        count,
+        lod: mesh.lodIndices != null,
+        cameraPos,
+        cameraDir,
+        outSplats: this.accumulator as GPUBuffer,
+        sortMetric: this.metric as GPUBuffer,
+      });
+      base += count;
+    }
+    pass.end();
+  }
+
+  // One mesh's generate dispatch: `count` splats into outSplats from `base`.
+  private encodeGenerate(
+    pass: GPUComputePassEncoder,
+    mesh: WgpuSplatMesh,
+    out: {
+      base: number;
+      count: number;
+      /** Through the mesh's LOD indices (else source indices 0..count). */
+      lod: boolean;
+      cameraPos: THREE.Vector3;
+      cameraDir: THREE.Vector3;
+      outSplats: GPUBuffer;
+      sortMetric: GPUBuffer;
+      /** Plain Gsplats even when the accumulator holds covariance splats. */
+      noCov?: boolean;
+    },
+  ) {
+    const { base, count, cameraPos, cameraDir } = out;
+    const kernel = this.registry.get(generateModule, "generate");
     const position = new THREE.Vector3();
     const rotation = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const inverse = new THREE.Matrix4();
     const basis = new THREE.Matrix4();
-    let base = 0;
-    for (const mesh of this.meshes) {
-      const { source, object } = mesh;
-      object.updateMatrixWorld();
-      object.matrixWorld.decompose(position, rotation, scale);
-      let dyno: DynoDispatch | null = null;
-      if (DynoKernels.active(mesh.dyno)) {
-        dyno = this.dynoKernels.prepare(mesh, mesh.dyno);
-        if (mesh.dyno.worldSpace) {
-          position.set(0, 0, 0);
-          rotation.identity();
-          scale.set(1, 1, 1);
-        }
+    const { source, object } = mesh;
+    object.updateMatrixWorld();
+    object.matrixWorld.decompose(position, rotation, scale);
+    let dyno: DynoDispatch | null = null;
+    if (DynoKernels.active(mesh.dyno)) {
+      dyno = this.dynoKernels.prepare(mesh, mesh.dyno);
+      if (mesh.dyno.worldSpace) {
+        position.set(0, 0, 0);
+        rotation.identity();
+        scale.set(1, 1, 1);
       }
-      const viewObject = cameraPos
-        .clone()
-        .applyMatrix4(inverse.copy(object.matrixWorld).invert());
-      const count = this.meshCount(mesh);
-      let flags = GEN_OUT_EXT;
-      if (source.format === "ext") flags |= GEN_SRC_EXT;
-      if (mesh.lodIndices) flags |= GEN_USE_LOD;
-      if (source.lodOpacity) flags |= GEN_LOD_OPACITY;
-      if (this.options.sortRadial) flags |= GEN_SORT_RADIAL;
-      if (dyno && mesh.dyno?.generator) flags |= GEN_DYNO_SOURCE;
-      if (this.options.covSplats) {
-        flags |= GEN_OUT_COV;
-        // Gsplat world modifiers need the similarity transform before them.
-        if (!mesh.dyno?.worldModifiers?.length) flags |= GEN_COV_TRANSFORM;
-      }
-      if (dyno && mesh.dyno?.worldSpace) basis.identity();
-      else basis.copy(object.matrixWorld);
-      const b = basis.elements;
-      const params = UniformWriter.for(generateModule).setAll({
-        numSplats: count,
-        outBase: base,
-        flags,
-        numSh: source.numSh,
-        srcCount: source.count,
-        rotate: [rotation.x, rotation.y, rotation.z, rotation.w],
-        translateScale: [
-          position.x,
-          position.y,
-          position.z,
-          (scale.x + scale.y + scale.z) / 3,
-        ],
-        recolor: mesh.recolor.toArray(),
-        encoding: source.encoding,
-        shMax: source.shMax,
-        viewObject: [viewObject.x, viewObject.y, viewObject.z, 0],
-        viewCenter: [cameraPos.x, cameraPos.y, cameraPos.z, 0],
-        viewDir: [cameraDir.x, cameraDir.y, cameraDir.z, 0],
-        outOrigin: [0, 0, 0, 0],
-        covBasis0: [b[0], b[1], b[2], 0],
-        covBasis1: [b[4], b[5], b[6], 0],
-        covBasis2: [b[8], b[9], b[10], 0],
-      });
-      (dyno?.kernel ?? kernel).dispatch(pass, {
-        bindings: dyno?.bindings,
-        grid: [count],
-        buffers: {
-          src: source.src,
-          sh: source.sh ?? this.emptyBuffer,
-          lodIndices: mesh.lodBuffer ?? this.emptyBuffer,
-          outSplats: this.accumulator as GPUBuffer,
-          sortMetric: this.metric as GPUBuffer,
-        },
-        uniforms: params.data,
-      });
-      base += count;
     }
+    const viewObject = cameraPos
+      .clone()
+      .applyMatrix4(inverse.copy(object.matrixWorld).invert());
+    let flags = GEN_OUT_EXT;
+    if (source.format === "ext") flags |= GEN_SRC_EXT;
+    if (out.lod) flags |= GEN_USE_LOD;
+    if (source.lodOpacity) flags |= GEN_LOD_OPACITY;
+    if (this.options.sortRadial) flags |= GEN_SORT_RADIAL;
+    if (dyno && mesh.dyno?.generator) flags |= GEN_DYNO_SOURCE;
+    if (this.options.covSplats && !out.noCov) {
+      flags |= GEN_OUT_COV;
+      // Gsplat world modifiers need the similarity transform before them.
+      if (!mesh.dyno?.worldModifiers?.length) flags |= GEN_COV_TRANSFORM;
+    }
+    if (dyno && mesh.dyno?.worldSpace) basis.identity();
+    else basis.copy(object.matrixWorld);
+    const b = basis.elements;
+    const params = UniformWriter.for(generateModule).setAll({
+      numSplats: count,
+      outBase: base,
+      flags,
+      numSh: source.numSh,
+      srcCount: source.count,
+      rotate: [rotation.x, rotation.y, rotation.z, rotation.w],
+      translateScale: [
+        position.x,
+        position.y,
+        position.z,
+        (scale.x + scale.y + scale.z) / 3,
+      ],
+      recolor: mesh.recolor.toArray(),
+      encoding: source.encoding,
+      shMax: source.shMax,
+      viewObject: [viewObject.x, viewObject.y, viewObject.z, 0],
+      viewCenter: [cameraPos.x, cameraPos.y, cameraPos.z, 0],
+      viewDir: [cameraDir.x, cameraDir.y, cameraDir.z, 0],
+      outOrigin: [0, 0, 0, 0],
+      covBasis0: [b[0], b[1], b[2], 0],
+      covBasis1: [b[4], b[5], b[6], 0],
+      covBasis2: [b[8], b[9], b[10], 0],
+    });
+    (dyno?.kernel ?? kernel).dispatch(pass, {
+      bindings: dyno?.bindings,
+      grid: [count],
+      buffers: {
+        src: source.src,
+        sh: source.sh ?? this.emptyBuffer,
+        lodIndices: mesh.lodBuffer ?? this.emptyBuffer,
+        outSplats: out.outSplats,
+        sortMetric: out.sortMetric,
+      },
+      uniforms: params.data,
+    });
+  }
+
+  /**
+   * `mesh`'s splats as generated now (its modifiers and recolor, SH for
+   * `camera`), their RGBA by source index into `texture`: an rgba8unorm
+   * 2d-array with STORAGE_BINDING, splatTexCoord layout (RgbaArray's). For
+   * SparkRenderer.getRgba, which bakes painted colours into SplatMesh.splatRgba.
+   */
+  bakeRgba(mesh: WgpuSplatMesh, camera: THREE.Camera, texture: GPUTexture) {
+    const count = mesh.source.count;
+    if (count === 0) return;
+    camera.updateMatrixWorld();
+    const cameraPos = new THREE.Vector3().setFromMatrixPosition(
+      camera.matrixWorld,
+    );
+    const cameraDir = new THREE.Vector3(0, 0, -1).transformDirection(
+      camera.matrixWorld,
+    );
+    const { device } = this;
+    const outSplats = createStorage(device, count * 32, "baked splats");
+    const sortMetric = createStorage(device, count * 4, "baked metric");
+    const encoder = device.createCommandEncoder({ label: "bake rgba" });
+    const pass = encoder.beginComputePass({ label: "bake rgba" });
+    this.encodeGenerate(pass, mesh, {
+      base: 0,
+      count,
+      lod: false,
+      cameraPos,
+      cameraDir,
+      outSplats,
+      sortMetric,
+      noCov: true,
+    });
+    this.bakePipeline ??= device.createComputePipeline({
+      label: "bake rgba",
+      layout: "auto",
+      compute: {
+        module: device.createShaderModule({ code: BAKE_RGBA_WGSL }),
+        entryPoint: "main",
+      },
+    });
+    const countBuffer = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(countBuffer, 0, new Uint32Array([count, 0, 0, 0]));
+    pass.setPipeline(this.bakePipeline);
+    pass.setBindGroup(
+      0,
+      device.createBindGroup({
+        layout: this.bakePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: outSplats } },
+          {
+            binding: 1,
+            resource: texture.createView({ dimension: "2d-array" }),
+          },
+          { binding: 2, resource: { buffer: countBuffer } },
+        ],
+      }),
+    );
+    pass.dispatchWorkgroups(Math.ceil(count / 256));
     pass.end();
+    this.registry.submit(encoder.finish());
+    outSplats.destroy();
+    sortMetric.destroy();
+    countBuffer.destroy();
   }
 
   private copyMetric(encoder: GPUCommandEncoder, total: number): GPUBuffer {

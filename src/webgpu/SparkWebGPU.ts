@@ -19,6 +19,7 @@
 import * as THREE from "three";
 import type { ExtSplats } from "../ExtSplats";
 import { PackedSplats } from "../PackedSplats";
+import type { RgbaArray } from "../RgbaArray";
 import type { SparkRenderer } from "../SparkRenderer";
 import { type SplatEdit, isSplatEdit } from "../SplatEdit";
 import { SplatGenerator } from "../SplatGenerator";
@@ -124,6 +125,7 @@ export class SparkWebGPU {
   private globalEdits: SplatEdit[] = [];
   private lastFrame = -1;
   private lastTime = performance.now() / 1000;
+  private lastCamera: THREE.Camera | null = null;
   private failed = false;
 
   constructor(
@@ -159,6 +161,7 @@ export class SparkWebGPU {
     }
 
     const splats = this.ensureRenderer();
+    this.lastCamera = camera;
     const width = rc.viewport ? rc.viewportValue.z : rc.width;
     const height = rc.viewport ? rc.viewportValue.w : rc.height;
 
@@ -281,6 +284,19 @@ export class SparkWebGPU {
     });
     pass.end();
     splats.device.queue.submit([encoder.finish()]);
+  }
+
+  /** SparkRenderer.getRgba: bakes the mesh's generated RGBA on the GPU. */
+  getRgba(generator: SplatGenerator, rgba: RgbaArray) {
+    const entry = this.entries.get(generator);
+    const mesh = entry?.mesh ?? entry?.lodMesh?.mesh;
+    if (!mesh || !this.splats || !this.lastCamera) {
+      throw new Error(
+        "SparkRenderer.getRgba: render the generator with this SparkRenderer first",
+      );
+    }
+    const texture = rgba.gpuTexture(this.splats.device, mesh.source.count);
+    this.splats.bakeRgba(mesh, this.lastCamera, texture);
   }
 
   private ensureRenderer() {

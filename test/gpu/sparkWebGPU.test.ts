@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { PackedSplats } from "../../src/PackedSplats";
+import { RgbaArray } from "../../src/RgbaArray";
 import { SparkRenderer } from "../../src/SparkRenderer";
 import { SplatMesh } from "../../src/SplatMesh";
 import { device } from "./device";
@@ -196,6 +197,35 @@ describe.skipIf(!device)("SparkRenderer on WebGPU", () => {
     );
     await render(spark, scene, camera);
     expect(splats?.meshes[0].source.count).toBe(101);
+    spark.dispose();
+  });
+
+  it("bakes a mesh's generated RGBA with getRgba", async () => {
+    const { spark, scene, camera } = setup();
+    const packed = ball(300);
+    const mesh = new SplatMesh({ packedSplats: packed });
+    mesh.recolor.setRGB(0.5, 1, 1);
+    scene.add(mesh);
+    await render(spark, scene, camera);
+    const rgba = spark.getRgba({ generator: mesh });
+    expect(rgba.count).toBe(300);
+    const bytes = await rgba.read();
+    // red 1, green 0.1 (26/255) from the packed bytes, times the recolor.
+    for (let i = 0; i < 300; i += 37) {
+      expect(Math.abs(bytes[i * 4] - 128)).toBeLessThanOrEqual(1);
+      expect(bytes[i * 4 + 1]).toBe(26);
+      expect(bytes[i * 4 + 3]).toBe(255);
+    }
+    // fromPackedSplats decodes on the CPU on WebGPU.
+    const original = new RgbaArray().fromPackedSplats({
+      packedSplats: packed,
+      base: 0,
+      count: 300,
+      renderer: fakeRenderer as never,
+    });
+    const orig = await original.getArray();
+    expect(Array.from(orig.subarray(0, 4))).toEqual([255, 26, 26, 255]);
+    rgba.dispose();
     spark.dispose();
   });
 

@@ -3,6 +3,7 @@ import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
 import { PagedSplats } from "./PagedSplats";
 import { Readback } from "./Readback";
+import { RgbaArray } from "./RgbaArray";
 import { SplatAccumulator } from "./SplatAccumulator";
 import type { SplatGenerator } from "./SplatGenerator";
 import { SplatGeometry } from "./SplatGeometry";
@@ -10,6 +11,8 @@ import { SplatMesh } from "./SplatMesh";
 import { SplatPager } from "./SplatPager";
 import { SplatWorker } from "./SplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
+import { dynoBlock } from "./dyno/base";
+import { splitGsplat } from "./dyno/splats";
 import { SPARK_ENABLE_HOOKS, sparkHook } from "./hooks";
 import { getShaders } from "./shaders";
 import {
@@ -2196,6 +2199,36 @@ export class SparkRenderer extends THREE.Mesh {
         }
       }
     });
+  }
+
+  /**
+   * The RGBA of `generator`'s splats as it generates them now (modifiers,
+   * recolor), by splat index, into `rgba` (a new RgbaArray by default):
+   * e.g. to bake painted colours into SplatMesh.splatRgba. On WebGPU the
+   * mesh must have been drawn by this renderer, and SH colour is for the
+   * last camera it was drawn with.
+   */
+  getRgba({
+    generator,
+    rgba = new RgbaArray(),
+  }: { generator: SplatGenerator; rgba?: RgbaArray }): RgbaArray {
+    if (this.webgpu) {
+      this.webgpu.getRgba(generator, rgba);
+      return rgba;
+    }
+    const gen = generator.generator;
+    if (!gen) {
+      throw new Error("SparkRenderer.getRgba: generator has no dyno");
+    }
+    rgba.render({
+      renderer: this.renderer as THREE.WebGLRenderer,
+      count: generator.numSplats,
+      reader: dynoBlock({ index: "int" }, { rgba8: "vec4" }, ({ index }) => {
+        const { gsplat } = gen.apply({ index });
+        return { rgba8: splitGsplat(gsplat).outputs.rgba };
+      }),
+    });
+    return rgba;
   }
 
   async getLodTreeLevel(
