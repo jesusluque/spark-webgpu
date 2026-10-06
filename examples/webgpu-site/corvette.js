@@ -99,29 +99,46 @@ export async function createCorvette({
       THREE.FloatType,
     ),
   );
-  // three's GroundedSkybox: a sphere of groundRadius flattened at y = 0,
-  // looked up from the camera that shot the dome, groundHeight above the
-  // floor. Inside the disc the floor stays put under the car; past it the
-  // dome curves up to the horizon.
+  // three's GroundedSkybox (examples/jsm/objects/GroundedSkybox.js): a
+  // sphere of groundRadius centred on the camera that shot the dome,
+  // groundHeight above the floor; below 1.5 heights under that centre its
+  // vertices are pushed onto the floor (y = 0) and the band above blends
+  // into the sphere. Each vertex keeps the dome direction it was made from
+  // (skyDir), so the floor's scale follows the shooting height.
+  function groundedGeometry(height, radius, resolution = 192) {
+    const geometry = new THREE.SphereGeometry(
+      radius,
+      2 * resolution,
+      resolution,
+    );
+    const pos = geometry.getAttribute("position");
+    const dirs = new Float32Array(pos.count * 3);
+    const v = new THREE.Vector3();
+    const y1 = (-height * 3) / 2;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const n = v.clone().normalize();
+      dirs.set([n.x, n.y, n.z], i * 3);
+      if (v.y < 0) {
+        const f = v.y < y1 ? -height / v.y : 1 - (v.y * v.y) / (3 * y1 * y1);
+        v.multiplyScalar(f);
+        pos.setXYZ(i, v.x, v.y, v.z);
+      }
+    }
+    geometry.setAttribute("skyDir", new THREE.BufferAttribute(dirs, 3));
+    return geometry;
+  }
+  // The floor disc's radius on the ground (where the push onto y = 0 ends).
+  const floorDiscOf = (height, radius) =>
+    (2 / 3) * Math.sqrt(Math.max(radius * radius - 2.25 * height * height, 0));
+  const radiusForDisc = (height, disc) => 1.5 * Math.hypot(disc, height);
   const eye = TSL.cameraPosition;
   const ray = TSL.positionWorld.sub(eye).normalize();
-  const floorHit = eye.add(ray.mul(eye.y.negate().div(TSL.min(ray.y, -1e-4))));
-  const b = TSL.dot(eye, ray);
-  const c = TSL.dot(eye, eye).sub(groundRadius.mul(groundRadius));
-  const sphereHit = eye.add(
-    ray.mul(b.negate().add(TSL.sqrt(TSL.max(b.mul(b).sub(c), 0)))),
+  const d = TSL.select(
+    grounded.greaterThan(0.5),
+    TSL.attribute("skyDir", "vec3").normalize(),
+    ray,
   );
-  const onFloor = ray.y
-    .lessThan(0)
-    .and(eye.y.greaterThan(0))
-    .and(TSL.length(floorHit.xz).lessThan(groundRadius));
-  const shell = TSL.select(
-    onFloor,
-    floorHit,
-    TSL.vec3(sphereHit.x, TSL.max(sphereHit.y, 0), sphereHit.z),
-  );
-  const fromCentre = shell.sub(TSL.vec3(0, groundHeight, 0)).normalize();
-  const d = TSL.select(grounded.greaterThan(0.5), fromCentre, ray);
   const local = TSL.vec3(
     turn.x.mul(d.x).sub(turn.y.mul(d.z)),
     d.y,
@@ -136,12 +153,13 @@ export async function createCorvette({
     TSL.acos(TSL.clamp(local.y, -1, 1)).div(Math.PI),
   );
   const backdrop = new THREE.Mesh(
-    new THREE.SphereGeometry(100, 64, 32),
+    groundedGeometry(groundHeight.value, groundRadius.value),
     new THREE.MeshBasicNodeMaterial({
-      side: THREE.BackSide,
+      side: THREE.DoubleSide,
       depthWrite: false,
     }),
   );
+  backdrop.position.y = groundHeight.value;
   // Linear radiance into the HalfFloat target, held at its largest finite
   // value (a sun past it would turn to infinity there).
   backdrop.material.colorNode = TSL.min(
@@ -291,10 +309,21 @@ export async function createCorvette({
   ring.position.y = 0.002;
   ring.renderOrder = 10;
   scene.add(ring);
+  let builtFloor = "";
   const applyFloor = () => {
     groundHeight.value = floor.height;
+    floor.radius = Math.min(Math.max(floor.radius, 1.6 * floor.height), 180);
     groundRadius.value = floor.radius;
-    ring.scale.setScalar(floor.radius);
+    const key = `${floor.height}|${floor.radius}`;
+    if (key !== builtFloor) {
+      builtFloor = key;
+      backdrop.geometry.dispose();
+      backdrop.geometry = groundedGeometry(floor.height, floor.radius);
+      backdrop.position.y = floor.height;
+    }
+    ring.scale.setScalar(
+      Math.max(floorDiscOf(floor.height, floor.radius), 0.1),
+    );
     ring.visible = floor.handle && state.ground;
   };
   applyFloor();
@@ -328,12 +357,12 @@ export async function createCorvette({
     const g = gui.addFolder("floor").close();
     floorControllers = [
       g
-        .add(floor, "radius", 2, 200, 0.5)
-        .name("floor radius (m)")
+        .add(floor, "radius", 3, 180, 0.5)
+        .name("dome radius (m)")
         .onChange(applyFloor),
       g
         .add(floor, "height", 0.1, 20, 0.05)
-        .name("dome height (m)")
+        .name("shot height = floor scale (m)")
         .onChange(applyFloor),
     ];
     g.add(floor, "handle").name("show handle (drag ring)").onChange(applyFloor);
@@ -426,8 +455,8 @@ export async function createCorvette({
         const p = onFloorAt(event);
         if (!p) return;
         const r = Math.hypot(p.x, p.z);
-        if (Math.abs(r - floor.radius) > Math.max(0.12 * floor.radius, 0.4))
-          return;
+        const disc = floorDiscOf(floor.height, floor.radius);
+        if (Math.abs(r - disc) > Math.max(0.12 * disc, 0.4)) return;
         drag = { y: event.clientY, height: floor.height };
         controls.enabled = false;
         dom.setPointerCapture(event.pointerId);
@@ -445,8 +474,10 @@ export async function createCorvette({
         );
       } else {
         const p = onFloorAt(event);
-        if (p)
-          floor.radius = THREE.MathUtils.clamp(Math.hypot(p.x, p.z), 2, 200);
+        if (p) {
+          const disc = THREE.MathUtils.clamp(Math.hypot(p.x, p.z), 1, 110);
+          floor.radius = radiusForDisc(floor.height, disc);
+        }
       }
       applyFloor();
       for (const c of floorControllers) c.updateDisplay();
