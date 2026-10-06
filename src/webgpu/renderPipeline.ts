@@ -11,6 +11,7 @@ export interface RenderPipelineOptions {
   targets: (GPUColorTargetState | null)[];
   primitive?: GPUPrimitiveState;
   depthStencil?: GPUDepthStencilState;
+  multisample?: GPUMultisampleState;
   label?: string;
 }
 
@@ -88,6 +89,7 @@ export function createReflectedRenderPipeline(
     },
     primitive: options.primitive ?? { topology: "triangle-strip" },
     depthStencil: options.depthStencil,
+    multisample: options.multisample,
   });
   return { pipeline, layouts, bindings };
 }
