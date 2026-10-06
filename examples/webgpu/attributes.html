@@ -37,7 +37,8 @@
         "three": "../js/vendor/three/build/three.webgpu.js",
         "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
         "three/addons/": "../js/vendor/three/examples/jsm/",
-        "@sparkjsdev/spark": "../../dist/spark.module.js"
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js"
       }
     }
   </script>
@@ -51,9 +52,10 @@
     //   ?view=0|1     start showing that slot's rgba16float target
     import * as THREE from "three/webgpu";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { PackedSplats, utils } from "@sparkjsdev/spark";
     import {
-      GpuSplatSource, PackedSplats, SplatAttributes, WgpuSplatRenderer, utils,
-    } from "@sparkjsdev/spark";
+      GpuSplatSource, SplatAttributes, WgpuSplatRenderer,
+    } from "@sparkjsdev/spark/webgpu";
 
     const info = document.getElementById("info");
     const pickInfo = document.getElementById("pick");

@@ -14,4 +14,17 @@ export * from "./dyno/convert";
 export * from "./dyno/texture";
 export * from "./dyno/trig";
 export * from "./dyno/vecmat";
-export * from "./dyno/wgsl";
+// The WGSL registration API only: the WGSL compiler (WgslDynoProgram and the
+// op emitters) is in the WebGPU chunk (src/webgpuLoader.ts).
+export {
+  registerWgsl,
+  registerWgslStruct,
+  UNIFORM_BLOCK,
+  WgslBackend,
+  type WgslEmitter,
+  type WgslTextureBinding,
+  type WgslUniformField,
+  wgslStructTexture,
+} from "./dyno/wgsl/backend";
+export { registerWgslGlobal, WGSL_PRELUDE } from "./dyno/wgsl/prelude";
+export { glslExprToWgsl, typeShape, wgslType } from "./dyno/wgsl/types";

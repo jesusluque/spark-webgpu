@@ -24,14 +24,16 @@
         "three": "../js/vendor/three/build/three.webgpu.js",
         "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
         "three/addons/": "../js/vendor/three/examples/jsm/",
-        "@sparkjsdev/spark": "../../dist/spark.module.js"
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three/webgpu";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-    import { GpuSplatSource, PackedSplats, WgpuCubeMap, WgpuSplatRenderer } from "@sparkjsdev/spark";
+    import { PackedSplats } from "@sparkjsdev/spark";
+    import { GpuSplatSource, WgpuCubeMap, WgpuSplatRenderer } from "@sparkjsdev/spark/webgpu";
     import { getAssetFileURL } from "../js/get-asset-url.js";
     import { CLEAR_COLOR, envmapParams, loadDuck, poseBackgrounds, setDuckMaterial } from "./envmap-scene.js";
 

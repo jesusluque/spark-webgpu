@@ -37,6 +37,20 @@ If the browser has no WebGPU, `WebGPURenderer` falls back to WebGL2. Spark can't
 
 The migration guide in the repository, `examples/webgpu/README.md`, lists every difference with examples, and the [WebGPU examples](../../examples/webgpu/) include ports of most of Spark's examples, each changed only where the guide says.
 
+### Loading the backend
+
+The WebGPU backend is a separate file, `spark.webgpu.module.js` next to `spark.module.js`, so WebGL apps don't download it. `SparkRenderer` loads it the first time it's given a `WebGPURenderer`, and draws nothing until it has: `spark.webgpu` is set and `spark.webgpuReady` resolves once it's loaded. A render loop needs no change. Code that reads `spark.webgpu`, or renders a single frame with `renderTarget()`, should `await spark.webgpuReady` first.
+
+To have `spark.webgpu` from the constructor on, load the backend first, with `await loadWebGPU()` or by importing the WebGPU API:
+
+```typescript
+import { SparkRenderer, loadWebGPU } from "@sparkjsdev/spark";
+await loadWebGPU();
+// or: import { WgpuSplatRenderer, fx } from "@sparkjsdev/spark/webgpu";
+```
+
+`loadWebGPU()` resolves to the `"@sparkjsdev/spark/webgpu"` module, which holds the WebGPU-only API: `WgpuSplatRenderer`, `GpuSplatSource`, `WgpuLod`, `WgpuSplatPager`, `WgpuReadTarget`, `WgpuCubeMap`, `fx`, `SplatAttributes`, `capabilitiesOf`, `splatRequiredLimits` and the rest. With an import map, map `"@sparkjsdev/spark/webgpu"` to `spark.webgpu.module.js`; `spark.module.js` finds it on its own.
+
 ## Browser support
 
 | Browser | Status |
@@ -109,7 +123,7 @@ A WebGPU device gets the spec's default limits unless it asks for more, and thre
 Ask the adapter for its limits with `splatRequiredLimits`:
 
 ```typescript
-import { splatRequiredLimits } from "@sparkjsdev/spark";
+import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
 
 const adapter = await navigator.gpu.requestAdapter();
 const renderer = new THREE.WebGPURenderer({
