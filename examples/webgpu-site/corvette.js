@@ -42,6 +42,7 @@ export async function createCorvette({
   params,
   status,
   hdriBase = params.get("hdriBase") ?? HDRI_BASE,
+  progress,
 }) {
   window.__athenea = { loaded: false, error: null };
   const info = await (
@@ -212,7 +213,11 @@ export async function createCorvette({
   const parts = info.parts.filter((p) => !skip.has(p.group ?? p.name));
   const meshes = {};
   for (const part of parts) {
-    const mesh = new SplatMesh({ url: `${base}${part.file}`, extSplats: true });
+    const mesh = new SplatMesh({
+      url: `${base}${part.file}`,
+      extSplats: true,
+      onProgress: progress?.track(part.file),
+    });
     meshes[part.name] = mesh;
     car.add(mesh);
     // A glass cloud's index is the cloud's, not its file's (corvette.json).

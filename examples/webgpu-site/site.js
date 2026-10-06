@@ -89,23 +89,31 @@ export function downloadProgress({
 
   let loaded = 0;
   let announced = 0; // sum of Content-Length of the matched responses
+  // Downloads made elsewhere (Spark's loader fetches in a worker) report
+  // through track(key): their bytes and totals add to the fetched ones.
+  const tracked = new Map();
+  const trackedSum = (field) => {
+    let sum = 0;
+    for (const t of tracked.values()) sum += t[field];
+    return sum;
+  };
   const started = performance.now();
   let finished = false;
 
   function render() {
     if (finished) return;
-    const total = Math.max(announced, expectedBytes, loaded);
+    const got = loaded + trackedSum("loaded");
+    const total = Math.max(announced + trackedSum("total"), expectedBytes, got);
     const elapsed = (performance.now() - started) / 1000;
-    const rate = elapsed > 0.5 ? loaded / elapsed : 0;
-    const left =
-      rate > 0 && total > loaded ? (total - loaded) / rate : Number.NaN;
+    const rate = elapsed > 0.5 ? got / elapsed : 0;
+    const left = rate > 0 && total > got ? (total - got) / rate : Number.NaN;
     const parts = [
-      `${label} ${(loaded / MB).toFixed(0)} of ${(total / MB).toFixed(0)} MB`,
+      `${label} ${(got / MB).toFixed(0)} of ${(total / MB).toFixed(0)} MB`,
     ];
     if (rate > 0) parts.push(`${(rate / MB).toFixed(1)} MB/s`);
-    if (total > loaded) parts.push(`${formatSeconds(left)} left`);
+    if (total > got) parts.push(`${formatSeconds(left)} left`);
     text.textContent = parts.join(" · ");
-    fill.style.width = `${total ? Math.min(100, (100 * loaded) / total) : 0}%`;
+    fill.style.width = `${total ? Math.min(100, (100 * got) / total) : 0}%`;
   }
   const timer = setInterval(render, 250);
   render();
@@ -140,6 +148,16 @@ export function downloadProgress({
   };
 
   return {
+    /** An onProgress(ProgressEvent) for a download the page doesn't fetch. */
+    track(key) {
+      tracked.set(key, { loaded: 0, total: 0 });
+      return (event) => {
+        tracked.set(key, {
+          loaded: event.loaded ?? 0,
+          total: event.lengthComputable ? event.total : 0,
+        });
+      };
+    },
     done() {
       finished = true;
       clearInterval(timer);

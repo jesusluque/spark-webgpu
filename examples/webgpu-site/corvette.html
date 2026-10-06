@@ -78,7 +78,7 @@
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.setSize(innerWidth, innerHeight);
     await renderer.init();
-    await createCorvette({ renderer, base, params, status });
+    await createCorvette({ renderer, base, params, status, progress: download });
     download.done();
   </script>
 </body>
