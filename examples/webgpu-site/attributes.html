@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Per-splat attributes · Spark WebGPU</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./site.css">
+  <style>
+    .hud label { margin-right: 10px; cursor: pointer; white-space: nowrap; }
+    .hud .row { margin-top: 6px; }
+    .hud .row b { color: var(--dim); font-weight: normal; margin-right: 6px; }
+    #pick { white-space: pre-wrap; margin-top: 6px; font: 12px ui-monospace, Menlo, monospace; }
+  </style>
+</head>
+
+<body>
+  <div class="hud">
+    <h1><a href="./">&larr;</a>Per-splat attributes</h1>
+    <p>Every splat carries a label, a normal and an 8-d feature vector that flow through Spark's WebGPU pipeline into custom colour modes, extra render targets and GPU picking. Click a splat to pick it; drag to orbit.</p>
+    <div class="row"><b>colour</b>
+      <label><input type="radio" name="mode" value="splat"> albedo</label>
+      <label><input type="radio" name="mode" value="label" checked> label</label>
+      <label><input type="radio" name="mode" value="relight"> relight (normal)</label>
+      <label><input type="radio" name="mode" value="project"> feature projection</label>
+    </div>
+    <div class="row"><b>view</b>
+      <label><input type="radio" name="view" value="scene" checked> scene</label>
+      <label><input type="radio" name="view" value="0"> label target</label>
+      <label><input type="radio" name="view" value="1"> normal target</label>
+    </div>
+    <div id="pick">click a splat to pick it</div>
+    <div class="stats" id="info">starting…</div>
+  </div>
+  <div class="credits">
+    Content generated procedurally, CC0 ·
+    <a href="https://github.com/sparkjsdev/spark">Spark</a> (MIT) · <a href="https://threejs.org">three.js</a> (MIT)
+  </div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/webgpu": "./vendor/three/three.webgpu.min.js",
+        "three/addons/": "./vendor/three/addons/",
+        "@sparkjsdev/spark": "./vendor/spark/spark.module.min.js",
+        "@sparkjsdev/spark/webgpu": "./vendor/spark/spark.webgpu.module.min.js"
+      }
+    }
+  </script>
+  <script type="module">
+    // Per-Gaussian attributes on WebGPU: every splat carries a normal
+    // (snorm8 x 3), a label (u8) and an 8-dimensional feature (f16 x 8). They
+    // go through generate into the draw, where they colour the splats, and an
+    // extra render target of splat ids makes clicks pick splats.
+    //   ?source=ply   the same scene written as a PLY with extra properties and
+    //                 loaded through PackedSplats (attributes from the file)
+    //   ?view=0|1     start showing that slot's rgba16float target
+    import * as THREE from "three/webgpu";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { PackedSplats, utils } from "@sparkjsdev/spark";
+    import {
+      GpuSplatSource, SplatAttributes, WgpuSplatRenderer,
+    } from "@sparkjsdev/spark/webgpu";
+    import { requireWebGPU } from "./site.js";
+
+    const info = document.getElementById("info");
+    const pickInfo = document.getElementById("pick");
+    const params = new URLSearchParams(location.search);
+    await requireWebGPU();
+
+    const renderer = new THREE.WebGPURenderer();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    await renderer.init();
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x101018);
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 100);
+    camera.position.set(0.6, 2.4, 6.2);
+    camera.lookAt(0, 0.5, -0.8);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.5, -0.8);
+    controls.enableDamping = true;
+
+    const target = new THREE.RenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1), type: THREE.HalfFloatType });
+    const output = new THREE.QuadMesh(new THREE.MeshBasicNodeMaterial({ colorNode: THREE.TSL.texture(target.texture) }));
+    function resize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      target.setSize(size.x, size.y);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    // Six shapes, one label each: flat splats on their surfaces, with the
+    // surface normal and a smooth 8-d feature of position.
+    const shapes = [
+      { kind: "sphere", at: [-2, 0, 0], r: 0.8 },
+      { kind: "torus", at: [0, 0, 0], r: 0.75 },
+      { kind: "box", at: [2, 0, 0], r: 0.65 },
+      { kind: "sphere", at: [-1, 0, -2], r: 0.6 },
+      { kind: "box", at: [1, 0, -2], r: 0.5 },
+      { kind: "plane", at: [0, -1, -1], r: 3.2 },
+    ];
+    const perShape = Math.floor(Number(params.get("n") ?? 300000) / shapes.length);
+    const count = perShape * shapes.length;
+    const centers = new Float32Array(count * 3);
+    const normals = new Float32Array(count * 3);
+    const labels = new Uint8Array(count);
+    const features = new Float32Array(count * 8);
+    const albedo = new Float32Array(count * 3);
+    const p = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    shapes.forEach((shape, label) => {
+      for (let k = 0; k < perShape; k++) {
+        const i = label * perShape + k;
+        const u = Math.random();
+        const v = Math.random();
+        if (shape.kind === "sphere") {
+          const z = 2 * u - 1;
+          const t = 2 * Math.PI * v;
+          const s = Math.sqrt(1 - z * z);
+          n.set(s * Math.cos(t), z, s * Math.sin(t));
+          p.copy(n).multiplyScalar(shape.r);
+        } else if (shape.kind === "torus") {
+          const a = 2 * Math.PI * u;
+          const b = 2 * Math.PI * v;
+          const ring = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+          n.copy(ring).multiplyScalar(Math.cos(b)).add(new THREE.Vector3(0, Math.sin(b), 0));
+          p.copy(ring).multiplyScalar(shape.r).addScaledVector(n, 0.28);
+        } else if (shape.kind === "box") {
+          const face = Math.floor(Math.random() * 6);
+          const axis = face % 3;
+          const sign = face < 3 ? 1 : -1;
+          n.set(0, 0, 0).setComponent(axis, sign);
+          p.set(u * 2 - 1, v * 2 - 1, 0);
+          const c = [p.x, p.y];
+          p.set(0, 0, 0).setComponent(axis, sign);
+          p.setComponent((axis + 1) % 3, c[0]).setComponent((axis + 2) % 3, c[1]);
+          p.multiplyScalar(shape.r);
+        } else {
+          n.set(0, 1, 0);
+          p.set((u - 0.5) * shape.r, 0, (v - 0.5) * shape.r);
+        }
+        p.add(new THREE.Vector3(...shape.at));
+        centers.set([p.x, p.y, p.z], 3 * i);
+        normals.set([n.x, n.y, n.z], 3 * i);
+        labels[i] = label;
+        for (let f = 0; f < 8; f++) {
+          features[8 * i + f] = Math.sin(p.x * (1 + f * 0.7) + p.y * (2 - f * 0.3) + p.z * (0.5 + f * 0.4) + f);
+        }
+        const g = 0.55 + 0.25 * Math.sin(p.x * 3) * Math.sin(p.z * 3);
+        albedo.set(shape.kind === "plane" ? [g * 0.8, g * 0.8, g * 0.75] : [g, g * 0.9, g * 0.8], 3 * i);
+      }
+    });
+
+    const splats = new WgpuSplatRenderer(renderer);
+    const attributes = new SplatAttributes(splats, {
+      slots: ["label", "normal", { name: "feature", comp4: 0 }, { name: "feature", comp4: 1 }],
+      targets: { id: true },
+    });
+    window.__splats = splats;
+    window.__attributes = attributes;
+
+    let source;
+    if (params.get("source") === "ply") {
+      const packed = new PackedSplats({ fileBytes: writePly(), fileType: "ply" });
+      await packed.initialized;
+      source = GpuSplatSource.fromPackedSplats(splats.device, packed);
+      // From the file: normal (nx, ny, nz), label (uchar), feature_0..7 (float).
+      if (!source.attribs) throw new Error("PLY attributes did not load");
+    } else {
+      const a = new Uint32Array(count * 4);
+      const b = new Uint32Array(count * 4);
+      const q = new THREE.Quaternion();
+      for (let i = 0; i < count; i++) {
+        n.fromArray(normals, 3 * i);
+        q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+        const s = labels[i] === 5 ? 0.03 : 0.02;
+        utils.encodeExtSplat([a, b], i, centers[3 * i], centers[3 * i + 1], centers[3 * i + 2],
+          s, s, s * 0.1, q.x, q.y, q.z, q.w, 0.9, albedo[3 * i], albedo[3 * i + 1], albedo[3 * i + 2]);
+      }
+      source = GpuSplatSource.fromExt(splats.device, a, b, count);
+      source.setAttribute("normal", normals, "snorm8", 3, { toDraw: true, direction: true });
+      source.setAttribute("label", labels, "u8", 1, { toDraw: true });
+      source.setAttribute("feature", features, "f16", 8, { toDraw: true });
+    }
+    const holder = new THREE.Object3D();
+    const mesh = splats.add(source, holder);
+
+    // Slots: 0 label, 1 normal, 2-3 feature; the colour modes read from colorSlot.
+    const random = (seed) => () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+    const r = random(7);
+    const projection = [0, 1, 2].map(() => Array.from({ length: 8 }, () => 0.35 * r()));
+    function setMode(mode) {
+      Object.assign(attributes.options, {
+        colorMode: mode,
+        colorSlot: mode === "relight" ? 1 : mode === "project" ? 2 : 0,
+        projection,
+      });
+    }
+    for (const el of document.querySelectorAll("input[name=mode]")) {
+      el.addEventListener("change", () => setMode(el.value));
+    }
+    setMode(document.querySelector("input[name=mode]:checked").value);
+
+    // The slot targets hold each slot's first three components composited
+    // like colour (premultiplied by coverage). Viewing one enables just that
+    // target and draws it over the frame, unpremultiplied and mapped to
+    // 0..1: labels 0..5 as grey levels, normals from -1..1.
+    const slotView = [
+      { scale: [0.2, 0.2, 0.2], bias: [0, 0, 0], mono: 1 },
+      { scale: [0.5, 0.5, 0.5], bias: [0.5, 0.5, 0.5], mono: 0 },
+    ];
+    let view = params.get("view") ?? "scene";
+    function setView(value) {
+      view = value;
+      attributes.options.targets = { id: true, slot0: view === "0", slot1: view === "1" };
+      for (const el of document.querySelectorAll("input[name=view]")) el.checked = el.value === view;
+    }
+    for (const el of document.querySelectorAll("input[name=view]")) {
+      el.addEventListener("change", () => setView(el.value));
+    }
+    setView(view);
+
+    const device = splats.device;
+    const showModule = device.createShaderModule({
+      label: "show slot target",
+      code: /* wgsl */ `
+        struct Params { scale: vec4f, bias: vec4f } // scale.w: one component, as grey
+        @group(0) @binding(0) var slot: texture_2d<f32>;
+        @group(0) @binding(1) var<uniform> params: Params;
+        @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+          let uv = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+          return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+        }
+        @fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f {
+          let v = textureLoad(slot, vec2u(p.xy), 0);
+          if (v.a <= 0.0) { return vec4f(0.06, 0.06, 0.08, 1.0); }
+          let c = select(v.rgb, v.rrr, params.scale.w > 0.0);
+          let rgb = c / v.a * params.scale.rgb + params.bias.rgb;
+          return vec4f(clamp(rgb, vec3f(0.0), vec3f(1.0)), 1.0);
+        }`,
+    });
+    const showParams = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const showPipelines = new Map();
+    function showSlot(k) {
+      const slot = attributes.slotTextures[k];
+      const out = renderer.backend.get(target.texture)?.texture;
+      if (!slot || !out || slot.width !== out.width || slot.height !== out.height) return;
+      let pipeline = showPipelines.get(out.format);
+      if (!pipeline) {
+        pipeline = device.createRenderPipeline({
+          layout: "auto",
+          vertex: { module: showModule, entryPoint: "vs" },
+          fragment: { module: showModule, entryPoint: "fs", targets: [{ format: out.format }] },
+        });
+        showPipelines.set(out.format, pipeline);
+      }
+      const { scale, bias, mono } = slotView[k];
+      device.queue.writeBuffer(showParams, 0, new Float32Array([...scale, mono, ...bias, 0]));
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: slot.createView() },
+          { binding: 1, resource: { buffer: showParams } },
+        ],
+      });
+      const encoder = device.createCommandEncoder({ label: "show slot target" });
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{ view: out.createView(), loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }],
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(3);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    }
+
+    renderer.domElement.addEventListener("click", async (event) => {
+      const ratio = renderer.getPixelRatio();
+      const hit = await attributes.pick(event.offsetX * ratio, event.offsetY * ratio);
+      if (!hit) {
+        attributes.options.highlight = null;
+        pickInfo.textContent = "nothing picked";
+        return;
+      }
+      const pool = hit.mesh.source.attribs;
+      const label = pool.getAttribute("label", hit.index)[0];
+      const normal = pool.getAttribute("normal", hit.index).map((x) => x.toFixed(2));
+      const feature = pool.getAttribute("feature", hit.index).map((x) => x.toFixed(2));
+      attributes.options.highlight = label;
+      pickInfo.textContent = `splat ${hit.index} · label ${label} (${shapes[label].kind})\nnormal ${normal.join(", ")}\nfeature ${feature.join(", ")}`;
+      window.__lastPick = { index: hit.index, label };
+    });
+
+    let frames = 0;
+    let last = performance.now();
+    renderer.setAnimationLoop((time) => {
+      const t = time * 0.0006;
+      attributes.options.light = [Math.cos(t), 0.8, Math.sin(t)];
+      controls.update();
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+      splats.render(camera, target);
+      if (view !== "scene") showSlot(Number(view));
+      renderer.setRenderTarget(null);
+      output.render(renderer);
+      frames++;
+      const now = performance.now();
+      if (now - last > 500) {
+        const fps = (frames * 1000) / (now - last);
+        const schema = source.attribs.schema.map((s) => `${s.name}:${s.format}x${s.components}`).join(" ");
+        info.textContent = `${count.toLocaleString()} splats · ${fps.toFixed(0)} fps\n${schema}`;
+        frames = 0;
+        last = now;
+        window.__sparkFrames = (window.__sparkFrames ?? 0) + 1;
+        window.__ready = true;
+      }
+    });
+
+    // The scene as a 3DGS PLY with extra vertex properties.
+    function writePly() {
+      const props = [
+        "x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2", "opacity",
+        "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3",
+        ...Array.from({ length: 8 }, (_, f) => `feature_${f}`),
+      ];
+      const header = `ply\nformat binary_little_endian 1.0\nelement vertex ${count}\n${
+        props.map((p) => `property float ${p}`).join("\n")}\nproperty uchar label\nend_header\n`;
+      const head = new TextEncoder().encode(header);
+      const size = props.length * 4 + 1;
+      const bytes = new Uint8Array(head.length + count * size);
+      bytes.set(head);
+      const view = new DataView(bytes.buffer);
+      const SH_C0 = 0.28209479177387814;
+      const q = new THREE.Quaternion();
+      for (let i = 0; i < count; i++) {
+        n.fromArray(normals, 3 * i);
+        q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+        const s = Math.log(labels[i] === 5 ? 0.03 : 0.02);
+        const values = [
+          centers[3 * i], centers[3 * i + 1], centers[3 * i + 2], n.x, n.y, n.z,
+          (albedo[3 * i] - 0.5) / SH_C0, (albedo[3 * i + 1] - 0.5) / SH_C0, (albedo[3 * i + 2] - 0.5) / SH_C0,
+          Math.log(0.9 / 0.1), s, s, s + Math.log(0.1), q.w, q.x, q.y, q.z,
+          ...features.subarray(8 * i, 8 * i + 8),
+        ];
+        let at = head.length + i * size;
+        for (const v of values) {
+          view.setFloat32(at, v, true);
+          at += 4;
+        }
+        view.setUint8(at, labels[i]);
+      }
+      return bytes;
+    }
+  </script>
+</body>
+
+</html>

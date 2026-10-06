@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Streaming LoD: a paged .rad file streamed by range requests into
+  SparkRenderer's WebGPU backend (WebGL fallback without WebGPU).
+    ?local=1        assets from http://localhost:8098/sparkwebgpu/ (testing)
+    ?assets=<base>  assets from any base URL ending in "/"
+-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streaming LoD · Spark WebGPU</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./site.css">
+</head>
+
+<body>
+  <div class="hud">
+    <h1><a href="./">&larr;</a>Streaming level of detail</h1>
+    <p>A 6M-splat scene streamed page by page from one .rad file over HTTP range requests; Spark picks the splats to draw for each view. Drag to look, WASD / arrows to move.</p>
+    <div class="stats" id="stats">loading…</div>
+  </div>
+  <div class="credits">
+    Scene "Cozy Spaceship" by Britt Casado (World Labs Marble), sample splats from <a href="https://github.com/sparkjsdev/spark">Spark (sparkjsdev/spark)</a>, MIT licence ·
+    <a href="https://github.com/sparkjsdev/spark">Spark</a> (MIT) · <a href="https://threejs.org">three.js</a> (MIT) · <a href="https://lil-gui.georgealways.com">lil-gui</a> (MIT)
+  </div>
+  <canvas id="canvas" tabindex="0"></canvas>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/webgpu": "./vendor/three/three.webgpu.min.js",
+        "three/addons/": "./vendor/three/addons/",
+        "@sparkjsdev/spark": "./vendor/spark/spark.module.min.js",
+        "lil-gui": "./vendor/lil-gui/lil-gui.esm.min.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { WebGPURenderer } from "three/webgpu";
+    import { SparkRenderer, SplatMesh, SparkControls, isMobile } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+    import { banner, fpsMeter, NO_WEBGPU, webgpuAdapter } from "./site.js";
+
+    // Files over 25 MB live on R2; ?local=1 or ?assets= switch the base.
+    const R2_BASE = "https://athenea-assets.lucab.co.uk/sparkwebgpu/";
+    const params = new URLSearchParams(location.search);
+    const ASSET_BASE = params.get("assets")
+      ?? (params.has("local") ? "http://localhost:8098/sparkwebgpu/" : R2_BASE);
+
+    const world = {
+      url: `${ASSET_BASE}cozy-spaceship-lod.rad`,
+      position: [0, -6.5, 0],
+      background: "#000000",
+    };
+
+    const canvas = document.getElementById("canvas");
+    const stats = document.getElementById("stats");
+    const adapter = await webgpuAdapter();
+    const webgpu = !!adapter && params.get("webgl") !== "1";
+    let renderer;
+    if (webgpu) {
+      // The page pool is one storage binding: ask for the adapter's larger
+      // limits, where it has them, to hold more pages.
+      renderer = new WebGPURenderer({
+        canvas,
+        requiredLimits: {
+          maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+          maxBufferSize: adapter.limits.maxBufferSize,
+        },
+      });
+      await renderer.init();
+    } else {
+      banner(`${NO_WEBGPU} Showing Spark's WebGL backend instead.`);
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+    }
+    const backend = webgpu ? "WebGPU" : "WebGL 2";
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile() ? 1 : 2));
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(world.background);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+    function resize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    const spark = new SparkRenderer({
+      renderer,
+      pagedExtSplats: true,
+      coneFov0: 70.0,
+      coneFov: 120.0,
+      behindFoveate: 0.2,
+      coneFoveate: 0.4,
+    });
+    scene.add(spark);
+
+    const mesh = new SplatMesh({ url: world.url, paged: true });
+    mesh.position.set(...world.position);
+    scene.add(mesh);
+    window.__spark = spark;
+    window.__mesh = mesh;
+
+    const gui = new GUI({ title: "Settings" });
+    gui.add(spark, "lodSplatScale", 0.05, 2.5, 0.01).name("Level of detail").listen();
+    const view = { pixelRatio: renderer.getPixelRatio() };
+    gui.add(view, "pixelRatio", 0.5, 2, 0.25).name("Pixel ratio").onChange((v) => {
+      renderer.setPixelRatio(v);
+      resize();
+    });
+    gui.add({ reset() { camera.position.set(0, 0, 0); camera.quaternion.identity(); } }, "reset").name("Reset camera");
+
+    const controls = new SparkControls({ canvas });
+    canvas.focus();
+    let fps = 0;
+    const meter = fpsMeter((value) => {
+      fps = value;
+      stats.textContent = `${backend} · ${fps.toFixed(0)} fps · LoD scale ${spark.lodSplatScale.toFixed(2)}`;
+    });
+    let frames = 0;
+    renderer.setAnimationLoop(() => {
+      controls.update(camera);
+      renderer.render(scene, camera);
+      meter();
+      if (++frames === 60) window.__ready = true;
+    });
+  </script>
+</body>
+
+</html>

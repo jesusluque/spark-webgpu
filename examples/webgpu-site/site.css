@@ -1,0 +1,110 @@
+/* Shared styles for the public Spark WebGPU demo pages. */
+:root {
+  color-scheme: dark;
+  --fg: #e8e8ee;
+  --dim: #a0a0b0;
+  --panel: rgba(12, 12, 18, 0.72);
+  --accent: #8ab4ff;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: var(--fg);
+  font: 13px / 1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+canvas {
+  display: block;
+  touch-action: none;
+  outline: none;
+}
+a {
+  color: var(--accent);
+}
+.hud {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  max-width: min(440px, calc(100vw - 280px));
+  background: var(--panel);
+  padding: 10px 12px;
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+}
+.hud h1 {
+  font-size: 16px;
+  margin: 0 0 4px;
+}
+.hud h1 a {
+  color: var(--dim);
+  text-decoration: none;
+  font-weight: normal;
+  margin-right: 6px;
+}
+.hud p {
+  margin: 0;
+  color: var(--dim);
+}
+.hud .stats {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  font: 12px ui-monospace, Menlo, monospace;
+  color: var(--fg);
+}
+.credits {
+  position: fixed;
+  left: 10px;
+  bottom: 8px;
+  right: 10px;
+  color: var(--dim);
+  font-size: 11px;
+  text-shadow: 0 0 3px #000, 0 0 2px #000;
+  pointer-events: none;
+}
+.credits a {
+  pointer-events: auto;
+}
+.nogpu {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: #0a0a10;
+  z-index: 10;
+  text-align: center;
+}
+.nogpu div {
+  max-width: 520px;
+}
+.nogpu h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+.nogpu p {
+  color: var(--dim);
+  margin: 6px 0;
+}
+.banner {
+  position: fixed;
+  bottom: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: calc(100vw - 48px);
+  background: #5a3a00e0;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+@media (max-width: 640px) {
+  .hud {
+    max-width: calc(100vw - 40px);
+  }
+  .lil-gui.root {
+    max-height: 45vh;
+  }
+}

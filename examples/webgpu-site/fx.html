@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  aofx effects over the WebGPU splat render: the frame goes into a
+  RenderTarget, an FxChain runs over its texture in place, and a QuadMesh
+  shows it. The panel is built from each effect's EffectDesc.
+    ?file=butterfly.spz|valley.spz   the scene (default valley)
+    ?fx=grade,blur                   steps to start enabled (by label)
+-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>aofx effects · Spark WebGPU</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./site.css">
+</head>
+
+<body>
+  <div class="hud">
+    <h1><a href="./">&larr;</a>aofx effects on splats</h1>
+    <p>An aofx FxChain (grade, invert, blur, transform, corner pin, merge, crop) runs as WebGPU compute over Spark's splat render. Toggle and tune the effects in the panel; drag to orbit.</p>
+    <div class="stats" id="info">starting…</div>
+  </div>
+  <div class="credits">
+    Sample splats from <a href="https://github.com/sparkjsdev/spark">Spark (sparkjsdev/spark)</a>, MIT licence ·
+    <a href="https://github.com/sparkjsdev/spark">Spark</a> (MIT) · <a href="https://github.com/jesusluque/aopenfx">aofx</a> · <a href="https://threejs.org">three.js</a> (MIT) · <a href="https://lil-gui.georgealways.com">lil-gui</a> (MIT)
+  </div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/webgpu": "./vendor/three/three.webgpu.min.js",
+        "three/addons/": "./vendor/three/addons/",
+        "lil-gui": "./vendor/lil-gui/lil-gui.esm.min.js",
+        "@sparkjsdev/spark": "./vendor/spark/spark.module.min.js",
+        "@sparkjsdev/spark/webgpu": "./vendor/spark/spark.webgpu.module.min.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import GUI from "lil-gui";
+    import { PackedSplats } from "@sparkjsdev/spark";
+    import { GpuSplatSource, WgpuSplatRenderer, fx } from "@sparkjsdev/spark/webgpu";
+    import { requireWebGPU } from "./site.js";
+
+    const info = document.getElementById("info");
+    const params = new URLSearchParams(location.search);
+    await requireWebGPU();
+
+    const renderer = new THREE.WebGPURenderer();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    await renderer.init();
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x101018);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 100);
+    camera.position.set(0, 0, 0.5);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, -3);
+    controls.enableDamping = true;
+
+    const target = new THREE.RenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1), type: THREE.HalfFloatType });
+    const output = new THREE.QuadMesh(new THREE.MeshBasicNodeMaterial({ colorNode: THREE.TSL.texture(target.texture) }));
+
+    // Effect parameters in pixels are CSS pixels; the chain renders at the
+    // device pixel ratio, as an aofx host renders at a scale.
+    const chain = new fx.FxChain(renderer.backend.device);
+    function resize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      target.setSize(size.x, size.y);
+      const scale = size.x / window.innerWidth;
+      chain.context = { scaleX: scale, scaleY: scale, projectWidth: window.innerWidth, projectHeight: window.innerHeight };
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    const file = ["butterfly.spz", "valley.spz"].includes(params.get("file")) ? params.get("file") : "valley.spz";
+    const packed = new PackedSplats({ url: `./assets/${file}` });
+    await packed.initialized;
+    const splats = new WgpuSplatRenderer(renderer);
+    const holder = new THREE.Object3D();
+    holder.quaternion.set(1, 0, 0, 0);
+    holder.position.set(0, 0, -3);
+    splats.add(GpuSplatSource.fromPackedSplats(splats.device, packed), holder);
+
+    // The chain, in order. Each starts at its effect's defaults.
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const step = (effect, overrides = {}, options = {}) =>
+      chain.add(effect, { ...fx.FxChain.defaults(effect, W, H), ...overrides }, { enabled: false, ...options });
+    step(new fx.Grade(), { white: [1.25, 1.1, 0.9, 1], gamma: [1.2, 1.2, 1.2, 1] });
+    step(new fx.Invert(), {}, { channels: [true, true, true, false] });
+    step(new fx.Blur(), { size: [6, 6] });
+    step(new fx.Transform(), { rotate: 8, scale: [0.9, 0.9] });
+    step(new fx.CornerPin(), {
+      corner1: [W * 0.12, H * 0.08], corner2: [W * 0.9, H * 0.15],
+      corner3: [W * 0.8, H * 0.92], corner4: [W * 0.18, H * 0.85], crown: 20,
+    });
+    // Merge's A is its own small graph: a colour wheel shrunk into a corner.
+    const wheel = new fx.ColorWheel();
+    const shrink = {
+      effect: new fx.Transform(),
+      params: { scale: [0.25, 0.25], center: [W / 2, H / 2], translate: [-W * 0.3, -H * 0.25] },
+      inputs: { Source: { effect: wheel, params: fx.FxChain.defaults(wheel) } },
+    };
+    step(new fx.Merge(), { operation: 28 }, { inputs: { A: shrink } });
+    step(new fx.Crop(), { corner1: [W * 0.05, H * 0.05], corner2: [W * 0.95, H * 0.95], softness: 40 });
+    step(new fx.ImageStatistics(), {}, { instance: "final", enabled: true });
+    const wanted = (params.get("fx") ?? "grade,cornerpin").split(",").filter(Boolean);
+    for (const s of chain.steps) {
+      const label = s.effect.describe().label.toLowerCase().replace(/\s/g, "");
+      if (wanted.includes(label)) s.enabled = true;
+    }
+
+    // A panel per step, built from the EffectDesc.
+    function rangeOf(p, i) {
+      if (p.displayMin && p.displayMax) return [p.displayMin[i] ?? p.displayMin[0], p.displayMax[i] ?? p.displayMax[0]];
+      if (p.role === "position") return p.name === "translate" ? [-(i ? H : W), i ? H : W] : [0, i ? H : W];
+      if (p.role === "angle") return [-180, 180];
+      if (p.role === "scale") return [0.05, 3];
+      return [Math.min(0, p.defaults[i] * 4 - 1), Math.max(1, p.defaults[i] * 4)];
+    }
+    function addParam(folder, s, p) {
+      const v = s.params;
+      const label = p.label;
+      if (p.type === "boolean") {
+        const o = { [label]: !!v[p.name] };
+        folder.add(o, label).onChange((x) => { v[p.name] = x; });
+      } else if (p.type === "choice") {
+        const opts = Object.fromEntries(p.choices.map((c, i) => [c.label, i]));
+        const o = { [label]: Number(v[p.name]) };
+        folder.add(o, label, opts).onChange((x) => { v[p.name] = Number(x); });
+      } else if (p.type === "colour") {
+        // A picker for the hue and a gain for values past one.
+        const c = [...v[p.name]];
+        const gain = Math.max(c[0], c[1], c[2], 1e-6) > 1 ? Math.max(c[0], c[1], c[2]) : 1;
+        const o = { [label]: c.slice(0, 3).map((x) => x / gain), [`${label} ×`]: gain };
+        const update = () => { v[p.name] = [...o[label].map((x) => x * o[`${label} ×`]), c[3]]; };
+        folder.addColor(o, label).onChange(update);
+        folder.add(o, `${label} ×`, 0, 4).onChange(update);
+      } else if (p.type === "double" || p.type === "integer") {
+        const dim = p.dimension ?? 1;
+        const now = Array.isArray(v[p.name]) ? [...v[p.name]] : [v[p.name]];
+        for (let i = 0; i < dim; i++) {
+          const key = dim > 1 ? `${label} ${"xyzw"[i]}` : label;
+          const [lo, hi] = rangeOf(p, i);
+          const o = { [key]: now[i] };
+          folder.add(o, key, lo, hi).onChange((x) => {
+            now[i] = x;
+            v[p.name] = dim > 1 ? [...now] : x;
+          });
+        }
+      }
+    }
+    if (params.get("gui") !== "0") {
+      const gui = new GUI({ title: "aofx" });
+      chain.steps.forEach((s) => {
+        const desc = s.effect.describe();
+        const folder = gui.addFolder(desc.label).close();
+        folder.add(s, "enabled");
+        if (desc.identifier === "org.aopenfx.imagestatistics") return;
+        const mask = { R: true, G: true, B: true, A: true, ...Object.fromEntries((s.channels ?? []).map((on, i) => ["RGBA"[i], on])) };
+        for (const ch of "RGBA") {
+          folder.add(mask, ch).name(`process ${ch}`).onChange(() => { s.channels = [...("RGBA")].map((k) => mask[k]); });
+        }
+        for (const p of desc.params) {
+          if (p.name === "size" && p.type === "integer") continue;
+          addParam(folder, s, p);
+        }
+      });
+    }
+    window.__fx = chain;
+    window.__splats = splats;
+
+    let frames = 0;
+    let last = performance.now();
+    let rendered = 0;
+    renderer.setAnimationLoop(() => {
+      controls.update();
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+      splats.render(camera, target);
+      chain.applyToRenderTarget(renderer, target);
+      renderer.setRenderTarget(null);
+      output.render(renderer);
+      frames++;
+      if (++rendered === 30) window.__ready = true;
+      const now = performance.now();
+      if (now - last > 500) {
+        const fps = (frames * 1000) / (now - last);
+        const on = chain.steps.filter((s) => s.enabled !== false).map((s) => s.effect.describe().label);
+        const stats = chain.values.get("stats.final");
+        const mean = stats ? ` · mean ${stats.slice(8, 11).map((x) => x.toFixed(3)).join(" ")}` : "";
+        info.textContent = `${fps.toFixed(0)} fps · ${on.join(" → ") || "no effects"}${mean}`;
+        frames = 0;
+        last = now;
+      }
+    });
+  </script>
+</body>
+
+</html>

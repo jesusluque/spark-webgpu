@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Dyno on WebGPU: examples/splat-shader-effects' modifier (dyno-scenes.js),
+  a dyno graph with WGSL statements, run per splat in the WebGPU generate
+  kernel. Effect and intensity are dyno uniforms the panel changes live.
+-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dyno shader effects · Spark WebGPU</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./site.css">
+</head>
+
+<body>
+  <div class="hud">
+    <h1><a href="./">&larr;</a>Dyno shader effects</h1>
+    <p>A dyno graph with WGSL statements moves and recolours every splat on the GPU, each frame. Pick an effect in the panel; drag to orbit.</p>
+    <div class="stats" id="info">loading…</div>
+  </div>
+  <div class="credits">
+    Sample splats from <a href="https://github.com/sparkjsdev/spark">Spark (sparkjsdev/spark)</a>, MIT licence; effects from Spark's splat-shader-effects example ·
+    <a href="https://github.com/sparkjsdev/spark">Spark</a> (MIT) · <a href="https://threejs.org">three.js</a> (MIT) · <a href="https://lil-gui.georgealways.com">lil-gui</a> (MIT)
+  </div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/webgpu": "./vendor/three/three.webgpu.min.js",
+        "three/addons/": "./vendor/three/addons/",
+        "lil-gui": "./vendor/lil-gui/lil-gui.esm.min.js",
+        "@sparkjsdev/spark": "./vendor/spark/spark.module.min.js",
+        "@sparkjsdev/spark/webgpu": "./vendor/spark/spark.webgpu.module.min.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import GUI from "lil-gui";
+    import { SplatMesh, dyno } from "@sparkjsdev/spark";
+    import { GpuSplatSource, WgpuSplatRenderer, splatMeshDyno } from "@sparkjsdev/spark/webgpu";
+    import { EFFECTS, makeEffectModifier } from "./dyno-scenes.js";
+    import { fpsMeter, requireWebGPU } from "./site.js";
+
+    await requireWebGPU();
+    const info = document.getElementById("info");
+    const params = new URLSearchParams(location.search);
+
+    const renderer = new THREE.WebGPURenderer();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    await renderer.init();
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 100);
+    camera.position.set(0, 0.1, 0.4);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, -0.15, -2.5);
+    controls.enableDamping = true;
+    function resize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener("resize", resize);
+
+    // Uniforms the panel drives; the graph reads them every frame.
+    const settings = {
+      effect: EFFECTS[params.get("effect")] ? params.get("effect") : "Electronic",
+      intensity: Number(params.get("intensity") ?? 0.8),
+      speed: 1,
+    };
+    const time = dyno.dynoFloat(0);
+    const effectType = dyno.dynoInt(EFFECTS[settings.effect]);
+    const intensity = dyno.dynoFloat(settings.intensity);
+
+    const mesh = new SplatMesh({ url: "./assets/cat.spz" });
+    mesh.position.set(0, -0.7, -2.5);
+    mesh.rotation.set(Math.PI, 0.6, 0);
+    mesh.scale.setScalar(0.5);
+    mesh.objectModifier = makeEffectModifier(dyno, time, effectType, intensity);
+    mesh.updateGenerator();
+    await mesh.initialized;
+
+    const splats = new WgpuSplatRenderer(renderer);
+    splats.add(GpuSplatSource.fromPackedSplats(splats.device, mesh.packedSplats), mesh, splatMeshDyno(mesh));
+    window.__splats = splats;
+
+    const gui = new GUI({ title: "Effect" });
+    gui.add(settings, "effect", Object.keys(EFFECTS)).name("Effect").onChange((name) => {
+      effectType.value = EFFECTS[name];
+      seconds = 0;
+    });
+    gui.add(settings, "intensity", 0, 1, 0.01).name("Intensity").onChange((v) => { intensity.value = v; });
+    gui.add(settings, "speed", 0, 3, 0.05).name("Speed");
+    gui.add({ restart() { seconds = 0; } }, "restart").name("Restart");
+
+    const numSplats = mesh.packedSplats.numSplats;
+    const meter = fpsMeter((fps) => {
+      info.textContent = `${numSplats.toLocaleString()} splats · ${fps.toFixed(0)} fps · ${settings.effect}`;
+    });
+    let seconds = Number(params.get("t") ?? 0);
+    let last = performance.now();
+    let frames = 0;
+    renderer.setAnimationLoop(() => {
+      const now = performance.now();
+      seconds += ((now - last) / 1000) * settings.speed;
+      last = now;
+      time.value = seconds;
+      controls.update();
+      renderer.render(scene, camera);
+      splats.render(camera);
+      meter();
+      if (++frames === 30) window.__ready = true;
+    });
+  </script>
+</body>
+
+</html>

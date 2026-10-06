@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spark WebGPU demos</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; background: #0b0b10; color: #e8e8ee; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 1040px; margin: 0 auto; padding: 40px 16px 32px; }
+    h1 { font-size: 28px; margin: 0 0 6px; }
+    .lede { color: #a0a0b0; margin: 0 0 28px; max-width: 720px; }
+    a { color: #8ab4ff; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 20px; }
+    .card { display: block; background: #15151d; border-radius: 10px; overflow: hidden; text-decoration: none; color: inherit; border: 1px solid #23232e; transition: border-color 0.15s, transform 0.15s; }
+    .card:hover { border-color: #8ab4ff; transform: translateY(-2px); }
+    .card img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; background: #000; }
+    .card div { padding: 12px 14px 14px; }
+    .card h2 { font-size: 17px; margin: 0 0 4px; }
+    .card p { margin: 0; color: #a0a0b0; font-size: 14px; }
+    #gpu { margin: 0 0 24px; padding: 10px 14px; border-radius: 8px; background: #5a3a00; display: none; }
+    footer { margin-top: 36px; color: #80808f; font-size: 13px; }
+    footer p { margin: 4px 0; }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>Spark on WebGPU</h1>
+    <p class="lede">Demos of the WebGPU backend for <a href="https://github.com/sparkjsdev/spark">Spark</a>, the 3D Gaussian splatting renderer for three.js: streaming level of detail, per-splat attributes, GPU effects and dyno shaders.</p>
+    <p id="gpu">These demos need WebGPU: current Chrome, Edge or Safari 26+. This browser has no WebGPU.</p>
+    <div class="grid">
+      <a class="card" href="./lod.html">
+        <img src="./thumbs/lod.png" alt="A spaceship interior rendered from streamed splats" width="640" height="400">
+        <div><h2>Streaming level of detail</h2><p>A 6M-splat scene streamed by pages from one .rad file, with LoD picked per view.</p></div>
+      </a>
+      <a class="card" href="./attributes.html">
+        <img src="./thumbs/attributes.png" alt="Spheres, a torus and boxes coloured by per-splat labels" width="640" height="400">
+        <div><h2>Per-splat attributes</h2><p>Labels, normals and feature vectors per splat: colour modes, extra targets and GPU picking.</p></div>
+      </a>
+      <a class="card" href="./fx.html">
+        <img src="./thumbs/fx.png" alt="A valley scene with a colour grade and corner pin" width="640" height="400">
+        <div><h2>aofx effects</h2><p>An aofx FxChain of compute effects (grade, blur, corner pin…) over the splat render.</p></div>
+      </a>
+      <a class="card" href="./dyno.html">
+        <img src="./thumbs/dyno.png" alt="A cat statue with an animated shader effect" width="640" height="400">
+        <div><h2>Dyno shader effects</h2><p>Dyno graphs with WGSL statements animate and recolour every splat on the GPU.</p></div>
+      </a>
+    </div>
+    <footer>
+      <p>Sample splats from <a href="https://github.com/sparkjsdev/spark">Spark (sparkjsdev/spark)</a>, MIT licence. The attributes scene is generated procedurally, CC0.</p>
+      <p><a href="https://github.com/sparkjsdev/spark">Spark</a> (MIT) · <a href="https://threejs.org">three.js</a> (MIT) · <a href="https://lil-gui.georgealways.com">lil-gui</a> (MIT) · <a href="https://github.com/jesusluque/aopenfx">aofx</a></p>
+    </footer>
+  </main>
+  <script>
+    if (!navigator.gpu) document.getElementById("gpu").style.display = "block";
+  </script>
+</body>
+
+</html>
