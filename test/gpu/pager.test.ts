@@ -8,6 +8,13 @@ import { encodeExtRgb, encodeExtSplat, setPackedSplat } from "../../src/utils";
 import { GpuSplatSource } from "../../src/webgpu/GpuSplatSource";
 import { KernelRegistry } from "../../src/webgpu/KernelRegistry";
 import { WgpuSplatPager } from "../../src/webgpu/WgpuSplatPager";
+import { specsFromRadMeta } from "../../src/webgpu/attributes/PagedAttribPool";
+import {
+  AttribPool,
+  columnBits,
+  decodeComponent,
+  poolLayout,
+} from "../../src/webgpu/attributes/schema";
 import generate from "../../src/webgpu/generated/kernels/generate";
 import { UniformWriter } from "../../src/webgpu/uniforms";
 import { device, readBack, storage } from "./device";
@@ -217,6 +224,77 @@ describe.skipIf(!device)("WgpuSplatPager", () => {
     // Centers far from the origin come through exactly.
     expect(new Float32Array(got.buffer, 0, 1)[0]).toBeGreaterThan(100);
     reference.destroy();
+    pager.dispose();
+  });
+
+  it("pages a chunk's attributes into the schema of the .rad meta", async () => {
+    const pager = new WgpuSplatPager(d, {
+      maxSplats: 3 * PAGE,
+      onUpdate: () => {},
+    });
+    const specs = specsFromRadMeta([
+      { name: "label", format: "u8", components: 1, lodMerge: "mode" },
+      {
+        name: "normal",
+        format: "snorm8",
+        components: 3,
+        lodMerge: "normalizeMean",
+      },
+      { name: "weight", format: "f16", components: 1 },
+    ]);
+    expect(specs[1].direction).toBe(true);
+    pager.setAttribSchema(specs);
+    const upload = (pager as unknown as { uploadPage: Upload }).uploadPage.bind(
+      pager,
+    );
+    const { packed } = packedPage(3);
+    // As a lone chunk decodes them: label as u32, no weight, and an extra
+    // attribute the schema does not know.
+    const chunk = new AttribPool(COUNT);
+    chunk.setAttribute(
+      "label",
+      Array.from({ length: COUNT }, (_, i) => i % 200),
+      "u32",
+    );
+    chunk.setAttribute(
+      "normal",
+      Array.from({ length: 3 * COUNT }, (_, k) => (k % 3 === 2 ? -1 : 0.5)),
+      "f32",
+      3,
+    );
+    chunk.setAttribute("other", new Float32Array(COUNT), "f32");
+    // Through postMessage the pool arrives as plain data.
+    upload(2, packed, [], undefined, JSON.parse(JSON.stringify(chunk)));
+
+    const source = pager.source(pagedSplats(0));
+    const pool = source.attribs as AttribPool;
+    expect(pool.schema.map((s) => s.name)).toEqual([
+      "label",
+      "normal",
+      "weight",
+    ]);
+    expect(pool.gpuBuffer).toBe(pager.attribs?.buffer);
+    const words = new Uint32Array(await readBack(pool.gpuBuffer as GPUBuffer));
+    const layout = poolLayout(specs);
+    expect(Array.from(words.subarray(0, 4))).toEqual([
+      layout.strideWords,
+      3,
+      layout.headerWords,
+      3 * PAGE,
+    ]);
+    // Column k of splat `slot` read back from the pool.
+    const value = (k: number, slot: number, c: number) => {
+      const at =
+        layout.headerWords + slot * layout.strideWords + layout.offsets[k];
+      const col = { spec: specs[k], words: words.subarray(at, at + 4) };
+      return decodeComponent(specs[k].format, columnBits(col, 0, c));
+    };
+    for (const i of [0, 7, COUNT - 1]) {
+      expect(value(0, 2 * PAGE + i, 0)).toBe(i % 200);
+      expect(value(1, 2 * PAGE + i, 0)).toBeCloseTo(0.5, 1);
+      expect(value(1, 2 * PAGE + i, 2)).toBeCloseTo(-1, 2);
+      expect(value(2, 2 * PAGE + i, 0)).toBe(0);
+    }
     pager.dispose();
   });
 });

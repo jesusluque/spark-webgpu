@@ -274,6 +274,11 @@ export class AttribPool {
   columns: AttributeColumn[] = [];
   /** Bumped on every change, so GPU copies know to re-upload. */
   version = 0;
+  /**
+   * The packed pool already on the GPU (paged .rad attributes, see
+   * PagedAttribPool): renderers bind it instead of uploading pack().
+   */
+  gpuBuffer?: GPUBuffer;
 
   constructor(public count: number) {}
 
