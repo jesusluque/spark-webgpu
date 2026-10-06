@@ -46,7 +46,7 @@
   <canvas id="canvas" tabindex="0" style="outline: none;"></canvas>
   <script type="module">
     import * as THREE from "three/webgpu";
-    import { SparkRenderer, SplatMesh, SparkControls, isMobile } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh, SparkControls, isMobile, splatRequiredLimits } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
 
     const initialWorld = "Coit Tower, SF";
@@ -92,7 +92,13 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#000000");
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
-    const renderer = new THREE.WebGPURenderer({ canvas: document.getElementById("canvas") });
+    // The paged LoD pool is one storage binding: the adapter's larger
+    // limits hold more pages.
+    const adapter = await navigator.gpu?.requestAdapter();
+    const renderer = new THREE.WebGPURenderer({
+      canvas: document.getElementById("canvas"),
+      requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
+    });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 

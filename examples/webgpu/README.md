@@ -198,9 +198,10 @@ compacted sort mostly helps when many active splats are off screen.
 | extsplats.html | – | 0.13 |
 | nonlod.html | – | 0.16 |
 | lod-example.html (examples/lod) | – | 0.25 |
-| multi-lod.html, streaming-lod.html | – | 0.58, 0.67 |
+| multi-lod.html | – | 0.58 |
+| streaming-lod.html | adapter storage limits | 0.82 (fully streamed) |
 | depth-of-field.html | – | 0.97 |
-| on-demand.html | `await renderer.init()` | 0.70 |
+| on-demand.html | `await renderer.init()`, adapter storage limits | 0.74 (fully streamed) |
 | splat-shader-effects.html | WGSL for its GLSL dyno | 0.46 |
 | procedural-splats.html | – | random stars differ |
 | sogs.html | `SkyMesh` for `Sky` | 0.97 |
