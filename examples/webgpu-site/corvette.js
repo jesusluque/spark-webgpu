@@ -304,8 +304,11 @@ export async function createCorvette({
   try {
     await setHdri(state.hdri);
     await Promise.all(Object.values(meshes).map((m) => m.initialized));
-    // Give the decoders' memory back once everything is on the GPU.
-    if (mobile) workerPool.trim();
+    // Give the decoders' memory back once everything is on the GPU: each
+    // worker keeps the WebAssembly heap of the largest cloud it decoded
+    // (with four, about 0.4 GB for the light set and 2 GB for the detailed
+    // one, never shrunk). The LoD traversal's worker is not a free one.
+    workerPool.trim();
     await spark.webgpuReady;
     window.__athenea.loaded = true;
   } catch (error) {
@@ -541,7 +544,9 @@ export async function createCorvette({
     state,
     applySky,
   });
-  renderer.setAnimationLoop(() => {
+  // One frame of the loop below (window.__athenea.frame, for benchmarks
+  // that drive frames themselves).
+  function frame() {
     controls.update();
     renderer.setRenderTarget(target);
     renderer.render(scene, camera);
@@ -561,6 +566,10 @@ export async function createCorvette({
     chain.applyToRenderTarget(renderer, target);
     renderer.setRenderTarget(null);
     output.render(renderer);
+  }
+  window.__athenea.frame = frame;
+  renderer.setAnimationLoop(() => {
+    frame();
     window.__sparkFrames = (window.__sparkFrames ?? 0) + 1;
     frames++;
     const now = performance.now();
