@@ -1,5 +1,6 @@
 // The WebDriver client and Safari launch path against a mock safaridriver,
-// and the PNG codec. Run: node --test test/parity/
+// the Vite plugin that stands in for init scripts on Safari,
+// and the PNG codec. Run: npm run test:parity:unit
 //
 // safaridriver itself needs "Allow remote automation", so the client is
 // checked here against the wire protocol it should speak.
@@ -9,6 +10,7 @@ import http from "node:http";
 import { after, before, describe, test } from "node:test";
 import { SafariDriver } from "./drivers.mjs";
 import { decodePng, diffImages, downscale, encodePng } from "./png.mjs";
+import { parityPlugin } from "./server.mjs";
 import {
   KEYS,
   WebDriver,
@@ -270,5 +272,63 @@ describe("PNG and diff", () => {
         ),
       /sizes differ/,
     );
+  });
+});
+
+describe("Vite plugin (Safari's clock, routes)", () => {
+  const plugin = parityPlugin([
+    { path: /^\/a\/b\.spz$/, redirect: () => "https://example.com/x.spz" },
+    { path: /^\/p\.html$/, rewrite: (t) => t.replace("OLD", "NEW") },
+  ]);
+  let handler;
+  plugin.configureServer({
+    middlewares: {
+      use: (fn) => {
+        handler = fn;
+      },
+    },
+    transformRequest: async () => ({ code: "const v = 'OLD';" }),
+  });
+  const request = (url) =>
+    new Promise((resolve) => {
+      const res = {
+        statusCode: 200,
+        headers: {},
+        setHeader(k, v) {
+          this.headers[k.toLowerCase()] = v;
+        },
+        end(body) {
+          resolve({ status: this.statusCode, headers: this.headers, body });
+        },
+      };
+      handler({ url }, res, () => resolve({ next: true }));
+    });
+
+  test("pages get the clock, run from sessionStorage", () => {
+    const out = plugin.transformIndexHtml("<p>OLD</p>", { path: "/p.html" });
+    assert.equal(out.html, "<p>NEW</p>");
+    assert.equal(out.tags[0].injectTo, "head-prepend");
+    assert.match(out.tags[0].children, /sessionStorage\.getItem\("__parity"\)/);
+    assert.match(out.tags[0].children, /window\.__step/);
+  });
+
+  test("serves the HMR stub and the blank page", async () => {
+    const client = await request("/@vite/client");
+    assert.match(client.body, /export function createHotContext/);
+    assert.doesNotMatch(client.body, /WebSocket/);
+    assert.equal(
+      (await request("/__parity/blank")).headers["content-type"],
+      "text/html",
+    );
+  });
+
+  test("redirects and rewrites routed paths, passes the rest on", async () => {
+    const r = await request("/a/b.spz");
+    assert.equal(r.status, 302);
+    assert.equal(r.headers.location, "https://example.com/x.spz");
+    const m = await request("/p.html?html-proxy&index=0.js");
+    assert.equal(m.body, "const v = 'NEW';");
+    assert.deepEqual(await request("/p.html"), { next: true });
+    assert.deepEqual(await request("/other.js"), { next: true });
   });
 });

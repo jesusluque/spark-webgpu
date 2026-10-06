@@ -38,7 +38,7 @@ export function writeReport(
   <td>${num(r.mean)}</td><td>${r.max?.mean ?? ""}</td><td>${r.readme ?? ""}</td>
   <td>${num(r.pctOver)}</td><td>${r.max?.pct ?? ""}</td>
   <td>${r.settled ? `${r.settled.webgl.settled ? "" : "⏱"}${(r.settled.webgl.ms / 1000).toFixed(0)} / ${r.settled.webgpu.settled ? "" : "⏱"}${(r.settled.webgpu.ms / 1000).toFixed(0)}` : ""}</td>
-  <td class="why">${esc((r.reasons ?? []).join("; "))}</td>
+  <td class="why">${esc([...(r.reasons ?? []), ...(r.status === "known" ? [`known: ${r.known}`] : [])].join("; "))}</td>
 </tr>`,
     )
     .join("\n");
@@ -92,7 +92,7 @@ ${perf
   .wrap { overflow-x: auto; }
   .pass .st, .st.pass { color: var(--pass); }
   .fail .st, .error .st, .st.fail, .st.error { color: var(--fail); font-weight: 600; }
-  .flaky .st, .skip .st, .st.flaky { color: var(--warn); }
+  .flaky .st, .skip .st, .known .st, .st.flaky, .st.known { color: var(--warn); }
   .why { color: var(--mute); max-width: 40em; }
   .imgs { display: flex; flex-wrap: wrap; gap: 8px; }
   figure { margin: 0; flex: 1 1 260px; max-width: 400px; }

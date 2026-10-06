@@ -10,7 +10,7 @@ npm run test:parity              # every case, Chrome; report in test/parity/out
 npm run test:parity -- lofi dyno # cases whose id contains "lofi" or "dyno"
 npm run test:parity -- --list
 npm run test:parity -- --perf    # also fps per example on both backends
-npm run test:parity:unit         # WebDriver client (mock server), PNG codec
+npm run test:parity:unit         # WebDriver client (mock server), Vite plugin, PNG codec
 ```
 
 Options: `--base http://localhost:8080` reuses a running server (else the

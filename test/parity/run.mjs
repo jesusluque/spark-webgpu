@@ -275,7 +275,14 @@ async function runCase(ctx, item) {
       const reasons = judge(item, d, shots);
       const result = {
         ...row,
-        status: reasons.length ? "fail" : attempt > 1 ? "flaky" : "pass",
+        status: reasons.length
+          ? item.known
+            ? "known"
+            : "fail"
+          : attempt > 1
+            ? "flaky"
+            : "pass",
+        known: item.known,
         reasons,
         mean: d.mean,
         pctOver: d.pctOver,
@@ -295,7 +302,7 @@ async function runCase(ctx, item) {
         attempts: attempt,
         earlier: failures,
       };
-      if (!reasons.length || attempt > ctx.retries) return result;
+      if (!reasons.length || item.known || attempt > ctx.retries) return result;
       failures.push({ mean: d.mean, pctOver: d.pctOver, reasons });
     } catch (e) {
       if (attempt > ctx.retries) {
@@ -506,7 +513,7 @@ export async function main(argv) {
     );
     const count = (s) => results.filter((r) => r.status === s).length;
     console.log(
-      `\n${count("pass")} pass, ${count("flaky")} flaky, ${bad.length} fail/error, ${count("skip")} skipped in ${((Date.now() - t0) / 1000).toFixed(0)} s; report: ${path.relative(ROOT, path.join(out, "index.html"))}`,
+      `\n${count("pass")} pass, ${count("flaky")} flaky, ${count("known")} known, ${bad.length} fail/error, ${count("skip")} skipped in ${((Date.now() - t0) / 1000).toFixed(0)} s; report: ${path.relative(ROOT, path.join(out, "index.html"))}`,
     );
     return bad.length ? 1 : 0;
   } finally {
