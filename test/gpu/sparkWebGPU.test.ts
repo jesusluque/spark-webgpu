@@ -230,13 +230,12 @@ describe.skipIf(!device)("SparkRenderer on WebGPU", () => {
   });
 
   it("refuses what WebGPU doesn't do yet", () => {
-    const { spark, scene, camera } = setup();
-    expect(() => spark.renderTarget({ scene, camera })).toThrow(/WebGPU/);
+    const { spark } = setup();
     expect(
       () =>
         new SparkRenderer({
           renderer: fakeRenderer as never,
-          target: { width: 4, height: 4 },
+          fragmentShader: "void main() {}",
         }),
     ).toThrow(/not supported/);
     expect(

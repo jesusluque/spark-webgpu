@@ -201,44 +201,13 @@ export class WgpuCubeMap {
   }
 
   /**
-   * The last cube map's faces as RGBA8 pixels, rows top to bottom, in
-   * SparkRenderer.readCubeTargets' layout: three's WebGPU CubeCamera stores
-   * +X / -X swapped and every face mirrored in x (it samples them so), which
-   * this undoes.
+   * The last cube map's faces as RGBA8 pixels, in
+   * SparkRenderer.readCubeTargets' layout (see readCubeFaces).
    */
   async readCubeTargets(): Promise<Uint8Array[]> {
     const target = this.cube?.target;
     if (!target) throw new Error("WgpuCubeMap: no cube render");
-    const { width, height } = target;
-    const webgpu =
-      this.renderer.coordinateSystem === THREE.WebGPUCoordinateSystem;
-    const order = webgpu ? [1, 0, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5];
-    const faces = await Promise.all(
-      order.map((i) =>
-        this.renderer.readRenderTargetPixelsAsync(
-          target,
-          0,
-          0,
-          width,
-          height,
-          0,
-          i,
-        ),
-      ),
-    );
-    const row = width * 4;
-    return faces.map((v) => {
-      const src = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
-      const stride = rowStride(src.length, width, height);
-      const out = new Uint8Array(row * height);
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const from = y * stride + 4 * (webgpu ? width - 1 - x : x);
-          out.set(src.subarray(from, from + 4), y * row + 4 * x);
-        }
-      }
-      return out;
-    });
+    return readCubeFaces(this.renderer, target);
   }
 
   /**
@@ -263,4 +232,40 @@ export class WgpuCubeMap {
     this.cube?.face.dispose();
     this.cube = null;
   }
+}
+
+/**
+ * A cube render target's faces as RGBA8 pixels, rows top to bottom, in
+ * SparkRenderer.readCubeTargets' layout: three's WebGPU CubeCamera stores
+ * +X / -X swapped and every face mirrored in x (it samples them so), which
+ * this undoes.
+ */
+export async function readCubeFaces(
+  renderer: Pick<
+    RendererLike,
+    "readRenderTargetPixelsAsync" | "coordinateSystem"
+  >,
+  target: THREE.RenderTarget,
+): Promise<Uint8Array[]> {
+  const { width, height } = target;
+  const webgpu = renderer.coordinateSystem === THREE.WebGPUCoordinateSystem;
+  const order = webgpu ? [1, 0, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5];
+  const faces = await Promise.all(
+    order.map((i) =>
+      renderer.readRenderTargetPixelsAsync(target, 0, 0, width, height, 0, i),
+    ),
+  );
+  const row = width * 4;
+  return faces.map((v) => {
+    const src = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+    const stride = rowStride(src.length, width, height);
+    const out = new Uint8Array(row * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const from = y * stride + 4 * (webgpu ? width - 1 - x : x);
+        out.set(src.subarray(from, from + 4), y * row + 4 * x);
+      }
+    }
+    return out;
+  });
 }

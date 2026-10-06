@@ -177,15 +177,21 @@ export class SparkWebGPU {
     }
 
     const { utils } = backend;
+    const format = utils.getCurrentColorFormat(rc);
+    // An -srgb format (three's for 8-bit sRGB targets) encodes on store, so
+    // the shader writes linear values to it, as three's materials do.
+    const srgbFormat = format.endsWith("-srgb");
     const target: SplatPassTarget = {
-      format: utils.getCurrentColorFormat(rc),
+      format,
       depthFormat: data.descriptor?.depthStencilAttachment
         ? (utils.getCurrentDepthStencilFormat(rc) ?? null)
         : null,
       sampleCount: utils.getSampleCountRenderContext(rc),
       width,
       height,
-      linear: utils.getCurrentColorSpace(rc) !== THREE.SRGBColorSpace,
+      linear: this.spark.rawColor
+        ? srgbFormat
+        : srgbFormat || utils.getCurrentColorSpace(rc) !== THREE.SRGBColorSpace,
       extraFormats: rc.textures
         ?.slice(1)
         .map((t) => backend.get(t).format as GPUTextureFormat),
@@ -277,7 +283,9 @@ export class SparkWebGPU {
       sampleCount: 1,
       width: viewport ? viewport.z : size.x,
       height: viewport ? viewport.w : size.y,
-      linear: renderer.outputColorSpace !== THREE.SRGBColorSpace,
+      linear:
+        !this.spark.rawColor &&
+        renderer.outputColorSpace !== THREE.SRGBColorSpace,
       depthCompare: (camera as { reversedDepth?: boolean }).reversedDepth
         ? "greater-equal"
         : "less-equal",
