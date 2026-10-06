@@ -794,8 +794,9 @@ registerWgsl(Texture, (op: Op, { inputs, outputs }) => {
   const texture = inputs.texture as string;
   const coord = inputs.coord as string;
   const t = typeLiteral(type);
+  // GLSL picks the layer nearest z, floor(z + 0.5); i32() would truncate.
   const args = t.includes("2DArray")
-    ? `${texture}, ${texture}_sampler, ${coord}.xy, i32(${coord}.z)`
+    ? `${texture}, ${texture}_sampler, ${coord}.xy, i32(floor(${coord}.z + 0.5))`
     : `${texture}, ${texture}_sampler, ${coord}`;
   return {
     statements: [

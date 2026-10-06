@@ -927,6 +927,14 @@ const arrayTex = new THREE.DataArrayTexture(
 arrayTex.format = THREE.RGBAIntegerFormat;
 arrayTex.type = THREE.UnsignedIntType;
 arrayTex.needsUpdate = true;
+// Two 1x1 layers, red 10 and 200: texture() picks the layer floor(z + 0.5).
+const layersTex = new THREE.DataArrayTexture(
+  new Uint8Array([10, 0, 0, 255, 200, 0, 0, 255]),
+  1,
+  1,
+  2,
+);
+layersTex.needsUpdate = true;
 
 export const matrixCases: [string, d.DynoType, () => Val, Expected][] = [
   [
@@ -980,6 +988,13 @@ export const textureCases: [string, d.DynoType, () => Val, Expected][] = [
     "uvec4",
     () => d.texelFetch(d.dynoUsampler2DArray(arrayTex), iv3(1, 0, 2)),
     [36, 37, 38, 39],
+  ],
+  [
+    "texture sampler2DArray rounds the layer",
+    "vec4",
+    () =>
+      d.texture(d.dynoSampler2DArray(layersTex), d.dynoVec3([0.5, 0.5, 0.7])),
+    [200 / 255, 0, 0, 1],
   ],
   [
     "textureSize 2DArray",
