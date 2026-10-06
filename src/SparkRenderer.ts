@@ -546,6 +546,8 @@ export class SparkRenderer extends THREE.Mesh {
           transparent: true,
           depthTest: options.depthTest ?? true,
           depthWrite: false,
+          // Only reported (premultipliedAlpha): WebGPU always blends so.
+          premultipliedAlpha,
         }) as unknown as THREE.ShaderMaterial)
       : new THREE.ShaderMaterial({
           glslVersion: THREE.GLSL3,
