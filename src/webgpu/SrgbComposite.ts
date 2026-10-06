@@ -38,8 +38,11 @@ fn fragmentMain(@builtin(position) p: vec4f${multisampled ? ", @builtin(sample_i
 }
 `;
 
-/** The splat layer's format: half floats keep L and T exact enough. */
-export const SRGB_LAYER_FORMAT: GPUTextureFormat = "rgba16float";
+/**
+ * The splat layer's format: 8-bit, so that each blend rounds as on WebGL's
+ * 8-bit canvas (dense scenes drift a few levels from half floats).
+ */
+export const SRGB_LAYER_FORMAT: GPUTextureFormat = "rgba8unorm";
 
 /** Blend state for the layer: colour over, alpha the transmittance. */
 export const SRGB_LAYER_BLEND: GPUBlendState = {
