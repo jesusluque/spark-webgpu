@@ -196,6 +196,7 @@ const guiOpen = (title) => (ctx) =>
 
 const DYNO = ["effect", "depth", "normal", "edit", "snow", "skin", "rgba"];
 const READY = () => window.__ready;
+const PAGED = { stableShots: 6 };
 
 export const cases = [
   ...ex("hello-world", [{ readme: 0.03 }]),
@@ -212,10 +213,12 @@ export const cases = [
   ...ex("extsplats", [{ readme: 0.13 }]),
   ...ex("nonlod", [{ readme: 0.16 }]),
   ...ex("lod-example", [{ readme: 0.25, webgl: "/examples/lod/index.html" }]),
-  ...ex("multi-lod", [{ readme: 0.58 }]),
-  ...ex("streaming-lod", [{ readme: 0.67 }]),
+  // Paged scenes decode chunks in workers with nothing new on screen for a
+  // while: they need a longer calm.
+  ...ex("multi-lod", [{ readme: 0.58, settle: PAGED }]),
+  ...ex("streaming-lod", [{ readme: 0.67, settle: PAGED }]),
   ...ex("depth-of-field", [{ readme: 0.97 }]),
-  ...ex("on-demand", [{ readme: 0.7, hide: ["#stats"] }]),
+  ...ex("on-demand", [{ readme: 0.7, hide: ["#stats"], settle: PAGED }]),
   ...ex("splat-shader-effects", [{ readme: 0.46 }]),
   ...ex("procedural-splats", [
     { note: "README: random stars differ (drawn in different orders)" },
@@ -499,6 +502,7 @@ export const cases = [
     {
       readme: 0.33,
       routes: [newportalRoute],
+      settle: PAGED,
       note: "README's 0.33 is with a non-paged scene; this streams a paged one",
     },
   ]),

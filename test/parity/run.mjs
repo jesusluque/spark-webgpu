@@ -96,14 +96,18 @@ const median = (xs) => {
 
 /**
  * Waits for a page to settle: its `ready` condition if any, `minWait` ms,
- * then (unless `stable: false`) until two screenshots in a row match and no
- * resource has started or finished loading in between. A frozen clock makes
+ * then (unless `stable: false`) until `stableShots` (3) screenshots in a row
+ * match the one before, show something (`minLit`), and no resource has
+ * started or finished loading in between. A frozen clock makes
  * a loaded scene draw the same frame every time, so this catches late
  * splats, LoD refinement and paged streaming without per-page timings.
  * Gives up after `maxWait`, and says so in the report.
  */
 async function settle(h, s = {}) {
   const t0 = Date.now();
+  // A frozen clock also freezes a page that hasn't drawn yet: a blank frame
+  // never counts as settled (unless the case expects one).
+  const minLit = s.minLit ?? 1;
   const minWait = s.minWait ?? 2000;
   const maxWait = s.maxWait ?? 60000;
   if (s.ready) await h.ctx.waitFor(s.ready, null, maxWait);
@@ -115,7 +119,7 @@ async function settle(h, s = {}) {
   let prev = null;
   let prevRes = await resources();
   let calm = 0;
-  const need = s.stableShots ?? 2;
+  const need = s.stableShots ?? 3;
   while (Date.now() - t0 < maxWait) {
     await sleep(s.interval ?? 500);
     const res = await resources();
@@ -124,7 +128,12 @@ async function settle(h, s = {}) {
     let same = true;
     if (s.stable !== false) {
       const img = decodePng(await h.screenshot());
-      same = prev !== null && diffImages(prev, img).mean < (s.epsilon ?? 0.02);
+      if (prev !== null) {
+        const d = diffImages(prev, img);
+        same = d.mean < (s.epsilon ?? 0.02) && d.litB >= minLit;
+      } else {
+        same = false;
+      }
       prev = img;
     }
     calm = quiet && same ? calm + 1 : 0;
@@ -186,7 +195,7 @@ async function capture(ctx, item, side) {
         document.head.appendChild(style);
       }, hide);
     }
-    const settled = await settle(h, sc.settle);
+    const settled = await settle(h, { minLit: sc.minLit, ...sc.settle });
     if (sc.act) await sc.act(h.ctx, side);
     await sleep(sc.after ?? 300);
     const png = await h.screenshot();
@@ -393,6 +402,16 @@ function matches(filters, item) {
   return !filters.length || filters.some((f) => item.id.includes(f));
 }
 
+// Closers of the current run, for SIGINT/SIGTERM: a killed run must not
+// leave safaridriver or a Safari session behind.
+const active = [];
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, async () => {
+    for (const c of active.splice(0).reverse()) await c().catch(() => {});
+    process.exit(130);
+  });
+}
+
 export async function main(argv) {
   const opts = parseArgs(argv);
   const items = cases.filter((c) => matches(opts.filters, c));
@@ -413,7 +432,7 @@ export async function main(argv) {
     perfSeconds: opts.perfSeconds,
     dpr: 1,
   };
-  const closers = [];
+  const closers = active;
   try {
     // Safari first: when it can't run there is nothing else to do.
     const drivers = {};

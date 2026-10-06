@@ -31,8 +31,8 @@ It exits non-zero when a case fails. The report is `results.json` plus
 - **No reloads.** The runner's Vite has no file watcher and serves a stub
   `/@vite/client`. With `--base`, Chrome stubs it through a route.
 - **Settling.** The runner waits for the case's `ready` condition and
-  `minWait`, then until two screenshots in a row match and no resource
-  loaded in between. This covers late splats, LoD refinement and paging.
+  `minWait`, then until three screenshots in a row match the one before,
+  aren't blank, and no resource loaded in between. This covers late splats, LoD refinement and paging.
   It gives up after `maxWait` (60 s) and marks the case ⏱ in the report.
 - **Diff.** The diff is the mean absolute difference per RGB channel in /255
   units (the README's numbers) and the % of pixels off by more than 16 in
