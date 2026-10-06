@@ -100,6 +100,7 @@ Splats are not tone mapped, as on WebGL.
 | particle-animation.html | – | 3.09 (time-driven noise) |
 | glsl.html | WGSL for its GLSL dynos, opaque clear color | 0.16 |
 | dynamic-lighting.html (lighting on, debug SDFs) | – | 0.22, 0.23 |
+| mobile-joystick.html (still, after look + walk) | opaque clear color | 0.36, 0.38 |
 
 `spark-renderer.html` puts a cube through a splat mesh. Use
 `?backend=webgl` for the WebGL version, `&mode=target` or `&mode=post` for the
