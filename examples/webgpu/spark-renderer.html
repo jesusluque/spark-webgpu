@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spark • SparkRenderer on WebGPU</title>
+  <style>
+    body { margin: 0; background: #000; color: #ccc; font: 13px system-ui, sans-serif; }
+    #info { position: absolute; top: 8px; left: 8px; white-space: pre; pointer-events: none; }
+  </style>
+</head>
+
+<body>
+  <div id="info"></div>
+  <!--
+    SparkRenderer with either renderer, for parity checks: a splat mesh, a
+    cube cutting through it (depth) and a transparent plane in front.
+      ?backend=webgl      WebGLRenderer (default: WebGPURenderer)
+      &mode=target        render into a RenderTarget, then show it (WebGPU)
+      &mode=post          through THREE.PostProcessing's scene pass (WebGPU)
+      &msaa=1             antialias: true
+      &file=<asset>       default butterfly.spz
+  -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
+        "three/tsl": "../js/vendor/three/build/three.tsl.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { WebGLRenderer } from "three";
+    import { pass } from "three/tsl";
+    import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
+
+    const params = new URLSearchParams(location.search);
+    const webgl = params.get("backend") === "webgl";
+    const mode = params.get("mode") ?? "canvas";
+    const antialias = params.get("msaa") === "1";
+    const renderer = webgl ? new WebGLRenderer({ antialias }) : new THREE.WebGPURenderer({ antialias });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    if (!webgl) await renderer.init();
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x101018);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
+
+    const mesh = new SplatMesh({ url: await getAssetFileURL(params.get("file") ?? "butterfly.spz") });
+    mesh.quaternion.set(1, 0, 0, 0);
+    mesh.position.set(0, 0, -3);
+    mesh.rotation.y += 0.6;
+    scene.add(mesh);
+
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshBasicMaterial({ color: 0x3060ff }));
+    cube.position.set(0.3, 0.1, -3);
+    cube.rotation.set(0.5, 0.7, 0);
+    scene.add(cube);
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6),
+      new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.3, depthWrite: false }));
+    glass.position.set(-0.6, -0.3, -2);
+    if (params.get("glass") !== "0") scene.add(glass);
+
+    let show = null;
+    if (!webgl && mode === "target") {
+      const target = new THREE.RenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1), type: THREE.HalfFloatType });
+      target.setSize(...renderer.getDrawingBufferSize(new THREE.Vector2()).toArray());
+      const quad = new THREE.QuadMesh(new THREE.MeshBasicNodeMaterial({ colorNode: THREE.TSL.texture(target.texture) }));
+      show = () => {
+        renderer.setRenderTarget(target);
+        renderer.render(scene, camera);
+        renderer.setRenderTarget(null);
+        quad.render(renderer);
+      };
+    } else if (!webgl && mode === "post") {
+      const post = new THREE.PostProcessing(renderer);
+      post.outputNode = pass(scene, camera);
+      show = () => post.render();
+    }
+
+    let frames = 0;
+    renderer.setAnimationLoop(() => {
+      if (show) show();
+      else renderer.render(scene, camera);
+      if (mesh.isInitialized) frames += 1;
+      if (frames === 20) window.__ready = true;
+      if (frames % 30 === 0) {
+        const s = spark.webgpu?.splats?.stats;
+        document.getElementById("info").textContent =
+          `${webgl ? "WebGL" : "WebGPU"} · ${mode}${s ? ` · ${s.drawn} splats drawn` : ""}`;
+      }
+    });
+  </script>
+</body>
+
+</html>

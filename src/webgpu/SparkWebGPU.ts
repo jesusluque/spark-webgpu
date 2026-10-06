@@ -466,8 +466,23 @@ export class SparkWebGPU {
         lodMesh.coneFoveate = node.coneFoveate;
         this.lod?.setEnableLod(lodMesh, node.enableLod !== false);
       }
+      this.updateRaycast(node, entry);
     }
     return true;
+  }
+
+  // What SplatMesh.update leaves for raycast(): the splats drawn, as source
+  // indices into lodSplats for a LoD selection. Paged splats live only on
+  // the GPU here, so they can't be raycast.
+  private updateRaycast(node: SplatMesh, entry: Entry) {
+    if (node.paged) return;
+    const indices = entry.lodMesh?.mesh.lodIndices;
+    node.raycastIndices = indices
+      ? { numSplats: indices.length, indices }
+      : undefined;
+    node.context.enableLod.value = false;
+    const base = node.packedSplats ?? node.extSplats;
+    node.context.numSplats.value = entry.pending ? 0 : (base?.numSplats ?? 0);
   }
 
   // A new WgpuSplatMesh for the same splats: DynoKernels compiles a mesh's
