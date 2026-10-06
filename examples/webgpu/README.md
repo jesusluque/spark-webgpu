@@ -80,7 +80,10 @@ things:
 - **Large paged scenes.** The page pool is limited by the device's
   `maxStorageBufferBindingSize` (128 MB by default, 32–42 pages). Pass
   `requiredLimits: splatRequiredLimits(adapter)` to `WebGPURenderer` to get
-  more pages.
+  more pages. The SH pool is sized for the SH degrees the pages carry.
+- **Many splats.** With default limits one draw holds 4.19M splats in the
+  ext accumulator; past that `WgpuSplatRenderer` switches to the packed one
+  (`accumulator: "auto"`), up to 8.39M. `splatRequiredLimits` raises both.
 - **Render targets on meshes.** The `target` option, `renderTarget` and
   `readTarget` work as on WebGL. three's WebGPURenderer (r180) shows a
   target's texture upside down on a mesh's UVs compared to WebGL, and doesn't
@@ -127,6 +130,47 @@ These throw or warn:
 - SplatMeshes with a custom `SplatSource`.
 
 Splats are not tone mapped, as on WebGL.
+
+## Performance
+
+`compare-webgl.html` and `compare-webgpu.html` render the same scene with
+each backend (`?n=` synthetic splats, `?file=`, `?lod=1`, `?rad=1` for the
+paged hobbiton scene). `window.__fps(seconds)` measures the animation loop
+with the object turning, so every frame regenerates and re-sorts; run Chrome
+with `--disable-gpu-vsync --disable-frame-rate-limit`. On WebGPU,
+`?profile=1` turns on `WgpuSplatRenderer`'s `profile` option (timestamp
+queries, where the browser has them) and `window.__profile(frames)` returns
+the median GPU milliseconds of generate, each sort stage and the draw.
+`?opts=<JSON>` sets any other renderer option.
+
+Where the time goes (Apple GPU, 1280×720): the draw is 80–85% of the GPU
+time. It is bound by rasterizing and blending the quads, not by the vertex
+shader or by what it reads: the packed accumulator, flat varyings and
+quads cut to the minAlpha radius all measured the same. The sort is next
+(~1 ms per million splats sorted), generate well under 1 ms. JS costs
+0.1–0.5 ms a frame. So the WebGPU path does less work instead: generate
+drops the splats the draw would skip (outside the frustum, under
+minAlpha; `cull`, default on), and the sort only sorts the rest.
+
+Medians of 3 interleaved runs, fps, headless Chrome on an Apple GPU shared
+with other jobs (so ±10%), 1280×720, before and after the culling and
+compacted sort:
+
+| Scene | WebGL | WebGPU before | WebGPU after |
+|---|---|---|---|
+| synthetic 1M | 127 | 107 | 106 |
+| synthetic 2M | 54 | 62 | 59 |
+| synthetic 4M | 14 | 27 | 28 |
+| penguin | 252 | 664 | 607 |
+| robot-head | 594 | 839 | 705 |
+| valley | 200 | 350 | 362 |
+| hobbiton .rad, 2.5M LoD budget | – | 68 | 64 |
+
+GPU time per frame (sequential, `__profile`): hobbiton 5.9 → 5.5 ms (draw
+3.9 → 3.5), valley 2.8 → 2.9 ms. The hobbiton LoD selection keeps ~0.2M of
+its 2.5M slots active and the traversal already culls the frustum, and
+inactive keys sort almost for free (all equal, coherent scatter), so the
+compacted sort mostly helps when many active splats are off screen.
 
 ## Examples
 

@@ -7,7 +7,7 @@
 // (pageBase + offset), so a paged mesh is drawn as an ordinary source over the
 // whole pool, remapped through those indices.
 //
-// One buffer per pool (core, SH, later attributes) keeps the storage-buffer
+// One buffer per pool (core, SH, attributes) keeps the storage-buffer
 // count of generate unchanged. Each must fit one binding, so the pool is
 // capped by the device's maxStorageBufferBindingSize: with default limits
 // (128 MiB) that is 8M packed splats without SH, 2.7M with SH3. Request the
@@ -20,6 +20,10 @@ import * as THREE from "three";
 import type { PagedSplats } from "../PagedSplats";
 import { SplatPager, type SplatPagerOptions } from "../SplatPager";
 import { GpuSplatSource } from "./GpuSplatSource";
+import { KernelRegistry } from "./KernelRegistry";
+import { PagedAttribPool } from "./attributes/PagedAttribPool";
+import { AttribPool, type AttributeSpec } from "./attributes/schema";
+import restrideModule from "./generated/kernels/pool_restride";
 import { createStorage } from "./gpuBuffers";
 
 const PAGE_SPLATS = 65536;
@@ -39,13 +43,20 @@ const unusedRenderer = {
 
 export class WgpuSplatPager extends SplatPager {
   readonly device: GPUDevice;
-  // TODO(attributes): page the AttribPool (src/webgpu/attributes/ on the
-  // integrated branch) as a third pool: its schema comes from RadMeta
-  // attributes, each chunk's `attrib` data uploads at the page base like
-  // core and SH, and source() returns the pool as GpuSplatSource.attribs.
-  // Paged chunk decoding skips attributes for now.
   /** Per-splat words of each pool, by name. */
   readonly pools: Record<"core" | "sh", Pool>;
+  // SH degrees the SH pool's stride holds: it is sized for the data that
+  // arrives (an SH1 scene takes a third of SH3's memory) and widened when a
+  // page with more degrees comes.
+  private shDegree = 0;
+  private registry: KernelRegistry | null = null;
+  /**
+   * Extra attributes (src/webgpu/attributes), paged like the splats: the
+   * schema from setAttribSchema (the .rad's meta) or the first chunk that
+   * has some, the data from each chunk's `attrib` properties.
+   */
+  attribs: PagedAttribPool | null = null;
+  private attribSchema: AttributeSpec[] | null = null;
 
   constructor(device: GPUDevice, options: WgpuSplatPagerOptions) {
     const ext = options.extSplats ?? false;
@@ -72,7 +83,7 @@ export class WgpuSplatPager extends SplatPager {
     this.device = device;
     this.pools = {
       core: { wordsPerSplat: coreWords, buffer: null },
-      sh: { wordsPerSplat: shWords, buffer: null },
+      sh: { wordsPerSplat: 0, buffer: null },
     };
     this.ensurePool(this.pools.core, "splat pages");
   }
@@ -93,7 +104,7 @@ export class WgpuSplatPager extends SplatPager {
     const sh = this.pools.sh.buffer;
     const numSh = sh ? Math.min(splats.numSh, splats.maxSh, this.curSh) : 0;
     const e = splats.splatEncoding;
-    return new GpuSplatSource(
+    const source = new GpuSplatSource(
       this.extSplats ? "ext" : "packed",
       this.maxSplats,
       this.pools.core.buffer as GPUBuffer,
@@ -103,6 +114,67 @@ export class WgpuSplatPager extends SplatPager {
       e ? [e.rgbMin, e.rgbMax, e.lnScaleMin, e.lnScaleMax] : undefined,
       e?.lodOpacity ?? false,
     );
+    source.shStride = this.pools.sh.wordsPerSplat / 4;
+    source.attribs = this.attribs?.pool ?? null;
+    return source;
+  }
+
+  /**
+   * The attribute schema of the pool (all paged meshes share it), before
+   * the first page arrives; later schemas are ignored.
+   */
+  setAttribSchema(specs: AttributeSpec[]) {
+    if (!this.attribSchema && specs.length) this.attribSchema = specs;
+  }
+
+  private uploadAttribs(base: number, count: number, data: unknown) {
+    const chunk = data ? AttribPool.from(data as AttribPool) : null;
+    if (!this.attribs) {
+      if (!chunk) return;
+      const specs =
+        this.attribSchema ??
+        chunk.schema.map((spec) => ({ ...spec, toDraw: true }));
+      const bytes = PagedAttribPool.bytes(specs, this.maxSplats);
+      const limit = this.device.limits.maxStorageBufferBindingSize;
+      if (bytes > limit) {
+        console.warn(
+          `WgpuSplatPager: attribute pages need ${bytes} bytes, over maxStorageBufferBindingSize (${limit}); not paging attributes`,
+        );
+        this.attribSchema = [];
+        return;
+      }
+      if (!specs.length) return;
+      this.attribs = new PagedAttribPool(this.device, specs, this.maxSplats);
+    }
+    this.attribs.uploadPage(base, count, chunk);
+  }
+
+  // uint4s per splat for `degree` SH degrees: packed sh1 (padded), sh2, sh3;
+  // ext sh1, sh2, sh3a + sh3b.
+  private shSlots(degree: number) {
+    return degree === 3 && this.extSplats ? 4 : degree;
+  }
+
+  // Makes the SH pool hold `degree` degrees, moving the pages already there.
+  private ensureShDegree(degree: number) {
+    if (degree <= this.shDegree) return;
+    const sh = this.pools.sh;
+    const oldSlots = sh.wordsPerSplat / 4;
+    const newSlots = this.shSlots(degree);
+    const old = sh.buffer;
+    sh.wordsPerSplat = 4 * newSlots;
+    sh.buffer = null;
+    const buffer = this.ensurePool(sh, "SH pages");
+    if (old) {
+      this.registry ??= new KernelRegistry(this.device);
+      this.registry.get(restrideModule, "restride").run({
+        grid: [this.maxSplats],
+        buffers: { src: old, dst: buffer },
+        uniforms: new Uint32Array([this.maxSplats, oldSlots, newSlots, 0]),
+      });
+      old.destroy();
+    }
+    this.shDegree = degree;
   }
 
   // No textures: SplatPager's dyno blocks are never compiled on this path.
@@ -115,12 +187,15 @@ export class WgpuSplatPager extends SplatPager {
     packedArray: Uint32Array,
     shArrays: Array<Uint32Array>,
     extArray?: Uint32Array,
+    attribs?: unknown,
   ) {
     const base = page * PAGE_SPLATS;
     const core = this.pools.core;
     const count = packedArray.length / 4;
     this.mirror(this.packedTexture, base, packedArray);
     if (extArray) this.mirror(this.extTexture, base, extArray);
+    // Every page, so one without attributes clears the previous tenant's.
+    this.uploadAttribs(base, count, attribs);
     if (extArray) {
       // Ext pages arrive as two arrays; the pool interleaves a and b.
       const words = new Uint32Array(count * 8);
@@ -135,15 +210,17 @@ export class WgpuSplatPager extends SplatPager {
 
     const numSh = Math.min(shArrays.length, 3);
     if (numSh === 0 || this.maxSh === 0) return;
-    this.curSh = Math.max(this.curSh, Math.min(numSh, this.maxSh));
+    const degree = Math.min(numSh, this.maxSh);
+    this.curSh = Math.max(this.curSh, degree);
+    this.ensureShDegree(degree);
     const sh = this.pools.sh;
-    this.ensurePool(sh, "SH pages");
     // Packed: sh1 (2 words, padded to 4), sh2, sh3. Ext: sh1, sh2, sh3a, sh3b.
     const stride = sh.wordsPerSplat;
     const perArray = this.extSplats ? [4, 4, 4, 4] : [2, 4, 4];
+    const arrays = shArrays.slice(0, this.shSlots(degree));
     const words = new Uint32Array(count * stride);
     for (let i = 0; i < count; i++) {
-      shArrays.forEach((array, k) => {
+      arrays.forEach((array, k) => {
         const n = perArray[k];
         words.set(array.subarray(n * i, n * i + n), stride * i + 4 * k);
       });
@@ -180,6 +257,9 @@ export class WgpuSplatPager extends SplatPager {
 
   dispose() {
     super.dispose();
+    this.registry?.destroy();
+    this.attribs?.destroy();
+    this.attribs = null;
     for (const pool of Object.values(this.pools)) {
       pool.buffer?.destroy();
       pool.buffer = null;

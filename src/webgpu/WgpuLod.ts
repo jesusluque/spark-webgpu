@@ -23,6 +23,10 @@ import { isAndroid, isIos, isMobile, isOculus, isVisionPro } from "../utils";
 import { GpuSplatSource } from "./GpuSplatSource";
 import { WgpuSplatPager } from "./WgpuSplatPager";
 import type { WgpuSplatMesh, WgpuSplatRenderer } from "./WgpuSplatRenderer";
+import {
+  type RadAttributeMeta,
+  specsFromRadMeta,
+} from "./attributes/PagedAttribPool";
 
 type LodSplats = PackedSplats | ExtSplats | PagedSplats;
 
@@ -193,8 +197,14 @@ export class WgpuLod {
     const { device } = this.renderer;
     let source: GpuSplatSource;
     if (splats instanceof PagedSplats) {
-      await splats.getRadMeta();
+      const { meta } = await splats.getRadMeta();
       splats.pager = this.ensurePager();
+      // The .rad's extra attributes, paged with its chunks.
+      const attributes = (meta as { attributes?: RadAttributeMeta[] })
+        .attributes;
+      if (attributes) {
+        this.ensurePager().setAttribSchema(specsFromRadMeta(attributes));
+      }
       source = this.ensurePager().source(splats);
     } else {
       await splats.initialized;
@@ -424,7 +434,12 @@ export class WgpuLod {
       // The pool's SH buffer and the encoding appear with the first pages.
       if (m.splats instanceof PagedSplats && this.pager) {
         const source = this.pager.source(m.splats);
-        if (source.numSh !== m.lodSource.numSh) this.markRendererDirty();
+        if (
+          source.numSh !== m.lodSource.numSh ||
+          source.sh !== m.lodSource.sh
+        ) {
+          this.markRendererDirty();
+        }
         m.mesh.source = m.lodSource = source;
       }
     }

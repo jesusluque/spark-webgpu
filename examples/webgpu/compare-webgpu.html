@@ -31,7 +31,16 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
-    const splats = new WgpuSplatRenderer(renderer, { sort: new URLSearchParams(location.search).get("sort") ?? "gpu", sortBits: Number(new URLSearchParams(location.search).get("sortBits") ?? 32), ...options });
+    // ?sort=cpu, ?sortBits=24, ?profile=1 (stats.gpuMs), and ?opts=<JSON>
+    // for any other WgpuSplatRenderer option.
+    const query = new URLSearchParams(location.search);
+    const splats = new WgpuSplatRenderer(renderer, {
+      sort: query.get("sort") ?? "gpu",
+      sortBits: Number(query.get("sortBits") ?? 32),
+      profile: query.get("profile") === "1",
+      ...options,
+      ...JSON.parse(query.get("opts") ?? "{}"),
+    });
     const holder = new THREE.Object3D();
     pose(holder);
     const lodDriver = lod || rad ? new WgpuLod(splats, { lodSplatCount }) : null;
@@ -93,6 +102,32 @@
           }
         });
       });
+    // GPU pass timings (?profile=1): `count` frames one at a time, each read
+    // back before the next (an unthrottled loop starves mapAsync), medians
+    // per pass in ms.
+    window.__profile = async (count) => {
+      renderer.setAnimationLoop(null);
+      const profiler = splats.profiler;
+      const frames = [];
+      for (let i = 0; i < count; i++) {
+        holder.rotation.y += 0.01;
+        lodDriver?.update(camera);
+        renderer.render(scene, camera);
+        splats.render(camera);
+        const resolved = profiler.resolved;
+        const t0 = performance.now();
+        while (profiler.resolved === resolved && performance.now() - t0 < 1000) {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        frames.push({ ...profiler.last });
+      }
+      const median = {};
+      for (const label of Object.keys(frames.at(-1))) {
+        const v = frames.map((f) => f[label] ?? 0).sort((a, b) => a - b);
+        median[label] = v[v.length >> 1];
+      }
+      return median;
+    };
     window.__bench = async (count) => {
       renderer.setAnimationLoop(null);
       const result = await bench(count, async () => {

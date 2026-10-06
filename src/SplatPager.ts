@@ -55,6 +55,8 @@ interface PageUpload {
   packedArray: Uint32Array;
   extArray?: Uint32Array;
   shArrays: Array<Uint32Array>;
+  /** The chunk's extra attributes (an AttribPool after postMessage), if any. */
+  attribs?: unknown;
 }
 
 export class SplatPager {
@@ -536,6 +538,8 @@ export class SplatPager {
     packedArray: Uint32Array,
     shArrays: Array<Uint32Array>,
     extArray?: Uint32Array,
+    // Extra attributes: the WebGPU pager pages them; textures have no room.
+    _attribs?: unknown,
   ) {
     const pageBase = page * PAGE_SPLATS;
 
@@ -767,6 +771,7 @@ export class SplatPager {
           packedArray,
           extArray,
           shArrays,
+          attribs: data.extra.attribs,
         });
       } else {
         const packedArray = data.packedArray;
@@ -784,6 +789,7 @@ export class SplatPager {
           numSplats,
           packedArray,
           shArrays,
+          attribs: data.extra.attribs,
         });
       }
     }
@@ -795,8 +801,8 @@ export class SplatPager {
       if (!upload) {
         break;
       }
-      const { page, numSplats, packedArray, extArray, shArrays } = upload;
-      this.uploadPage(page, packedArray, shArrays, extArray);
+      const { page, packedArray, extArray, shArrays, attribs } = upload;
+      this.uploadPage(page, packedArray, shArrays, extArray, attribs);
     }
   }
 
