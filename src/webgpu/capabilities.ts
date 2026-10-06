@@ -23,6 +23,8 @@ export const SORT_WORKGROUP_THREADS = 256;
 export const SORT_WORKGROUP_BYTES = 16 * 4 + 128 * 16 + 16 * 4 + 512 * 4;
 /** Bytes per splat in the largest per-splat buffer (the ext accumulator). */
 export const ACCUMULATOR_BYTES_PER_SPLAT = 32;
+/** The packed accumulator (WgpuSplatRenderer accumulator "packed"). */
+export const PACKED_ACCUMULATOR_BYTES_PER_SPLAT = 16;
 /** Packed SH: three uint4 per splat. */
 export const SH_BYTES_PER_SPLAT = 48;
 /** Storage buffers the draw's vertex stage reads (ordering, splats). */
@@ -42,6 +44,8 @@ export interface GpuCapabilities {
   readonly gpuSortReason: string;
   /** Most splats one draw can hold, from the storage binding and buffer limits. */
   readonly maxSplats: number;
+  /** Most splats with the packed accumulator (twice maxSplats, up to dispatch limits). */
+  readonly maxSplatsPacked: number;
   /** Most splats with spherical harmonics. */
   readonly maxSplatsWithSh: number;
   /** Storage buffers the vertex stage may bind. */
@@ -110,6 +114,10 @@ export function capabilitiesOf(
     gpuSortReason: reasons.join(", "),
     maxSplats: Math.min(
       Math.floor(perBuffer / ACCUMULATOR_BYTES_PER_SPLAT),
+      dispatchable,
+    ),
+    maxSplatsPacked: Math.min(
+      Math.floor(perBuffer / PACKED_ACCUMULATOR_BYTES_PER_SPLAT),
       dispatchable,
     ),
     maxSplatsWithSh: Math.min(

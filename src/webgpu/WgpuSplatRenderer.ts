@@ -115,9 +115,12 @@ export interface WgpuSplatRendererOptions {
    * Accumulator format between generate and draw. "ext" (32 B a splat):
    * float centers and colours. "packed" (16 B, as SparkRenderer's default):
    * half-float centers relative to the camera, 8-bit colour clamped to the
-   * packed range; halves what the draw reads, losing precision far away.
+   * packed range, so precision drops far from the camera. "auto" (default):
+   * ext while it fits one storage binding (capabilities.maxSplats, 4.19M
+   * splats with default limits), packed above that (maxSplatsPacked). The
+   * draw costs the same with either on Apple GPUs.
    */
-  accumulator?: "ext" | "packed";
+  accumulator?: "ext" | "packed" | "auto";
   /**
    * Accumulate covariance splats (SparkRenderer.covSplats): mesh transforms
    * may scale non-uniformly or shear, and meshes may use CovSplat modifiers
@@ -215,6 +218,7 @@ export class WgpuSplatRenderer {
   readonly stages: SplatRendererStage[] = [];
 
   private capacity = 0;
+  private accumBytes = 0;
   private accumulator: GPUBuffer | null = null;
   private metric: GPUBuffer | null = null;
   private ordering: GPUBuffer | null = null;
@@ -270,7 +274,7 @@ export class WgpuSplatRenderer {
       apertureAngle: 0,
       lodInflate: false,
       profile: false,
-      accumulator: "ext",
+      accumulator: "auto",
       covSplats: false,
       enable2DGS: false,
       ...options,
@@ -385,25 +389,37 @@ export class WgpuSplatRenderer {
     return m.lodIndices ? m.lodIndices.length : m.source.count;
   }
 
+  // Whether generate writes the packed accumulator for `total` splats.
+  private packedFor(total: number) {
+    const a = this.options.accumulator;
+    return (
+      a === "packed" || (a === "auto" && total > this.capabilities.maxSplats)
+    );
+  }
+
   private ensureCapacity(total: number) {
-    if (total <= this.capacity) return;
-    const { maxSplats } = this.capabilities;
-    if (total > maxSplats) {
+    const bytes = this.packedFor(total) ? 16 : 32;
+    if (total <= this.capacity && this.capacity * bytes <= this.accumBytes) {
+      return;
+    }
+    const { maxSplats, maxSplatsPacked } = this.capabilities;
+    const max = bytes === 16 ? maxSplatsPacked : maxSplats;
+    if (total > max) {
       throw new Error(
-        `WgpuSplatRenderer: ${total} splats is over this device's ${maxSplats} (maxStorageBufferBindingSize; see splatRequiredLimits)`,
+        `WgpuSplatRenderer: ${total} splats is over this device's ${max} (maxStorageBufferBindingSize; see splatRequiredLimits${bytes === 32 ? ', or accumulator "auto"' : ""})`,
       );
     }
     this.capacity = Math.min(
-      Math.max(total, Math.ceil(this.capacity * 1.5)),
-      maxSplats,
+      Math.max(total, this.capacity, Math.ceil(this.capacity * 1.5)),
+      max,
     );
     this.accumulator?.destroy();
     this.metric?.destroy();
     this.ordering?.destroy();
-    // Sized for ext, so switching options.accumulator needs no realloc.
+    this.accumBytes = this.capacity * bytes;
     this.accumulator = createStorage(
       this.device,
-      this.capacity * 32,
+      this.accumBytes,
       "accumulator",
     );
     this.metric = createStorage(this.device, this.capacity * 4, "sort metric");
@@ -426,7 +442,7 @@ export class WgpuSplatRenderer {
       this.mappingVersion,
       this.options.sortBits,
       this.options.sortRadial ? 1 : 0,
-      this.options.accumulator === "packed" ? 1 : 0,
+      this.packedFor(total) ? 1 : 0,
       this.options.covSplats ? 1 : 0,
       ...camera.matrixWorld.elements,
       ...camera.projectionMatrix.elements,
@@ -718,7 +734,9 @@ export class WgpuSplatRenderer {
     cameraDir: THREE.Vector3,
   ) {
     const kernel = this.registry.get(generateModule, "generate");
-    const packed = this.options.accumulator === "packed";
+    const packed = this.packedFor(
+      this.meshes.reduce((n, m) => n + this.meshCount(m), 0),
+    );
     this.written.packed = packed;
     const origin = this.written.origin;
     if (packed) origin.copy(cameraPos);
