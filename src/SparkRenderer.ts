@@ -826,7 +826,7 @@ export class SparkRenderer extends THREE.Mesh {
     if (spark.webgpu) {
       // render(), renderTarget() and renderCubeMap() draw the splats as that
       // SparkRenderer, through this mesh in the scene, as on WebGL.
-      spark.webgpu.onBeforeRender(scene, camera);
+      spark.webgpu.onBeforeRender(scene, camera, this);
       return;
     }
 

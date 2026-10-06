@@ -28,6 +28,7 @@ import { GpuSplatSource } from "./GpuSplatSource";
 import { SRGB_LAYER_FORMAT } from "./SrgbComposite";
 import { WgpuLod, type WgpuLodMesh } from "./WgpuLod";
 import {
+  type SplatDiskClip,
   type SplatPassTarget,
   type WgpuSplatMesh,
   WgpuSplatRenderer,
@@ -140,8 +141,23 @@ export class SparkWebGPU {
     readonly renderer: WebGPURendererLike,
   ) {}
 
-  /** SparkRenderer.onBeforeRender on WebGPU: syncs the scene and draws. */
-  onBeforeRender(scene: THREE.Scene, camera: THREE.Camera) {
+  /**
+   * LoD is traversed for this camera when set (else each frame's first
+   * render camera): SparkPortals drives it from the main view.
+   */
+  lodCamera: THREE.Camera | null = null;
+
+  /**
+   * SparkRenderer.onBeforeRender on WebGPU: syncs the scene and draws.
+   * `host` is the SparkRenderer in the scene, when this one draws in its
+   * place (SparkRenderer.render / sparkOverride): its portal disk uniforms
+   * apply, as its fragment shader would on WebGL.
+   */
+  onBeforeRender(
+    scene: THREE.Scene,
+    camera: THREE.Camera,
+    host: SparkRenderer = this.spark,
+  ) {
     if (this.failed) return;
     const { renderer } = this;
     const { backend } = renderer;
@@ -179,7 +195,7 @@ export class SparkWebGPU {
       this.applyOptions();
       this.sync(scene, camera);
       if (this.lod?.meshes.length && this.spark.enableDriveLod) {
-        this.lod.update(camera, { x: width, y: height });
+        this.lod.update(this.lodCamera ?? camera, { x: width, y: height });
       }
     }
 
@@ -206,6 +222,7 @@ export class SparkWebGPU {
         ? "greater-equal"
         : "less-equal",
     };
+    splats.diskClip = diskClip(host);
     this.spark.dirty = false;
     // On the canvas three renders into a linear half-float target, then
     // converts it in an output pass.
@@ -733,6 +750,24 @@ export class SparkWebGPU {
     this.lod = undefined;
     this.splats = undefined;
   }
+}
+
+// The portal disk of SparkPortals' DISK_PORTAL_FRAGMENT_SHADER, from the
+// extraUniforms it reads (diskCenter, diskNormal, diskRadius, diskTwoSided),
+// which WebGPU's splat shader implements itself.
+function diskClip(spark: SparkRenderer): SplatDiskClip | null {
+  const u = spark.uniforms as unknown as Record<
+    string,
+    { value: unknown } | undefined
+  >;
+  const radius = u.diskRadius?.value;
+  if (typeof radius !== "number" || radius === 0) return null;
+  return {
+    center: u.diskCenter?.value as THREE.Vector3,
+    normal: u.diskNormal?.value as THREE.Vector3,
+    radius,
+    twoSided: !!u.diskTwoSided?.value,
+  };
 }
 
 function sameKey(a: unknown[], b: unknown[]) {

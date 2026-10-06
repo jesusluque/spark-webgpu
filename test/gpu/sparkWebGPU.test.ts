@@ -200,6 +200,40 @@ describe.skipIf(!device)("SparkRenderer on WebGPU", () => {
     spark.dispose();
   });
 
+  it("clips by the portal disk uniforms, as SparkPortals' shader", async () => {
+    const spark = new SparkRenderer({
+      renderer: fakeRenderer as never,
+      extraUniforms: {
+        diskCenter: { value: new THREE.Vector3(0, 0, -1) },
+        diskNormal: { value: new THREE.Vector3(0, 0, 1) },
+        diskRadius: { value: 0 },
+        diskTwoSided: { value: true },
+      },
+    });
+    const scene = new THREE.Scene();
+    scene.add(spark);
+    const camera = new THREE.PerspectiveCamera(60, W / H, 0.05, 100);
+    camera.coordinateSystem = THREE.WebGPUCoordinateSystem;
+    camera.updateProjectionMatrix();
+    camera.position.set(0, 0, 3);
+    scene.add(new SplatMesh({ packedSplats: ball() }));
+    const radius = (
+      spark.uniforms as unknown as Record<string, { value: number }>
+    ).diskRadius;
+    await render(spark, scene, camera);
+    const all = await litPixels();
+    expect(all).toBeGreaterThan(W * H * 0.1);
+    // A big disk in front: the front pass drops what is behind it...
+    radius.value = -10;
+    await render(spark, scene, camera);
+    expect(await litPixels()).toBe(0);
+    // ...and the behind pass draws only that.
+    radius.value = 10;
+    await render(spark, scene, camera);
+    expect(await litPixels()).toBe(all);
+    spark.dispose();
+  });
+
   it("bakes a mesh's generated RGBA with getRgba", async () => {
     const { spark, scene, camera } = setup();
     const packed = ball(300);

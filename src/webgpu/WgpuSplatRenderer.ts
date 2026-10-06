@@ -62,6 +62,20 @@ const DRAW_LOD_INFLATE = 8;
 const DRAW_ORTHOGRAPHIC = 16;
 const DRAW_ENCODE_LINEAR = 32;
 const DRAW_PREMULTIPLIED = 64;
+const DRAW_DISK_CLIP = 128;
+
+/** A portal disk in view space that clips the splats (WgpuSplatRenderer.diskClip). */
+export interface SplatDiskClip {
+  center: THREE.Vector3;
+  normal: THREE.Vector3;
+  /**
+   * > 0: draw only the splats behind the disk, seen through it; < 0: drop
+   * the splats behind it where it is seen; 0: no clip.
+   */
+  radius: number;
+  /** Clip seen from either side (else only facing against the normal). */
+  twoSided: boolean;
+}
 
 // The ext accumulator's RGBA (packSplatExt: rg, b and alpha as halves) into
 // an RgbaArray texture, at splatTexCoord(index).
@@ -229,6 +243,11 @@ export class WgpuSplatRenderer {
   /** What the device allows; consulted for the sort path and sizes. */
   readonly capabilities: GpuCapabilities;
   readonly stages: SplatRendererStage[] = [];
+  /**
+   * The portal clip of SparkPortals' DISK_PORTAL_FRAGMENT_SHADER, for the
+   * next draws (default draw only, not attribute variants).
+   */
+  diskClip: SplatDiskClip | null = null;
 
   private capacity = 0;
   private accumulator: GPUBuffer | null = null;
@@ -1057,6 +1076,7 @@ export class WgpuSplatRenderer {
     const p = camera.projectionMatrix.elements;
     const basis = new THREE.Matrix3().setFromMatrix4(view).elements;
     const o = this.options;
+    const disk = this.diskClip?.radius ? this.diskClip : null;
     const params = UniformWriter.for(drawModule).setAll({
       proj0: p.slice(0, 4),
       proj1: p.slice(4, 8),
@@ -1080,6 +1100,10 @@ export class WgpuSplatRenderer {
       clipXY: o.clipXY,
       focalAdjustment: o.focalAdjustment,
       falloff: o.falloff,
+      diskCenter: disk ? [...disk.center.toArray(), disk.radius] : [0, 0, 0, 0],
+      diskNormal: disk
+        ? [...disk.normal.toArray(), disk.twoSided ? 1 : 0]
+        : [0, 0, 0, 0],
       flags:
         DRAW_EXT |
         DRAW_PREMULTIPLIED |
@@ -1087,6 +1111,7 @@ export class WgpuSplatRenderer {
         (o.enable2DGS ? DRAW_2DGS : 0) |
         (o.lodInflate ? DRAW_LOD_INFLATE : 0) |
         (linear ? DRAW_ENCODE_LINEAR : 0) |
+        (disk ? DRAW_DISK_CLIP : 0) |
         ((camera as THREE.OrthographicCamera).isOrthographicCamera
           ? DRAW_ORTHOGRAPHIC
           : 0),
