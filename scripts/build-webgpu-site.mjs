@@ -83,6 +83,29 @@ for (const name of fs.readdirSync(out)) {
     html.replaceAll('"./vendor/spark/spark.', `"./${sparkDir}/spark.`),
   );
 }
+// The page scripts and styles get a content version in their URLs, so a
+// copy cached before a deploy is never mixed with new pages.
+const versioned = fs
+  .readdirSync(out)
+  .filter((name) => /\.(js|css)$/.test(name));
+// One version for all of them: a script's text changes when a script it
+// imports gets a new version.
+const siteHash = crypto.createHash("sha256");
+for (const name of versioned.sort()) {
+  siteHash.update(name);
+  siteHash.update(fs.readFileSync(path.join(out, name)));
+}
+const siteVersion = siteHash.digest("hex").slice(0, 10);
+const versionOf = Object.fromEntries(versioned.map((n) => [n, siteVersion]));
+for (const name of fs.readdirSync(out)) {
+  if (!/\.(html|js)$/.test(name)) continue;
+  const file = path.join(out, name);
+  let text = fs.readFileSync(file, "utf8");
+  for (const dep of versioned) {
+    text = text.replaceAll(`"./${dep}"`, `"./${dep}?v=${versionOf[dep]}"`);
+  }
+  fs.writeFileSync(file, text);
+}
 // Pages and the shared helpers revalidate on every load; the hashed Spark
 // folder never changes. (Rules must not overlap: Pages joins the headers of
 // every rule that matches.)

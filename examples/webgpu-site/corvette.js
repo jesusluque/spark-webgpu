@@ -112,7 +112,13 @@ export async function createCorvette({ renderer, base, params, status }) {
   backdrop.material.colorNode = skyTexture.sample(skyUv).rgb.mul(intensity);
   scene.add(backdrop);
 
-  const spark = new SparkRenderer({ renderer });
+  // The whole car by default: below its splat count, the LoD replaces the
+  // small splats with merged ones even close up (?lod=<splats> to cap it).
+  const spark = new SparkRenderer({
+    renderer,
+    lodSplatCount:
+      Number(params.get("lod")) || Math.max(info.splats ?? 0, 2_500_000),
+  });
   scene.add(spark);
   // athenea's stage is Z-up: the car turns to three's Y-up.
   const car = new THREE.Group();
@@ -121,7 +127,8 @@ export async function createCorvette({ renderer, base, params, status }) {
 
   const relight = atheneaRelightPlugin();
   const display = atheneaOutputPlugin({
-    view: params.get("view") ?? "agx",
+    // athenea's look for the car: the Standard view on sRGB.
+    view: params.get("view") ?? "standard",
     exposure: 0,
   });
   const skip = new Set(
@@ -229,6 +236,15 @@ export async function createCorvette({ renderer, base, params, status }) {
     s.add(state, "sunAzimuth", -180, 180, 1).onChange(applySky);
     s.add(state, "sunElevation", -10, 90, 1).onChange(applySky);
     s.add(state, "sunIntensity", 0, 20, 0.1).onChange(applySky);
+    gui
+      .add(
+        spark,
+        "lodSplatCount",
+        200_000,
+        Math.max(info.splats ?? 0, 2_500_000),
+        100_000,
+      )
+      .name("detail (splats)");
     const p = gui.addFolder("parts").close();
     for (const part of parts) {
       if (part.catcher) continue;
