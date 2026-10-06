@@ -20,7 +20,8 @@ import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 //   hdri: [names], hdriDefault, domeRotation (degrees, athenea's DomeLight turn)
 //                        names at any size: the page loads the 4k original
 //                        of each from `hdriBase` (site.js HDRI_BASE)
-//   ground: { height }   the dome's floor is projected onto y = 0 from this height
+//   ground: { height, radius }   the dome's floor: a disc of this radius on
+//                        y = 0 seen from this height (three's GroundedSkybox)
 import * as THREE from "three/webgpu";
 import {
   HALF_MAX,
@@ -87,6 +88,7 @@ export async function createCorvette({
   const turn = TSL.uniform(new THREE.Vector2(1, 0)); // cos, sin of the rotation
   const intensity = TSL.uniform(1);
   const groundHeight = TSL.uniform(info.ground?.height ?? 1.6);
+  const groundRadius = TSL.uniform(info.ground?.radius ?? 25);
   const grounded = TSL.uniform(1);
   const skyTexture = TSL.texture(
     new THREE.DataTexture(
@@ -97,15 +99,29 @@ export async function createCorvette({
       THREE.FloatType,
     ),
   );
+  // three's GroundedSkybox: a sphere of groundRadius flattened at y = 0,
+  // looked up from the camera that shot the dome, groundHeight above the
+  // floor. Inside the disc the floor stays put under the car; past it the
+  // dome curves up to the horizon.
   const eye = TSL.cameraPosition;
   const ray = TSL.positionWorld.sub(eye).normalize();
-  const hit = eye.add(ray.mul(eye.y.negate().div(TSL.min(ray.y, -1e-4))));
-  const fromCentre = hit.sub(TSL.vec3(0, groundHeight, 0)).normalize();
-  const onGround = ray.y
+  const floorHit = eye.add(ray.mul(eye.y.negate().div(TSL.min(ray.y, -1e-4))));
+  const b = TSL.dot(eye, ray);
+  const c = TSL.dot(eye, eye).sub(groundRadius.mul(groundRadius));
+  const sphereHit = eye.add(
+    ray.mul(b.negate().add(TSL.sqrt(TSL.max(b.mul(b).sub(c), 0)))),
+  );
+  const onFloor = ray.y
     .lessThan(0)
-    .and(grounded.greaterThan(0.5))
-    .and(eye.y.greaterThan(0));
-  const d = TSL.select(onGround, fromCentre, ray);
+    .and(eye.y.greaterThan(0))
+    .and(TSL.length(floorHit.xz).lessThan(groundRadius));
+  const shell = TSL.select(
+    onFloor,
+    floorHit,
+    TSL.vec3(sphereHit.x, TSL.max(sphereHit.y, 0), sphereHit.z),
+  );
+  const fromCentre = shell.sub(TSL.vec3(0, groundHeight, 0)).normalize();
+  const d = TSL.select(grounded.greaterThan(0.5), fromCentre, ray);
   const local = TSL.vec3(
     turn.x.mul(d.x).sub(turn.y.mul(d.z)),
     d.y,
@@ -253,6 +269,37 @@ export async function createCorvette({
     console.error(error);
   }
 
+  // The dome's floor: its radius and the height it was shot from, set from
+  // the menu or with the handle, a ring on the ground: drag it to resize the
+  // floor, Shift + drag to raise or lower the camera that shot the dome.
+  const floor = {
+    height: groundHeight.value,
+    radius: groundRadius.value,
+    handle: params.get("floorHandle") === "1",
+  };
+  const ringMaterial = new THREE.MeshBasicNodeMaterial({
+    color: 0x8ab4ff,
+    transparent: true,
+    opacity: 0.85,
+    depthTest: false,
+  });
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.985, 1, 128),
+    ringMaterial,
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.002;
+  ring.renderOrder = 10;
+  scene.add(ring);
+  const applyFloor = () => {
+    groundHeight.value = floor.height;
+    groundRadius.value = floor.radius;
+    ring.scale.setScalar(floor.radius);
+    ring.visible = floor.handle && state.ground;
+  };
+  applyFloor();
+  let floorControllers = [];
+
   let corrector = null;
   const maya = isWorkstation() && params.get("maya") !== "0";
   if (params.get("gui") !== "0") {
@@ -271,7 +318,25 @@ export async function createCorvette({
       .add(state, "intensity", 0, 4, 0.05)
       .name("dome intensity")
       .onChange(applySky);
-    gui.add(state, "ground").name("ground + shadow").onChange(applySky);
+    gui
+      .add(state, "ground")
+      .name("ground + shadow")
+      .onChange(() => {
+        applySky();
+        applyFloor();
+      });
+    const g = gui.addFolder("floor").close();
+    floorControllers = [
+      g
+        .add(floor, "radius", 2, 200, 0.5)
+        .name("floor radius (m)")
+        .onChange(applyFloor),
+      g
+        .add(floor, "height", 0.1, 20, 0.05)
+        .name("dome height (m)")
+        .onChange(applyFloor),
+    ];
+    g.add(floor, "handle").name("show handle (drag ring)").onChange(applyFloor);
     gui
       .add({ detail: relight.options.pixelDetail }, "detail")
       .name("per-pixel detail (slow)")
@@ -336,6 +401,64 @@ export async function createCorvette({
     });
   }
   if (params.get("shot") === "1") controls.enabled = false;
+
+  // Dragging the floor ring (registered after the Maya handler, so it has
+  // the last word on whether the camera moves).
+  {
+    const caster = new THREE.Raycaster();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const pointer = new THREE.Vector2();
+    const onFloorAt = (event) => {
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.set(
+        ((event.clientX - r.left) / r.width) * 2 - 1,
+        -((event.clientY - r.top) / r.height) * 2 + 1,
+      );
+      caster.setFromCamera(pointer, camera);
+      return caster.ray.intersectPlane(plane, new THREE.Vector3());
+    };
+    let drag = null;
+    const dom = renderer.domElement;
+    dom.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (!ring.visible || event.altKey || event.button !== 0) return;
+        const p = onFloorAt(event);
+        if (!p) return;
+        const r = Math.hypot(p.x, p.z);
+        if (Math.abs(r - floor.radius) > Math.max(0.12 * floor.radius, 0.4))
+          return;
+        drag = { y: event.clientY, height: floor.height };
+        controls.enabled = false;
+        dom.setPointerCapture(event.pointerId);
+        event.stopImmediatePropagation();
+      },
+      { capture: true },
+    );
+    dom.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      if (event.shiftKey) {
+        floor.height = THREE.MathUtils.clamp(
+          drag.height * 2 ** ((drag.y - event.clientY) / 150),
+          0.1,
+          20,
+        );
+      } else {
+        const p = onFloorAt(event);
+        if (p)
+          floor.radius = THREE.MathUtils.clamp(Math.hypot(p.x, p.z), 2, 200);
+      }
+      applyFloor();
+      for (const c of floorControllers) c.updateDisplay();
+    });
+    const end = () => {
+      if (!drag) return;
+      drag = null;
+      controls.enabled = true;
+    };
+    dom.addEventListener("pointerup", end);
+    dom.addEventListener("pointercancel", end);
+  }
 
   let host = null;
   let frames = 0;
