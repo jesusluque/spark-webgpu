@@ -9,12 +9,17 @@
 //              measured runs where there's no README number
 //   query      appended to both URLs; or webgl / webgpu: full paths
 //   t0, seed   the frozen clock's time (ms) and Math.random's seed
+//   freeze     false: the real clock (pages that wait on performance.now)
 //   manual     no frames until the input script steps them (animations that
 //              advance per frame rather than with time)
 //   settle     { ready, minWait, maxWait, stable, epsilon } (see run.mjs)
-//   act        async (ctx, side) => input script (see drivers.mjs makeCtx)
-//   routes     request substitutions: { path: RegExp, redirect(path) | rewrite(code) }
+//   act        async (ctx, side) => input script (see drivers.mjs makeCtx;
+//              ctx.settle(opts) waits as the runner does before `act`)
+//   routes     request substitutions: { path: RegExp, redirect(path) | rewrite(text) }
+//              (rewrite takes a JS module's served code, or a page's HTML)
 //   needs      ["files"]: a file input, Chrome only
+//   hide       selectors hidden before screenshots (counters, timings);
+//              lil-gui and stats.js panels are hidden unless showPanels
 //   minLit     % of pixels that must be lit on both sides (default 1)
 //   allowErrors  don't fail on page errors only the port throws
 //   note       why the case is set up the way it is
@@ -77,7 +82,8 @@ const lofiRoute = {
 };
 const lofiKey = (k) => async (ctx) => {
   await ctx.key.press(k);
-  await ctx.wait(8000);
+  // The next world streams in while the clock stands still.
+  await ctx.settle({ minWait: 3000 });
   // The transition takes 1500 ms: step through to its end.
   await ctx.step(10, 200);
 };
@@ -94,10 +100,15 @@ const portalRoute = {
       : `${HOB}/${file}`;
   },
 };
+const NEWPORTAL_RAD =
+  "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260217/cozy-spaceship_2-lod.rad";
 const newportalRoute = {
-  path: /^\/examples\/newportal\/splats\//,
-  redirect: () =>
-    "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260217/cozy-spaceship_2-lod.rad",
+  path: /^\/examples\/(webgpu\/newportal\.html|newportal\/index\.html)$/,
+  rewrite: (html) =>
+    html.replace(
+      "`${URL_BASE}/cozy_cottage-lod-0.spz`",
+      JSON.stringify(NEWPORTAL_RAD),
+    ),
 };
 
 // splat-transitions: wait for its loading overlay, pick an effect, then set
@@ -199,7 +210,7 @@ export const cases = [
   ...ex("multi-lod", [{ readme: 0.58 }]),
   ...ex("streaming-lod", [{ readme: 0.67 }]),
   ...ex("depth-of-field", [{ readme: 0.97 }]),
-  ...ex("on-demand", [{ readme: 0.7 }]),
+  ...ex("on-demand", [{ readme: 0.7, hide: ["#stats"] }]),
   ...ex("splat-shader-effects", [{ readme: 0.46 }]),
   ...ex("procedural-splats", [
     { note: "README: random stars differ (drawn in different orders)" },
@@ -377,7 +388,7 @@ export const cases = [
         readme: 0.83,
         act: async (ctx) => {
           await ctx.key.press("]");
-          await ctx.wait(8000);
+          await ctx.settle({ minWait: 3000 });
           await ctx.step(4, 200);
         },
       },
@@ -455,7 +466,15 @@ export const cases = [
       },
     },
   ]),
-  ...ex("portal", [{ readme: 0.32, routes: [portalRoute] }]),
+  ...ex("portal", [
+    {
+      readme: 0.32,
+      routes: [portalRoute],
+      // Meshes fade in over 2.5 s of performance.now from their load.
+      act: step(4, 1000),
+      note: "the characters' SplatSkinning setup throws on both backends (PackedSplats has no boneSplats in this version), so only the cottage (valley.spz) shows",
+    },
+  ]),
   ...ex("newportal", [
     {
       readme: 0.33,
@@ -512,8 +531,14 @@ export const cases = [
     [
       { id: "butterfly", query: "?file=butterfly.spz" },
       { id: "synthetic", query: "?n=200000" },
-      { id: "lod", query: "?file=valley.spz&lod=1" },
-      { id: "rad", query: "?rad=1", settle: { ready: READY, maxWait: 120000 } },
+      // These pages wait for LoD to settle on performance.now.
+      { id: "lod", query: "?file=valley.spz&lod=1", freeze: false },
+      {
+        id: "rad",
+        query: "?rad=1",
+        freeze: false,
+        settle: { ready: READY, maxWait: 120000 },
+      },
     ],
     {
       webgl: "/examples/webgpu/compare-webgl.html",

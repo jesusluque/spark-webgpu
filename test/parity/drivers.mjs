@@ -166,7 +166,9 @@ export class ChromeDriver {
     const h = {
       page,
       evaluate: (fn, arg) => page.evaluate(fn, arg),
-      screenshot: () => page.screenshot(),
+      // Long: a page streaming LoD under a busy GPU can take a while to
+      // present a frame.
+      screenshot: () => page.screenshot({ timeout: 120000 }),
       logs: () => logs.filter(keep),
       inflight: () => inflight,
       close: () => page.close(),

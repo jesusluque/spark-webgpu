@@ -130,6 +130,9 @@ function pageUrl(base, item, side) {
   return `${base}${p}`;
 }
 
+// lil-gui panels, and stats.js's (a fixed div at z-index 10000).
+const PANELS = [".lil-gui.root", 'body > div[style*="z-index: 10000"]'];
+
 /** A fixture file's local path, downloaded into <out>/fixtures once. */
 async function fixture(ctx, name) {
   const file = path.join(ctx.out, "fixtures", name);
@@ -153,7 +156,7 @@ async function capture(ctx, item, side) {
     viewport: sc.viewport,
     dpr: ctx.dpr,
     init: {
-      freeze: true,
+      freeze: sc.freeze ?? true,
       t0: sc.t0 ?? 1000,
       seed: sc.seed ?? 1234,
       manual: !!sc.manual,
@@ -162,7 +165,19 @@ async function capture(ctx, item, side) {
     stubClient: !ctx.ownServer,
   });
   h.ctx.fixture = (name) => fixture(ctx, name);
+  h.ctx.settle = (opts) => settle(h, { minWait: 0, ...opts });
   try {
+    // Panels that are the same on both sides (lil-gui, stats.js) are hidden
+    // so the lit check sees the scene, and so is text that differs by design
+    // (frame counters, timings).
+    const hide = [...(sc.showPanels ? [] : PANELS), ...(sc.hide ?? [])];
+    if (hide.length) {
+      await h.evaluate((sel) => {
+        const style = document.createElement("style");
+        style.textContent = `${sel.join(",")} { visibility: hidden !important; }`;
+        document.head.appendChild(style);
+      }, hide);
+    }
     const settled = await settle(h, sc.settle);
     if (sc.act) await sc.act(h.ctx, side);
     await sleep(sc.after ?? 300);

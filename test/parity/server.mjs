@@ -38,7 +38,12 @@ export function parityPlugin(routes = []) {
             res.setHeader("location", route.redirect(url.pathname));
             res.setHeader("access-control-allow-origin", "*");
             res.end();
-          } else if (route.rewrite) {
+          } else if (
+            route.rewrite &&
+            // A page's inline module comes back as ?html-proxy JS.
+            (!url.pathname.endsWith(".html") ||
+              url.searchParams.has("html-proxy"))
+          ) {
             const out = await server.transformRequest(req.url);
             res.setHeader("content-type", "application/javascript");
             res.end(route.rewrite(out.code));
@@ -50,10 +55,18 @@ export function parityPlugin(routes = []) {
         }
       });
     },
-    transformIndexHtml() {
-      return [
-        { tag: "script", children: INLINE_INIT, injectTo: "head-prepend" },
-      ];
+    transformIndexHtml(page, { path }) {
+      let html = page;
+      for (const r of routes) {
+        if (r.rewrite && r.path.test(path.split("?")[0]))
+          html = r.rewrite(html);
+      }
+      return {
+        html,
+        tags: [
+          { tag: "script", children: INLINE_INIT, injectTo: "head-prepend" },
+        ],
+      };
     },
   };
 }
