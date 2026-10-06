@@ -1961,12 +1961,6 @@ export class SparkRenderer extends THREE.Mesh {
     return texture;
   })();
 
-  private requireWebGL(name: string) {
-    if (this.isWebGPU) {
-      throw new Error(`SparkRenderer.${name} is not supported on WebGPU yet`);
-    }
-  }
-
   render(scene: THREE.Scene, camera: THREE.Camera) {
     try {
       SparkRenderer.sparkOverride = this;
@@ -2029,38 +2023,14 @@ export class SparkRenderer extends THREE.Mesh {
     }
     const superPixels = this.superPixels;
 
-    if (this.isWebGPU) {
-      // WebGPU reads rows top to bottom, padded to 256 bytes: flipped to
-      // WebGL's readPixels order.
-      const gpu = this.renderer as unknown as {
-        readRenderTargetPixelsAsync(
-          ...args: [THREE.RenderTarget, number, number, number, number]
-        ): Promise<ArrayBufferView>;
-      };
-      const data = await gpu.readRenderTargetPixelsAsync(
-        this.target,
-        0,
-        0,
-        width,
-        height,
-      );
-      const src = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-      const { rowStride } = await loadWebGPUBackend();
-      const stride = rowStride(src.length, width, height);
-      for (let y = 0; y < height; y++) {
-        const from = (height - 1 - y) * stride;
-        superPixels.set(src.subarray(from, from + width * 4), y * width * 4);
-      }
-    } else {
-      await this.renderer.readRenderTargetPixelsAsync(
-        this.target,
-        0,
-        0,
-        width,
-        height,
-        superPixels,
-      );
-    }
+    await this.renderer.readRenderTargetPixelsAsync(
+      this.target,
+      0,
+      0,
+      width,
+      height,
+      superPixels,
+    );
 
     const { superXY } = this;
     if (superXY === 1) {

@@ -45,6 +45,9 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
+        // Opt-in: PW_CHANNEL=chrome uses an installed Chrome instead of
+        // Playwright's bundled Chromium (e.g. where its download fails).
+        ...(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {}),
         launchOptions: {
           // Force CPU-based WebGL2 via SwiftShader for deterministic rendering.
           args: [
