@@ -32,7 +32,7 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
     const camera = new THREE.PerspectiveCamera(60, size.w / size.h, 0.1, 1000);
-    // ?sort=cpu, ?sortBits=24, ?profile=1 (stats.gpuMs), ?rasterizer=tiles,
+    // ?sort=cpu, ?sortBits=24, ?profile=1 (stats.gpuMs), ?rasterizer=tiles|auto,
     // and ?opts=<JSON> for any other WgpuSplatRenderer option.
     const query = new URLSearchParams(location.search);
     const splats = new WgpuSplatRenderer(renderer, {

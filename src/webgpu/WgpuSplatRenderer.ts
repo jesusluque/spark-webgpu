@@ -1238,7 +1238,8 @@ export class WgpuSplatRenderer {
     let drawEnd: GPURenderPassTimestampWrites | undefined;
     if (either && this.autoTimer && !this.options.profile) {
       if (path === "warm") this.autoTimer.skip();
-      else drawEnd = this.autoTimer.begin(encoder, path);
+      else
+        drawEnd = this.autoTimer.begin(encoder, path, path !== this.auto?.path);
     }
     if (path === "tiles") {
       this.drawTiles(encoder, target, depthTexture, layer, drawParams, drawEnd);

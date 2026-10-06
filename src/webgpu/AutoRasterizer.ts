@@ -264,7 +264,9 @@ export function batchSample(frames: readonly TimedFrame[]): number | null {
  * passes stamp both ends.
  * Frames are read back in batches of `batch` on one path, which keeps
  * consecutive frames together (for batchSample) and fewer readbacks in
- * flight: an unthrottled loop delays mapAsync by hundreds of frames.
+ * flight: an unthrottled loop delays mapAsync by hundreds of frames. The
+ * current path is timed one batch in `period` frames, probes every frame:
+ * timestamps cost a little.
  */
 export class DrawTimer {
   private frame = 0;
@@ -277,6 +279,7 @@ export class DrawTimer {
     readonly profiler: GpuProfiler,
     onSample: (path: RasterPath, ms: number) => void,
     readonly batch = 4,
+    readonly period = 16,
   ) {
     profiler.onFrame = (_frame, ends) => {
       const frames: TimedFrame[] = [];
@@ -294,17 +297,21 @@ export class DrawTimer {
   }
 
   /**
-   * Starts timing a frame's draw on `path` in `encoder`: records the marker
-   * and returns the timestamp writes for the draw's last pass (undefined
-   * when no readback is free). skip() instead for a frame not timed.
+   * Starts timing a frame's draw on `path` in `encoder` (if it is a probe's,
+   * or its turn): records the marker and returns the timestamp writes for
+   * the draw's last pass (undefined when untimed, or no readback is free).
+   * skip() instead for a frame that cannot be timed.
    */
   begin(
     encoder: GPUCommandEncoder,
     path: RasterPath,
+    probe: boolean,
   ): GPURenderPassTimestampWrites | undefined {
     if (this.count > 0 && path !== this.batchPath) this.flush(encoder);
     this.batchPath = path;
-    const label = `${path}:${this.frame++}`;
+    const n = this.frame++;
+    if (!probe && n % this.period >= this.batch) return undefined;
+    const label = `${path}:${n}`;
     const start = this.profiler.timestampWrites(`${label}:start`);
     const end = start && this.profiler.timestampWrites(label);
     if (!end) return undefined;
