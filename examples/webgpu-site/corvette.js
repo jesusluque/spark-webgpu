@@ -62,7 +62,10 @@ export async function createCorvette({
   {
     const target = new THREE.Vector3().fromArray(cam.target);
     const away = new THREE.Vector3().fromArray(cam.position).sub(target);
-    const pull = Number(params.get("distance")) || 1.5;
+    // The light set starts farther back (2.2x), the detailed one at 1.5x.
+    const pull =
+      Number(params.get("distance")) ||
+      (params.get("quality") === "hd" ? 1.5 : 2.2);
     camera.position.copy(target).addScaledVector(away, pull);
   }
   const hfov = THREE.MathUtils.degToRad(cam.horizontalFov);
