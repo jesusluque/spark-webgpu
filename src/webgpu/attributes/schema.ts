@@ -129,8 +129,9 @@ const U32 = new Uint32Array(F32.buffer);
 
 // Half floats without src/utils.ts, which would pull three.js into the
 // loader worker. Float16Array where the browser has it.
-const F16Array = (globalThis as { Float16Array?: Float32ArrayConstructor })
-  .Float16Array;
+const F16Array = (
+  globalThis as unknown as { Float16Array?: Float32ArrayConstructor }
+).Float16Array;
 const F16 = F16Array ? new F16Array(1) : null;
 const U16 = F16 ? new Uint16Array(F16.buffer) : null;
 
