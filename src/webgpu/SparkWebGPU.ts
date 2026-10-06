@@ -26,7 +26,7 @@ import { SplatGenerator } from "../SplatGenerator";
 import { SplatMesh } from "../SplatMesh";
 import { DepthResolve } from "./DepthResolve";
 import { GpuSplatSource } from "./GpuSplatSource";
-import { SRGB_LAYER_FORMAT } from "./SrgbComposite";
+import { type CompositeToneMapping, SRGB_LAYER_FORMAT } from "./SrgbComposite";
 import { WgpuLod, type WgpuLodMesh } from "./WgpuLod";
 import {
   type SplatDiskClip,
@@ -43,6 +43,7 @@ import {
   openPass,
   webgpuBackend,
 } from "./threeInternals";
+import { INVERTIBLE_TONE_MAPPINGS } from "./toneMapping";
 
 // three's internals go through threeInternals.ts; this is the public rest.
 export interface WebGPURendererLike extends ThreeWebGPURenderer {
@@ -51,6 +52,7 @@ export interface WebGPURendererLike extends ThreeWebGPURenderer {
   xr?: { isPresenting?: boolean };
   outputColorSpace: string;
   toneMapping?: THREE.ToneMapping;
+  toneMappingExposure?: number;
   getOutputRenderTarget(): THREE.RenderTarget | null;
 }
 
@@ -197,8 +199,22 @@ export class SparkWebGPU {
       open.isFrameBufferTarget &&
       !renderer.getOutputRenderTarget() &&
       (scene as THREE.Scene).isScene;
-    const toneMapped = (renderer.toneMapping ?? THREE.NoToneMapping) !== 0;
-    if (canvas && toneMapped && target.sampleCount === 1) {
+    // three tone-maps the canvas in its output pass; WebGL Spark doesn't
+    // tone map splats. The composite inverts three's operators (see
+    // SrgbComposite); for others (a custom node) splats go on the canvas
+    // after the output pass.
+    const toneMapping = canvas
+      ? (renderer.toneMapping ?? THREE.NoToneMapping)
+      : THREE.NoToneMapping;
+    const invertible =
+      INVERTIBLE_TONE_MAPPINGS.includes(toneMapping) &&
+      renderer.outputColorSpace === THREE.SRGBColorSpace &&
+      !this.spark.rawColor;
+    if (
+      toneMapping !== THREE.NoToneMapping &&
+      !invertible &&
+      target.sampleCount === 1
+    ) {
       this.drawAfterOutput(scene, camera, open);
       return;
     }
@@ -208,7 +224,10 @@ export class SparkWebGPU {
       !this.spark.rawColor &&
       (canvas || this.spark.srgbBlend)
     ) {
-      this.drawSrgbBlended(camera, open, target);
+      this.drawSrgbBlended(camera, open, target, {
+        toneMapping: invertible ? toneMapping : THREE.NoToneMapping,
+        exposure: renderer.toneMappingExposure ?? 1,
+      });
       return;
     }
     splats.renderInPass(camera, open.pass, target);
@@ -226,6 +245,7 @@ export class SparkWebGPU {
     camera: THREE.Camera,
     open: OpenPass,
     target: SplatPassTarget,
+    toneMapping: CompositeToneMapping,
   ) {
     const splats = this.splats as WgpuSplatRenderer;
     const { descriptor, encoder, context: rc } = open;
@@ -267,14 +287,16 @@ export class SparkWebGPU {
       color,
       { view: attachment.view, resolveTarget: attachment.resolveTarget },
       viewport,
+      toneMapping,
     );
     open.resume();
   }
 
-  // With tone mapping, splats (which WebGL Spark doesn't tone map) go on
-  // the canvas after three's output pass, blended in sRGB, tested against
-  // the scene's depth, which three keeps. Transparent objects in front of
-  // the splats are then drawn under them.
+  // With tone mapping the composite can't invert (a custom node, a linear
+  // output colour space, rawColor), splats (which WebGL Spark doesn't tone
+  // map) go on the canvas after three's output pass, blended in sRGB,
+  // tested against the scene's depth, which three keeps. Transparent
+  // objects in front of the splats are then drawn under them.
   private drawAfterOutput(
     scene: THREE.Scene,
     camera: THREE.Camera,

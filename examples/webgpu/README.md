@@ -53,9 +53,20 @@ things:
   transmittance), composites that over the target in sRGB
   (`src/webgpu/SrgbComposite.ts`) and resumes three's pass, as three's own
   `copyFramebufferToTexture` does. Transparent objects sorted after the
-  splats (by `renderOrder` or depth) draw over them, as on WebGL. With tone
-  mapping the splats instead go on the canvas after three's output pass, so
-  they are not tone mapped (as on WebGL), but over all transparent objects.
+  splats (by `renderOrder` or depth) draw over them, as on WebGL.
+- **With tone mapping**, three/webgpu tone-maps the whole picture in its
+  output pass (it has no per-material `toneMapped`), while WebGL Spark
+  draws untone-mapped splats over the tone-mapped picture. So the composite
+  blends the layer over the picture as it will show, `srgb(T(dst))`, and
+  writes back `T⁻¹` of the result (`src/webgpu/toneMapping.ts` inverts each
+  of three's operators), which the output pass maps to the composited
+  colour. Transparent objects in front still draw over the splats, blended
+  in three's linear space as all of three/webgpu's are. Colours an operator
+  never produces stay out of reach: AgX and ACES desaturate bright colours
+  and AgX's white is 0.997, so such splat colours show as the nearest the
+  operator gives. With a custom tone mapping node, a linear output colour
+  space or `rawColor`, the splats go on the canvas after the output pass
+  instead, over all transparent objects.
 - **Into a RenderTarget or through `PostProcessing`'s `pass()`**, the splats
   are drawn inside three's own pass, sorted with the transparent objects,
   and blend in the target's linear space, as WebGL Spark does in render
@@ -89,8 +100,10 @@ things:
   target's texture upside down on a mesh's UVs compared to WebGL, and doesn't
   pick up a `map` that replaced a plain texture after the material compiled
   (see `multiple-viewpoints.html`).
-- **Raycasting.** Raycasting works for packed, ext and LoD meshes, but not
-  for paged (`.rad`) ones, whose splats live only on the GPU.
+- **Raycasting.** Raycasting works for packed, ext, LoD and paged (`.rad`)
+  meshes, with SparkRenderer's coarser LoD raycast selection (`lodRaycast`).
+  `WgpuSplatPager` keeps the page pool's core data on the CPU for it, as
+  WebGL's pager keeps its texture data.
 
 - **Offscreen renders.** The `target` option with `renderTarget()` /
   `readTarget()`, and `renderCubeMap()` / `readCubeTargets()`, work as on
@@ -116,9 +129,13 @@ things:
   every material's output to sRGB, which WebGL's ShaderMaterial and
   MeshDepthMaterial skip (splat-portal, render-cube-depth). three/webgpu has
   no `MeshDepthMaterial`.
-- **Generator time.** WebGL SparkRenderer's own `Timer` is never updated
-  (`ownsTimer` is inverted in SparkRenderer.ts), so generators and
-  `onFrame` see time 0 there; on WebGPU they get `performance.now()`.
+- **Generator time.** On WebGL generators see SparkRenderer's `Timer`
+  (which an inverted `ownsTimer` used to leave at 0); on WebGPU,
+  `performance.now()`.
+- **three versions.** The WebGPU path uses some of three r180's internals
+  (render context, backend pass state, pipeline cache), all in
+  `src/webgpu/threeInternals.ts`, which throws `ThreeInternalsError` on
+  another three revision or when an internal it reads is gone.
 
 ## Not supported yet
 
@@ -128,8 +145,6 @@ These throw or warn:
 - WebXR and array cameras;
 - `covSplats`, `enable2DGS`, `accumExtSplats`;
 - SplatMeshes with a custom `SplatSource`.
-
-Splats are not tone mapped, as on WebGL.
 
 ## Performance
 
