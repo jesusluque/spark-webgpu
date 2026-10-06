@@ -105,6 +105,12 @@ impl AttribArray {
         }
     }
 
+    /// Appends a zeroed column of `spec` for `count` splats.
+    pub fn add_zeroed(&mut self, spec: &AttribSpec, count: usize) {
+        self.specs.push(spec.clone());
+        self.columns.push(vec![0.0; count * spec.components]);
+    }
+
     /// Writes `count` splats of attribute `attrib` from `base`.
     pub fn set_range(&mut self, attrib: usize, base: usize, count: usize, values: &[f64]) {
         let c = self.specs[attrib].components;
@@ -521,6 +527,56 @@ mod tests {
             assert!(label == 1.0 || label == 2.0);
             assert!(out.attribs.get(3, i)[0] >= 100_000_000.0);
         }
+    }
+
+    // A 3DGS PLY's all-zero normal is never stored; one that turns non-zero
+    // after the first batch is, zero before.
+    #[cfg(all(feature = "gsplat", feature = "ply"))]
+    #[test]
+    fn ply_zero_normal() {
+        use crate::decoder::ChunkReceiver;
+        use crate::gsplat::GsplatArray;
+        use crate::ply::PlyDecoder;
+        let decode = |n: usize, normal_from: usize| {
+            let floats = ["x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2", "opacity",
+                "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"];
+            let mut header = format!("ply\nformat binary_little_endian 1.0\nelement vertex {n}\n");
+            for p in floats {
+                header += &format!("property float {p}\n");
+            }
+            header += "property uchar label\nend_header\n";
+            let mut bytes = header.into_bytes();
+            for i in 0..n {
+                let nz = if i >= normal_from { 1.0 } else { 0.0 };
+                for v in [i as f32, 0.0, 0.0, 0.0, 0.0, nz, 0.0, 0.0, 0.0, 2.0, -4.0, -4.0, -4.0, 1.0, 0.0, 0.0, 0.0] {
+                    bytes.extend(v.to_le_bytes());
+                }
+                bytes.push((i % 7) as u8);
+            }
+            let mut ply = PlyDecoder::new(GsplatArray::new());
+            for chunk in bytes.chunks(700) {
+                ply.push(chunk).unwrap();
+            }
+            ply.finish().unwrap();
+            ply.into_splats().attribs
+        };
+        let n = 300;
+        let zero = decode(n, n);
+        let names: Vec<_> = zero.specs.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["label"]);
+        assert_eq!(zero.get(0, 20), &[6.0]);
+
+        let late = decode(n, 200);
+        let names: Vec<_> = late.specs.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["label", "normal"]);
+        assert_eq!(late.len(), n);
+        assert_eq!(late.get(1, 199), &[0.0, 0.0, 0.0]);
+        assert_eq!(late.get(1, 200), &[0.0, 0.0, 1.0]);
+        assert_eq!(late.get(0, 299), &[5.0]);
+
+        let early = decode(n, 0);
+        let names: Vec<_> = early.specs.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["normal", "label"]);
     }
 
     #[test]

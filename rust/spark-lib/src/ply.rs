@@ -88,10 +88,6 @@ impl<T: SplatReceiver> PlyDecoder<T> {
                 max_sh_degree: state.max_sh_degree,
                 lod_tree: false,
             })?;
-            if !state.attribs.is_empty() {
-                let specs: Vec<AttribSpec> = state.attribs.iter().map(|(spec, _)| spec.clone()).collect();
-                self.splats.init_attribs(&specs);
-            }
             PlyState::Standard(state)
         };
 
@@ -225,7 +221,42 @@ impl<T: SplatReceiver> PlyDecoder<T> {
                         out[i * c + d] = ply_attrib_value(prop, &self.buffer, base);
                     }
                 }
-                self.splats.set_attrib(k, state.next_splat, count, &out[..count * c]);
+            }
+            // The receiver's attributes, from the first batch. A normal that
+            // is all zero so far (3DGS trainers write nx = ny = nz = 0) stays
+            // out, 24 B a splat, until a non-zero one shows up.
+            let placeholder = |k: usize, state: &PlyDecoderState| {
+                state.attribs[k].0.lod_merge == LodMerge::NormalizeMean && state.out_attribs[k].iter().all(|&v| v == 0.0)
+            };
+            if state.slots.is_none() {
+                let mut specs = Vec::new();
+                let slots = (0..state.attribs.len()).map(|k| {
+                    if placeholder(k, state) {
+                        return None;
+                    }
+                    specs.push(state.attribs[k].0.clone());
+                    Some(specs.len() - 1)
+                }).collect();
+                if !specs.is_empty() {
+                    self.splats.init_attribs(&specs);
+                }
+                state.slots = Some(slots);
+            }
+            for k in 0..state.attribs.len() {
+                let zero = placeholder(k, state);
+                let slots = state.slots.as_mut().unwrap();
+                let slot = match slots[k] {
+                    Some(slot) => slot,
+                    None if zero => continue,
+                    None => {
+                        let slot = slots.iter().flatten().count();
+                        slots[k] = Some(slot);
+                        self.splats.add_attrib(&state.attribs[k].0);
+                        slot
+                    }
+                };
+                let c = state.attribs[k].0.components;
+                self.splats.set_attrib(slot, state.next_splat, count, &state.out_attribs[k][..count * c]);
             }
 
             self.splats.set_batch(state.next_splat, count, &SplatProps {
@@ -931,6 +962,9 @@ struct PlyDecoderState {
     /// Non-standard vertex properties as per-Gaussian attributes.
     attribs: Vec<(AttribSpec, Vec<PlyProperty>)>,
     out_attribs: Vec<Vec<f64>>,
+    /// Each attribute's index in the receiver, once the first batch set
+    /// them up; None for one left out so far.
+    slots: Option<Vec<Option<usize>>>,
 }
 
 // Properties the splat itself uses (f_dc_* and f_rest_* by prefix).
@@ -1076,6 +1110,7 @@ impl PlyDecoderState {
             next_splat: 0,
             attribs,
             out_attribs,
+            slots: None,
             properties,
             xyz,
             scale,
