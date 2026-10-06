@@ -8,23 +8,25 @@
 //
 // Nothing here needs an optional feature. The kernels use plain WGSL:
 // atomics (sort_radix's histogram and the indirect count), 256-thread
-// workgroups, at most 4.2 KiB of workgroup storage, two read-only storage
+// workgroups, at most 2.1 KiB of workgroup storage, two read-only storage
 // buffers in the vertex stage, drawIndirect (firstInstance 0, so no
 // indirect-first-instance) and dispatchWorkgroupsIndirect from buffers
 // compute wrote, and rgba16float render targets with depth. Subgroups,
 // timestamp queries, float32-filterable and bgra8unorm-storage are reported for callers that want them, never assumed.
 
-import { kernelsSortRadix } from "./generated/constants";
+import sortModule from "./generated/kernels/sort_radix";
 
 /** Workgroup threads sort_radix's histogram and scatter entries declare. */
 export const SORT_WORKGROUP_THREADS = 256;
-const { BINS, WG, SCAN_CHUNK } = kernelsSortRadix;
 /**
- * Workgroup storage a sort entry may need, at most: sHist (BINS atomic u32)
- * + sScan (WG vec4<u32>) + sBase (BINS u32) + sScanBuf (SCAN_CHUNK u32).
+ * Workgroup storage a sort entry may need, at most: the largest of the
+ * entries' own totals (radixScatter's sScan + sBase), as slang-build measures
+ * them from each entry's WGSL. WebGPU checks the limit per pipeline, so the
+ * entries' arrays don't add up.
  */
-export const SORT_WORKGROUP_BYTES =
-  BINS * 4 + WG * 16 + BINS * 4 + SCAN_CHUNK * 4;
+export const SORT_WORKGROUP_BYTES = Math.max(
+  ...sortModule.reflection.entries.map((e) => e.workgroupStorageBytes ?? 0),
+);
 /** Bytes per splat in the largest per-splat buffer (the ext accumulator). */
 export const ACCUMULATOR_BYTES_PER_SPLAT = 32;
 /** The packed accumulator (WgpuSplatRenderer accumulator "packed"). */

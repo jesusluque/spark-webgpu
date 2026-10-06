@@ -19,7 +19,8 @@ export const reflection = {
         "dst",
         "clipMatte",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [

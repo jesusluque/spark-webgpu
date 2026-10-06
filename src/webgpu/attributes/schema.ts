@@ -66,6 +66,21 @@ export function attribWords(
   return Math.ceil((spec.components * formatBytes(spec.format)) / 4);
 }
 
+/**
+ * Word span of components 4 * comp4 .. + 3 within a splat's record of the
+ * attribute: first word and count (0 past the end), as attribGroupWords in
+ * slang/core/attrib.slang.
+ */
+export function attribGroupWords(
+  spec: Pick<AttributeSpec, "format" | "components">,
+  comp4: number,
+): [number, number] {
+  const per = formatBytes(spec.format); // words per four components
+  const first = comp4 * per;
+  const total = attribWords(spec);
+  return [first, first < total ? Math.min(per, total - first) : 0];
+}
+
 export function defaultLodMerge(spec: AttributeSpec): LodMerge {
   if (spec.direction) return "normalizeMean";
   return isIntegerFormat(spec.format) ? "mode" : "weightedMean";

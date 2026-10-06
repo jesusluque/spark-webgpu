@@ -24,7 +24,8 @@ export const reflection = {
         "tileParams",
         "splats",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "tileTotal",
@@ -43,7 +44,8 @@ export const reflection = {
         "keyArgs",
         "keyTotal",
         "tileParams"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "tileDuplicate",
@@ -62,7 +64,8 @@ export const reflection = {
         "keysOut",
         "valsOut",
         "tileParams"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "tileRanges",
@@ -76,7 +79,8 @@ export const reflection = {
         "sortedKeys",
         "keyCount",
         "rangesOut"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "tileBlend",
@@ -97,7 +101,8 @@ export const reflection = {
         "tileParams",
         "splats",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 6688
     }
   ],
   "bindings": [

@@ -18,7 +18,8 @@ export const reflection = {
         "src",
         "dst",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [
