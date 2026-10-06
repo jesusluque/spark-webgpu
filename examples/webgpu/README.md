@@ -39,9 +39,10 @@ things:
 - **On the canvas**, three renders into a linear half-float target and then
   converts it to the canvas. The splats are drawn after that conversion, in
   sRGB space, as WebGL Spark blends them. As a result, transparent objects in
-  front of the splats end up under them.
-- **Into a RenderTarget, through `PostProcessing`'s `pass()`, or with
-  `antialias: true`**, the splats are drawn inside three's own pass, sorted
+  front of the splats end up under them. With `antialias: true` the splats
+  test against the first sample of three's multisampled depth.
+- **Into a RenderTarget or through `PostProcessing`'s `pass()`**, the splats
+  are drawn inside three's own pass, sorted
   with the transparent objects. Blending happens in the target's linear space,
   which is also what WebGL Spark does for render targets.
 
@@ -101,5 +102,5 @@ Splats are not tone mapped, as on WebGL.
 | dynamic-lighting.html (lighting on, debug SDFs) | – | 0.22, 0.23 |
 
 `spark-renderer.html` puts a cube through a splat mesh. Use
-`?backend=webgl` for the WebGL version, and `&mode=target`, `&mode=post` or
-`&msaa=1` for the in-pass paths.
+`?backend=webgl` for the WebGL version, `&mode=target` or `&mode=post` for the
+in-pass paths, and `&msaa=1` for antialiasing.
