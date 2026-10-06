@@ -257,3 +257,46 @@ export function mayaControls(controls, frame) {
     if (event.key === "f" || event.key === "F") frame();
   });
 }
+
+/**
+ * The relit pages' domes: Poly Haven's full-resolution 4k lat-longs (4096 x
+ * 2048, CC0), Radiance RGBE as published -- never downsized web copies. One
+ * folder on R2 for every page (?hdriBase=<url/> points elsewhere).
+ */
+export const HDRI_BASE =
+  "https://athenea-assets.lucab.co.uk/sparkwebgpu/hdri-4k/";
+export const HDRIS_4K = [
+  "autoshop_01_4k.hdr",
+  "brown_photostudio_02_4k.hdr",
+  "dikhololo_night_4k.hdr",
+  "golden_gate_hills_4k.hdr",
+  "kloppenheim_06_puresky_4k.hdr",
+  "lythwood_room_4k.hdr",
+  "moonless_golf_4k.hdr",
+  "snowy_park_01_4k.hdr",
+  "studio_small_09_4k.hdr",
+  "sunset_fairway_4k.hdr",
+  "thatch_chapel_4k.hdr",
+  "urban_alley_01_4k.hdr",
+  "venice_sunset_4k.hdr",
+];
+/** About what one 4k HDRI downloads (for the download bar). */
+export const HDRI_4K_BYTES = 25 * 1024 * 1024;
+
+/** The full-resolution file for a name a scene JSON may give at 1k or 2k. */
+export function fullResHdri(name) {
+  return name.replace(/_(1k|2k|8k)\.hdr$/, "_4k.hdr");
+}
+
+/** A dome's name for the HUD: autoshop_01_4k.hdr -> autoshop_01. */
+export function hdriLabel(name) {
+  return name.replace(/_\dk\.hdr$/, "");
+}
+
+/**
+ * The largest finite half float. A dome drawn into a HalfFloat target
+ * overflows to infinity above it (golden_gate_hills' and moonless_golf's
+ * suns reach 1e5), and infinity under a splat's transmittance stays
+ * infinite: the backdrop is held here, still far above any display white.
+ */
+export const HALF_MAX = 65504;
