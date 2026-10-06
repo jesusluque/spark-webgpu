@@ -2,7 +2,7 @@
 // (arithmetic, most builtins, swizzles, splats, transforms, blocks) use their
 // GLSL statements with constructor names mapped; see backend.ts.
 
-import { unindent } from "../base";
+import { unindent, unindentLines } from "../base";
 import {
   BVec2,
   BVec3,
@@ -78,11 +78,12 @@ import {
   GsplatToCovSplat,
   NumCovSplats,
   NumExtSplats,
-  NumPackedSplats,
   ReadCovSplat,
   ReadExtSplat,
   ReadPackedSplat,
   ReadPackedSplatRange,
+  TPackedSplats,
+  definePackedSplats,
 } from "../splats";
 import { TexelFetch, Texture, TextureSize } from "../texture";
 import type { DynoType } from "../types";
@@ -96,7 +97,13 @@ import {
   PcgNext,
 } from "../util";
 import { Combine, CompMult, FaceForward, Inverse, Outer } from "../vecmat";
-import { type WgslEmitter, registerWgsl } from "./backend";
+import {
+  type WgslEmitter,
+  registerWgsl,
+  registerWgslStruct,
+  wgslStructTexture,
+} from "./backend";
+import { registerWgslGlobal } from "./prelude";
 import {
   type TypeShape,
   shapeType,
@@ -623,11 +630,9 @@ registerWgsl(GsplatToCovSplat, (_op: Op, { inputs, outputs }) => {
   };
 });
 
-// The WebGPU kernels read and write splats themselves (slang/kernels), so
-// these GLSL texture-based ops have no WGSL form.
+// The WebGPU kernels read and write a mesh's own splats themselves
+// (slang/kernels), so these GLSL texture-based ops have no WGSL form.
 for (const cls of [
-  NumPackedSplats,
-  ReadPackedSplat,
   ReadPackedSplatRange,
   NumExtSplats,
   ReadExtSplat,
@@ -645,6 +650,83 @@ for (const cls of [
     );
   });
 }
+
+// Another PackedSplats read from its packed texture, as GLSL's
+// readPackedArray does: e.g. to blend a mesh into other splats
+// (examples/lofi's world transitions).
+
+registerWgslGlobal(definePackedSplats, "");
+registerWgslStruct(TPackedSplats, {
+  textureArray: "usampler2DArray",
+  numSplats: "int",
+  rgbMinMaxLnScaleMinMax: "vec4",
+  lodOpacity: "bool",
+});
+
+const WGSL_READ_PACKED_SPLAT = unindent(/* wgsl */ `
+  fn dyno_decodeQuatOctXy88R8(encoded: u32) -> vec4f {
+    let f = vec2f(f32(encoded & 0xffu), f32((encoded >> 8u) & 0xffu)) / 255.0 * 2.0 - 1.0;
+    var axis = vec3f(f, 1.0 - abs(f.x) - abs(f.y));
+    let t = max(-axis.z, 0.0);
+    axis.x += select(t, -t, axis.x >= 0.0);
+    axis.y += select(t, -t, axis.y >= 0.0);
+    axis = normalize(axis);
+    let halfTheta = (f32(encoded >> 16u) / 255.0) * 3.14159265359 * 0.5;
+    return vec4f(axis * sin(halfTheta), cos(halfTheta));
+  }
+
+  fn dyno_readPackedSplat(
+    texture: texture_2d_array<u32>, numSplats: i32, rgbMinMaxLnScaleMinMax: vec4f,
+    index: i32, gsplat: ptr<function, Gsplat>
+  ) -> bool {
+    if ((index < 0) || (index >= numSplats)) {
+      return false;
+    }
+    let coord = splatTexCoord(index);
+    let w = textureLoad(texture, coord.xy, coord.z, 0);
+    let rgbMin = rgbMinMaxLnScaleMinMax.x;
+    let rgbMax = rgbMinMaxLnScaleMinMax.y;
+    let rgba = unpack4x8unorm(w.x);
+    (*gsplat).rgba = vec4f(rgba.rgb * (rgbMax - rgbMin) + rgbMin, rgba.a);
+    (*gsplat).center = vec3f(unpack2x16float(w.y), unpack2x16float(w.z & 0xffffu).x);
+    let uScales = vec3u(w.w & 0xffu, (w.w >> 8u) & 0xffu, (w.w >> 16u) & 0xffu);
+    let lnScaleMin = rgbMinMaxLnScaleMinMax.z;
+    let lnScaleScale = (rgbMinMaxLnScaleMinMax.w - lnScaleMin) / 254.0;
+    let scales = exp(lnScaleMin + vec3f(max(uScales, vec3u(1u)) - 1u) * lnScaleScale);
+    (*gsplat).scales = select(scales, vec3f(0.0), uScales == vec3u(0u));
+    (*gsplat).quaternion = dyno_decodeQuatOctXy88R8(((w.z >> 16u) & 0xffffu) | ((w.w >> 8u) & 0xff0000u));
+    return true;
+  }
+`);
+
+registerWgsl(ReadPackedSplat, (_op, { inputs, outputs }) => {
+  const { gsplat } = outputs as Record<string, string>;
+  if (!gsplat) return {};
+  const { packedSplats, index } = inputs as Record<string, string>;
+  if (!packedSplats || !index) {
+    return {
+      statements: [
+        `${gsplat}.flags = 0u;`,
+        `${gsplat}.index = ${index ?? "0"};`,
+      ],
+    };
+  }
+  const texture = wgslStructTexture(packedSplats, "textureArray");
+  return {
+    globals: [WGSL_READ_PACKED_SPLAT],
+    statements: unindentLines(/* wgsl */ `
+      ${gsplat}.flags = 0u;
+      if (dyno_readPackedSplat(${texture}, ${packedSplats}.numSplats, ${packedSplats}.rgbMinMaxLnScaleMinMax, ${index}, &${gsplat})) {
+        if (${packedSplats}.lodOpacity != 0u) {
+          ${gsplat}.rgba.a = 2.0 * ${gsplat}.rgba.a;
+        }
+        let zeroSize = all(${gsplat}.scales == vec3f(0.0));
+        ${gsplat}.flags = select(GSPLAT_FLAG_ACTIVE, 0u, zeroSize);
+      }
+      ${gsplat}.index = ${index};
+    `),
+  };
+});
 
 // uniforms
 

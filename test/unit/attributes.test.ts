@@ -29,6 +29,12 @@ describe("attribute schema", () => {
       2049,
       2051,
       Number.POSITIVE_INFINITY,
+      // Just past a tie, by less than float32 keeps: rounding through
+      // float32 would make them ties and round them down.
+      1 + 2 ** -11 + 2 ** -40,
+      2 ** -25 + 2 ** -40,
+      3 * 2 ** -25 + 2 ** -45,
+      65519.99,
     ];
     for (let i = 0; i < 2000; i++)
       values.push((Math.random() - 0.5) * 2 ** ((i % 40) - 20));

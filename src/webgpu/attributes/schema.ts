@@ -126,28 +126,30 @@ export function toHalf(v: number): number {
   return toHalfJs(v);
 }
 
-/** toHalf without Float16Array: round to nearest even. */
+/**
+ * toHalf without Float16Array: round to nearest even, from the double itself
+ * (rounding through float32 first can round twice).
+ */
 export function toHalfJs(v: number): number {
-  F32[0] = v;
-  const bits = U32[0];
-  const sign = (bits >>> 16) & 0x8000;
-  const exp = ((bits >>> 23) & 0xff) - 112;
-  const mant = bits & 0x7fffff;
-  if (exp >= 31) {
-    // Overflow to infinity; NaN stays NaN.
-    const nan = ((bits >>> 23) & 0xff) === 0xff && mant !== 0;
-    return sign | 0x7c00 | (nan ? 0x200 : 0);
-  }
-  if (exp <= 0) {
-    if (exp < -10) return sign;
-    const m = (mant | 0x800000) >>> (1 - exp);
-    return sign | ((m + 0xfff + ((m >>> 13) & 1)) >>> 13);
-  }
-  // Round to nearest even; a carry into the exponent is still correct.
-  return (
-    (sign | ((exp << 10) + ((mant + 0xfff + ((mant >>> 13) & 1)) >>> 13))) &
-    0xffff
-  );
+  if (Number.isNaN(v)) return 0x7e00;
+  const sign = v < 0 || Object.is(v, -0) ? 0x8000 : 0;
+  const a = Math.abs(v);
+  // 65520 is halfway between 65504, the largest half, and 2^16.
+  if (a >= 65520) return sign | 0x7c00;
+  // Subnormals count 2^-24 units; 1024 of them carry into the exponent.
+  if (a < 2 ** -14) return sign | roundEven(a * 2 ** 24);
+  let e = Math.floor(Math.log2(a));
+  if (2 ** e > a) e -= 1;
+  else if (2 ** (e + 1) <= a) e += 1;
+  // Exact: a / 2^e is in [1, 2). A carry into the exponent is still correct.
+  const m = roundEven((a / 2 ** e - 1) * 1024);
+  return sign | (((e + 15) << 10) + m);
+}
+
+function roundEven(x: number): number {
+  const f = Math.floor(x);
+  const d = x - f;
+  return d > 0.5 || (d === 0.5 && f % 2 === 1) ? f + 1 : f;
 }
 
 export function fromHalf(h: number): number {

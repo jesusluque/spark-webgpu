@@ -23,6 +23,7 @@ import type { SparkRenderer } from "../SparkRenderer";
 import { type SplatEdit, isSplatEdit } from "../SplatEdit";
 import { SplatGenerator } from "../SplatGenerator";
 import { SplatMesh } from "../SplatMesh";
+import { DepthResolve } from "./DepthResolve";
 import { GpuSplatSource } from "./GpuSplatSource";
 import { WgpuLod, type WgpuLodMesh } from "./WgpuLod";
 import {
@@ -125,6 +126,7 @@ export class SparkWebGPU {
   private lastFrame = -1;
   private lastTime = performance.now() / 1000;
   private failed = false;
+  private depthResolve?: DepthResolve;
 
   constructor(
     readonly spark: SparkRenderer,
@@ -174,15 +176,20 @@ export class SparkWebGPU {
     }
 
     const { utils } = backend;
+    const format = utils.getCurrentColorFormat(rc);
     const target: SplatPassTarget = {
-      format: utils.getCurrentColorFormat(rc),
+      format,
       depthFormat: data.descriptor?.depthStencilAttachment
         ? (utils.getCurrentDepthStencilFormat(rc) ?? null)
         : null,
       sampleCount: utils.getSampleCountRenderContext(rc),
       width,
       height,
-      linear: utils.getCurrentColorSpace(rc) !== THREE.SRGBColorSpace,
+      // An -srgb format (8-bit sRGB targets) encodes on store, so the shader
+      // writes linear values to it too.
+      linear:
+        utils.getCurrentColorSpace(rc) !== THREE.SRGBColorSpace ||
+        format.endsWith("-srgb"),
       extraFormats: rc.textures
         ?.slice(1)
         .map((t) => backend.get(t).format as GPUTextureFormat),
@@ -195,7 +202,6 @@ export class SparkWebGPU {
       rc.renderTarget &&
       rc.renderTarget === renderer._frameBufferTarget &&
       !renderer.getOutputRenderTarget() &&
-      target.sampleCount === 1 &&
       (scene as THREE.Scene).isScene
     ) {
       this.drawAfterOutput(scene, camera, rc);
@@ -217,6 +223,8 @@ export class SparkWebGPU {
   // the canvas and as they were trained, so they go on the canvas after that
   // output pass, tested against the scene's depth, which three keeps.
   // Transparent objects in front of the splats are then drawn under them.
+  // With antialias the depth is multisampled; the splats test against its
+  // first sample.
   private drawAfterOutput(
     scene: THREE.Scene,
     camera: THREE.Camera,
@@ -239,16 +247,21 @@ export class SparkWebGPU {
 
   private drawOnCanvas(
     camera: THREE.Camera,
-    depth: GPUTexture | null,
+    sceneDepth: GPUTexture | null,
     viewport: THREE.Vector4 | null,
     size: { x: number; y: number },
   ) {
     const { renderer } = this;
     const splats = this.splats as WgpuSplatRenderer;
+    let depth = sceneDepth;
     const color = renderer.backend.context.getCurrentTexture();
     const encoder = splats.device.createCommandEncoder({
       label: "splats on canvas",
     });
+    if (depth && depth.sampleCount > 1) {
+      this.depthResolve ??= new DepthResolve(splats.device);
+      depth = this.depthResolve.resolve(encoder, depth);
+    }
     const depthFormat = depth?.format ?? null;
     const pass = encoder.beginRenderPass({
       label: "splats",
@@ -610,6 +623,8 @@ export class SparkWebGPU {
     this.entries.clear();
     this.lod?.dispose();
     this.splats?.dispose();
+    this.depthResolve?.dispose();
+    this.depthResolve = undefined;
     this.lod = undefined;
     this.splats = undefined;
   }

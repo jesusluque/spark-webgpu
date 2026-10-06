@@ -39,9 +39,10 @@ things:
 - **On the canvas**, three renders into a linear half-float target and then
   converts it to the canvas. The splats are drawn after that conversion, in
   sRGB space, as WebGL Spark blends them. As a result, transparent objects in
-  front of the splats end up under them.
-- **Into a RenderTarget, through `PostProcessing`'s `pass()`, or with
-  `antialias: true`**, the splats are drawn inside three's own pass, sorted
+  front of the splats end up under them. With `antialias: true` the splats
+  test against the first sample of three's multisampled depth.
+- **Into a RenderTarget or through `PostProcessing`'s `pass()`**, the splats
+  are drawn inside three's own pass, sorted
   with the transparent objects. Blending happens in the target's linear space,
   which is also what WebGL Spark does for render targets.
 
@@ -62,6 +63,11 @@ things:
   `maxStorageBufferBindingSize` (128 MB by default, 32–42 pages). Pass
   `requiredLimits: splatRequiredLimits(adapter)` to `WebGPURenderer` to get
   more pages.
+- **Render targets on meshes.** The `target` option, `renderTarget` and
+  `readTarget` work as on WebGL. three's WebGPURenderer (r180) shows a
+  target's texture upside down on a mesh's UVs compared to WebGL, and doesn't
+  pick up a `map` that replaced a plain texture after the material compiled
+  (see `multiple-viewpoints.html`).
 - **Raycasting.** Raycasting works for packed, ext and LoD meshes, but not
   for paged (`.rad`) ones, whose splats live only on the GPU.
 
@@ -69,9 +75,8 @@ things:
 
 These throw or warn:
 
-- `renderTarget`/`readTarget`, `renderCubeMap`/`renderEnvMap`,
-  `getLodTreeLevel`;
-- the `target` option and custom `vertexShader`/`fragmentShader`;
+- `renderCubeMap`/`renderEnvMap`, `getLodTreeLevel`;
+- custom `vertexShader`/`fragmentShader`;
 - WebXR and array cameras;
 - `covSplats`, `enable2DGS`, `accumExtSplats`;
 - SplatMeshes with a custom `SplatSource`.
@@ -97,7 +102,18 @@ Splats are not tone mapped, as on WebGL.
 | sogs.html | `SkyMesh` for `Sky` | 0.97 |
 | debug-color.html, lod-on-demand.html | – | 0.13, 0.23 |
 | particle-animation.html | – | 3.09 (time-driven noise) |
+| glsl.html | WGSL for its GLSL dynos, opaque clear color | 0.16 |
+| dynamic-lighting.html (lighting on, debug SDFs) | – | 0.22, 0.23 |
+| mobile-joystick.html (still, after look + walk) | opaque clear color | 0.36, 0.38 |
+| multiple-viewpoints.html (still, turning) | the screens' map and UVs (three, see above) | 0.02, 0.05 |
+| interactive-deform.html (still, drag, bounce, rotate) | WGSL for its GLSL dyno, main.js inlined | 0.08, 0.09, 0.09, 0.09 |
+| interactive-ripples.html (still, 30 and 90 frames after a click) | WGSL for its GLSL dyno, main.js inlined | 0.33, 0.33, 0.34 |
+| interactive-holes.html (still, 1 click, 5 clicks, reset) | WGSL for its GLSL dyno (impulse loop unrolled) | 0.50, 0.57, 0.63, 0.50 |
+| splat-dissolve-effects.html (t = 0, 10, 40 s) | WGSL for its GLSL dyno, opaque clear color | 0.15, 0.39, 0.38 |
+| splat-reveal-effects.html (Magic, Spread, Unroll, Twister, Rain) | WGSL for its GLSL dyno, opaque clear color | 0.36, 0.41, 0.34, 1.51, 2.38 (fast particles) |
+| lofi.html (default, next/prev world, bad weather, mid-transition) | WGSL for its 4 GLSL dynos | 0.56, 1.18, 0.98, 1.01, 0.83 |
+| splat-transitions.html (spherical, explosion, flow, morph; 11 states) | WGSL for its GLSL dynos | 0.08–0.39 |
 
 `spark-renderer.html` puts a cube through a splat mesh. Use
-`?backend=webgl` for the WebGL version, and `&mode=target`, `&mode=post` or
-`&msaa=1` for the in-pass paths.
+`?backend=webgl` for the WebGL version, `&mode=target` or `&mode=post` for the
+in-pass paths, and `&msaa=1` for antialiasing.
