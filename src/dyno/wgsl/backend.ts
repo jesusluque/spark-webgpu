@@ -18,12 +18,14 @@ import {
   type DynoGenerated,
   type GenerateContext,
   type IOTypes,
+  unindent,
 } from "../base";
 import type { DynoType } from "../types";
 import { typeLiteral } from "../types";
 import { DynoConst, type DynoLiteral } from "../value";
 import { wgslGlobals } from "./prelude";
 import {
+  type TypeShape,
   glslExprToWgsl,
   shapeType,
   textureType,
@@ -70,6 +72,8 @@ export interface WgslUniformField {
   offset: number;
   /** Bytes per array element (count set). */
   stride?: number;
+  /** Array elements under 16 bytes, each padded to a vec4 (count set). */
+  padded?: boolean;
   /** Struct uniforms: their non-texture fields, at offsets in the struct. */
   members?: { name: string; type: DynoType; offset: number }[];
   /** Struct uniforms: bytes the member takes in the block. */
@@ -104,6 +108,27 @@ export function wgslStructTexture(uniform: string, field: string): string {
 
 const roundUp = (n: number, k: number) => Math.ceil(n / k) * k;
 
+// A padded uniform array as the array it stands for. WGSL indexes array
+// values with runtime indices too, so `name[i]` reads as in GLSL.
+function paddedArrayGetter(f: WgslUniformField): string {
+  const shape = typeShape(f.type) as TypeShape;
+  const swizzle = shape.rows === 1 ? "x" : "xy";
+  let element = `${UNIFORM_BLOCK}.${f.name}[i].${swizzle}`;
+  if (shape.scalar === "bool") {
+    element = `(${element} != ${shape.rows === 1 ? "0u" : "vec2u()"})`;
+  }
+  const t = `array<${wgslType(f.type)}, ${f.count}>`;
+  return unindent(`
+    fn ${PADDED_ARRAY_PREFIX}${f.name}() -> ${t} {
+      var a: ${t};
+      for (var i = 0; i < ${f.count}; i++) {
+        a[i] = ${element};
+      }
+      return a;
+    }
+  `);
+}
+
 function storedType(type: DynoType): string {
   const shape = typeShape(type);
   if (!shape) throw new Error(`No WGSL uniform type for ${typeLiteral(type)}`);
@@ -122,6 +147,7 @@ export interface WgslTextureBinding {
 }
 
 export const UNIFORM_BLOCK = "dyno_uniforms";
+const PADDED_ARRAY_PREFIX = "dyno_uniform_";
 
 export class WgslBackend implements DynoBackend {
   readonly target = "wgsl";
@@ -212,23 +238,25 @@ export class WgslBackend implements DynoBackend {
     }
     let { size, align } = uniformLayout(type);
     let stride: number | undefined;
+    let padded = false;
     if (count != null) {
       stride = Math.ceil(size / align) * align;
-      if (stride % 16 !== 0 || shape.scalar === "bool") {
-        throw new Error(
-          `Dyno uniform ${name}: WGSL uniform arrays need 16-byte elements, ${typeLiteral(type)}[${count}] has ${stride}; use a vec4 type`,
-        );
-      }
+      // WGSL uniform arrays need 16-byte elements: smaller ones (float[],
+      // vec2[], bool[]) are stored as vec4s and read back as an array.
+      padded = stride % 16 !== 0;
+      if (padded) stride = 16;
       size = stride * count;
       align = 16;
     }
     const offset = Math.ceil(this.blockBytes / align) * align;
     this.blockBytes = offset + size;
-    this.fields.push({ name, type, count, offset, stride, uniform });
+    this.fields.push({ name, type, count, offset, stride, padded, uniform });
 
     // WGSL uniforms can't hold bool: stored as u32, compared back.
     const field = `${UNIFORM_BLOCK}.${name}`;
-    if (shape.scalar === "bool") {
+    if (padded) {
+      this.aliases.set(name, `${PADDED_ARRAY_PREFIX}${name}()`);
+    } else if (shape.scalar === "bool") {
       const zero = shape.rows === 1 ? "0u" : `vec${shape.rows}u()`;
       this.aliases.set(name, `(${field} != ${zero})`);
     } else {
@@ -295,7 +323,12 @@ export class WgslBackend implements DynoBackend {
         if (f.members) {
           return `    @align(16) @size(${f.size}) ${f.name}: DynoU_${typeLiteral(f.type)},`;
         }
-        const t = storedType(f.type);
+        const shape = typeShape(f.type) as TypeShape;
+        const t = f.padded
+          ? storedType(
+              `${shape.scalar === "f32" ? "" : shape.scalar[0]}vec4` as DynoType,
+            )
+          : storedType(f.type);
         return f.count != null
           ? `    @align(16) ${f.name}: array<${t}, ${f.count}>,`
           : `    ${f.name}: ${t},`;
@@ -305,6 +338,9 @@ export class WgslBackend implements DynoBackend {
         `struct DynoUniforms {\n${members.join("\n")}\n}`,
         `@group(${this.group}) @binding(0) var<uniform> ${UNIFORM_BLOCK}: DynoUniforms;`,
       );
+      for (const f of this.fields) {
+        if (f.padded) decls.push(paddedArrayGetter(f));
+      }
     }
     for (const t of this.textures) {
       decls.push(

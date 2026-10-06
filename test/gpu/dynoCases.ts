@@ -725,6 +725,40 @@ export const cases: [string, d.DynoType, () => Val, Expected][] = [
       }).outputs.out as Val,
     [10, 12, 14, 16],
   ],
+  // Arrays of elements under 16 bytes, padded to vec4s in WGSL.
+  [
+    "uniform float, vec2 and bool arrays",
+    "vec2",
+    () =>
+      new d.Dyno({
+        inTypes: { f: "float", v: "vec2", b: "bool" },
+        outTypes: { out: "vec2" },
+        inputs: {
+          f: new d.DynoUniform({
+            key: "f",
+            type: "float",
+            count: 3,
+            value: new Float32Array([1, 2, 3]),
+          }),
+          v: new d.DynoUniform({
+            key: "v",
+            type: "vec2",
+            count: 2,
+            value: new Float32Array([10, 20, 30, 40]),
+          }),
+          b: new d.DynoUniform({
+            key: "b",
+            type: "bool",
+            count: 2,
+            value: [false, true],
+          }),
+        },
+        statements: ({ inputs, outputs }) => [
+          `${outputs.out} = ${inputs.v}[1] + ${inputs.f}[2] + float(${inputs.b}[1]) * 100.0 + float(${inputs.b}[0]) * 1000.0;`,
+        ],
+      }).outputs.out as Val,
+    [133, 143],
+  ],
   [
     "uniform index",
     "int",
