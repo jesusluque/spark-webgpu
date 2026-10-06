@@ -19,7 +19,7 @@
 <body>
   <div class="hud">
     <h1><a href="./">&larr;</a>Relightable Corvette</h1>
-    <p>A Corvette baked to Gaussian splats, each carrying how it receives light, thinned to 1.1M splats for the web. Pick an HDRI and the car is relit on the GPU: the dome with its shadows, an optional sun, the glass and the car’s shadow on the ground. Drag to orbit, scroll to zoom; on a desktop, Maya's camera (Alt + left tumble, middle track, right dolly, F to frame).</p>
+    <p>A Corvette baked to Gaussian splats, each carrying how it receives light, thinned for the web (1.1M splats, or 4.7M in the detailed version). Pick an HDRI and the car is relit on the GPU: the dome with its shadows, an optional sun, the glass and the car’s shadow on the ground. Drag to orbit, scroll to zoom; on a desktop, Maya's camera (Alt + left tumble, middle track, right dolly, F to frame).</p>
     <div class="stats" id="stats">loading… (about 71 MB)</div>
   </div>
   <div class="credits">
@@ -46,15 +46,29 @@
     import { createCorvette } from "./corvette.js";
 
     const params = new URLSearchParams(location.search);
-    // The car's files live on R2; ?base= points anywhere else (testing).
-    const base = params.get("base") ?? "https://athenea-assets.lucab.co.uk/sparkwebgpu/corvette/";
+    // Two sets on R2: light (about 71 MB) and detailed (?quality=hd, about
+    // 250 MB, three times the splats); ?base= points anywhere else (testing).
+    const QUALITY = {
+      light: { folder: "corvette", megabytes: 71, label: "light (~70 MB)" },
+      hd: { folder: "corvette-hd", megabytes: 250, label: "detailed (~250 MB)" },
+    };
+    const quality = QUALITY[params.get("quality")] ? params.get("quality") : "light";
+    const base =
+      params.get("base") ?? `https://athenea-assets.lucab.co.uk/sparkwebgpu/${QUALITY[quality].folder}/`;
     const status = document.getElementById("stats");
     const adapter = await requireWebGPU();
-    // The clouds and the bake's sky: about 71 MB on the first visit.
     const download = downloadProgress({
       match: (url) => /\.(athc|hdr)(\?|$)/.test(url),
-      expectedBytes: 71 * 1024 * 1024,
+      expectedBytes: QUALITY[quality].megabytes * 1024 * 1024,
     });
+    // The other set, one click away (it reloads the page).
+    const other = quality === "hd" ? "light" : "hd";
+    const link = document.createElement("a");
+    link.href = `?quality=${other}`;
+    link.textContent = `Switch to the ${QUALITY[other].label} version`;
+    link.style.display = "block";
+    link.style.marginTop = "6px";
+    status.after(link);
     const renderer = new THREE.WebGPURenderer({
       canvas: document.getElementById("canvas"),
       requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
