@@ -90,8 +90,27 @@ export type PackedExtra = {
   readonly sh3Codes?: Uint32Array;
   readonly lodTree?: Uint32Array;
   readonly radMeta?: RadMeta;
-  /** Per-Gaussian attributes, an AttribPool (src/webgpu/attributes). */
+  /**
+   * Per-Gaussian attributes: AttribValues from the loader, or an AttribPool
+   * (src/webgpu/attributes) once the WebGPU path took them.
+   */
   readonly attribs?: object;
+};
+
+/**
+ * Per-Gaussian attributes as the WASM decoders give them (rust/spark-lib
+ * attrib.rs): specs, and one Float64Array of values per attribute,
+ * components per splat. AttribPool.from() packs them.
+ */
+export type AttribValues = {
+  readonly count: number;
+  readonly specs: readonly {
+    name: string;
+    format: string;
+    components: number;
+    lodMerge?: string;
+  }[];
+  readonly values: readonly Float64Array[];
 };
 
 export type PackedResult = {
@@ -111,7 +130,7 @@ export type ExtExtra = {
   readonly sh3Codes?: [Uint32Array, Uint32Array];
   readonly lodTree?: Uint32Array;
   readonly radMeta?: RadMeta;
-  /** Per-Gaussian attributes, an AttribPool (src/webgpu/attributes). */
+  /** Per-Gaussian attributes, as PackedExtra.attribs. */
   readonly attribs?: object;
 };
 

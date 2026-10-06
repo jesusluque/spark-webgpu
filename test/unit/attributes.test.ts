@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { PlyAttributeReader } from "../../src/webgpu/attributes/plyAttributes";
 import {
   AttribPool,
   attribGroupWords,
@@ -93,104 +92,51 @@ describe("attribute schema", () => {
   });
 });
 
-// A binary PLY with the standard 3DGS properties plus extras.
-function makePly(n: number, zeroNormals: boolean) {
-  const props: [string, string][] = [
-    ["float", "x"],
-    ["float", "y"],
-    ["float", "z"],
-    ["float", "nx"],
-    ["float", "ny"],
-    ["float", "nz"],
-    ["float", "f_dc_0"],
-    ["float", "f_dc_1"],
-    ["float", "f_dc_2"],
-    ["float", "opacity"],
-    ["float", "scale_0"],
-    ["float", "scale_1"],
-    ["float", "scale_2"],
-    ["float", "rot_0"],
-    ["float", "rot_1"],
-    ["float", "rot_2"],
-    ["float", "rot_3"],
-    ["uchar", "label"],
-    ["float", "feat_0"],
-    ["float", "feat_1"],
-    ["float", "feat_2"],
-    ["ushort", "instance"],
-    ["int", "weird_0"],
-  ];
-  const header = `ply\nformat binary_little_endian 1.0\nelement vertex ${n}\n${props
-    .map(([t, p]) => `property ${t} ${p}`)
-    .join("\n")}\nend_header\n`;
-  const size = props.reduce(
-    (s, [t]) => s + (t === "uchar" ? 1 : t === "ushort" ? 2 : 4),
-    0,
-  );
-  const head = new TextEncoder().encode(header);
-  const bytes = new Uint8Array(head.length + n * size);
-  bytes.set(head);
-  const view = new DataView(bytes.buffer);
-  for (let i = 0; i < n; i++) {
-    let at = head.length + i * size;
-    for (const [t, p] of props) {
-      let v = i + 0.5;
-      if (p === "nx") v = zeroNormals ? 0 : 1;
-      if (p === "ny" || p === "nz") v = 0;
-      if (p === "label") v = i % 7;
-      if (p.startsWith("feat_")) v = i * 10 + Number(p.slice(5));
-      if (p === "instance") v = 1000 + i;
-      if (p === "weird_0") v = -i;
-      if (t === "uchar") view.setUint8(at, v);
-      else if (t === "ushort") view.setUint16(at, v, true);
-      else if (t === "int") view.setInt32(at, v, true);
-      else view.setFloat32(at, v, true);
-      at += t === "uchar" ? 1 : t === "ushort" ? 2 : 4;
-    }
-  }
-  return bytes;
-}
-
-describe("PLY attributes", () => {
-  it("groups extra properties and reads them across chunk boundaries", () => {
-    const n = 101;
-    const bytes = makePly(n, false);
-    const reader = new PlyAttributeReader();
-    // Odd chunk sizes, splitting the header and records.
-    for (let at = 0; at < bytes.length; at += 37) {
-      reader.push(bytes.subarray(at, at + 37));
-    }
-    const pool = reader.finish() as AttribPool;
-    expect(pool.count).toBe(n);
+// The loader worker's form of the WASM decoders' attributes.
+describe("AttribPool.from(AttribValues)", () => {
+  it("packs each attribute, a normalizeMean 3-vector as a direction", () => {
+    const pool = AttribPool.from({
+      count: 2,
+      specs: [
+        {
+          name: "normal",
+          format: "f32",
+          components: 3,
+          lodMerge: "normalizeMean",
+        },
+        { name: "label", format: "u8", components: 1, lodMerge: "mode" },
+      ],
+      values: [new Float64Array([0, 0, 1, 1, 0, 0]), new Float64Array([3, 7])],
+    });
     expect(
-      pool.schema.map((s) => [s.name, s.format, s.components, !!s.direction]),
+      pool.schema.map((s) => [
+        s.name,
+        s.format,
+        s.lodMerge,
+        !!s.direction,
+        !!s.toDraw,
+      ]),
     ).toEqual([
-      ["normal", "f32", 3, true],
-      ["label", "u8", 1, false],
-      ["feat", "f32", 3, false],
-      ["instance", "u16", 1, false],
-      ["weird_0", "f32", 1, false],
+      ["normal", "f32", "normalizeMean", true, true],
+      ["label", "u8", "mode", false, true],
     ]);
-    for (const i of [0, 50, 100]) {
-      expect(pool.getAttribute("normal", i)).toEqual([1, 0, 0]);
-      expect(pool.getAttribute("label", i)).toEqual([i % 7]);
-      expect(pool.getAttribute("feat", i)).toEqual([
-        i * 10,
-        i * 10 + 1,
-        i * 10 + 2,
-      ]);
-      expect(pool.getAttribute("instance", i)).toEqual([1000 + i]);
-      expect(pool.getAttribute("weird_0", i)).toEqual([i ? -i : 0]);
-    }
+    expect(pool.getAttribute("normal", 1)).toEqual([1, 0, 0]);
+    expect(pool.getAttribute("label", 1)).toEqual([7]);
   });
 
-  it("drops all-zero normals and ignores other files", () => {
-    const reader = new PlyAttributeReader();
-    reader.push(makePly(10, true));
-    expect(reader.finish()?.schema.map((s) => s.name)).not.toContain("normal");
-
-    const other = new PlyAttributeReader();
-    other.push(new TextEncoder().encode("NGSPLAT and more bytes"));
-    expect(other.finish()).toBeNull();
+  it("drops an all-zero normal", () => {
+    const pool = AttribPool.from({
+      count: 2,
+      specs: [
+        {
+          name: "normal",
+          format: "f32",
+          components: 3,
+          lodMerge: "normalizeMean",
+        },
+      ],
+      values: [new Float64Array(6)],
+    });
+    expect(pool.columns).toEqual([]);
   });
 });

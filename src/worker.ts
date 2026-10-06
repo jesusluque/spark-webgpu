@@ -19,14 +19,12 @@ import init_wasm, {
   bhatt_lod_extsplats,
   get_lod_tree_level,
 } from "spark-rs";
-import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
-import {
-  attribsFromResult,
-  setLodAttribs,
-  withLodAttribs,
-} from "./webgpu/attributes/lodAttributes";
-import { PlyAttributeReader } from "./webgpu/attributes/plyAttributes";
-import type { AttributeSpec } from "./webgpu/attributes/schema";
+import type {
+  AttribValues,
+  ExtResult,
+  PackedResult,
+  SplatEncoding,
+} from "./defines";
 
 const rpcHandlers = {
   sortSplats16,
@@ -113,7 +111,6 @@ async function decodeBytesUrl({
   chunked,
   chunkedLength,
   sendStatus,
-  onChunk,
 }: {
   decoder: ChunkDecoder;
   fileBytes?: Uint8Array;
@@ -123,8 +120,6 @@ async function decodeBytesUrl({
   chunked?: boolean;
   chunkedLength?: number;
   sendStatus: (data: unknown) => void;
-  /** Sees every chunk of the file too (PLY extra attributes). */
-  onChunk?: (chunk: Uint8Array) => void;
 }) {
   let readStream: ReadableStream<Uint8Array>;
   let streamLength = 0;
@@ -195,7 +190,6 @@ async function decodeBytesUrl({
     loaded += value.length;
     sendStatus({ loaded, total: streamLength });
 
-    onChunk?.(value);
     decoder.push(value);
   }
 
@@ -214,7 +208,7 @@ type DecodedPackedResult = {
   readonly sh3Codes?: Uint32Array;
   readonly lodTree?: Uint32Array;
   readonly splatEncoding: SplatEncoding;
-  readonly attribSpecs?: AttributeSpec[];
+  readonly attribSpecs?: AttribValues["specs"];
   readonly attribColumns?: Float64Array[];
 };
 
@@ -230,24 +224,22 @@ function toPackedResult(packed: DecodedPackedResult): PackedResult {
       sh2Codes: packed.sh2Codes,
       sh3Codes: packed.sh3Codes,
       lodTree: packed.lodTree,
-      attribs: attribsFromResult(packed),
+      attribs: attribValues(packed),
     },
     splatEncoding: packed.splatEncoding,
   };
 }
 
-// The PLY's extra properties as extra.attribs, when they match the splats
-// one to one (not after a LOD build, which merges and reorders them).
-function withAttribs<
-  R extends { numSplats: number; extra: Record<string, unknown> },
->(result: R, ply: PlyAttributeReader): R {
-  // A current WASM decoder reads them itself (spark-lib ply.rs).
-  if (result.extra.attribs) return result;
-  const attribs = ply.finish();
-  if (attribs && attribs.count === result.numSplats) {
-    result.extra.attribs = attribs;
-  }
-  return result;
+// The attributes a WASM result carries (decoded from a PLY or .rad, or
+// merged by a LOD build), for AttribPool.from() on the WebGPU side.
+function attribValues(result: {
+  numSplats: number;
+  attribSpecs?: AttribValues["specs"];
+  attribColumns?: Float64Array[];
+}): AttribValues | undefined {
+  const { attribSpecs: specs, attribColumns: values } = result;
+  if (!specs?.length || !values) return undefined;
+  return { count: result.numSplats, specs, values };
 }
 
 async function loadPackedSplats(
@@ -293,7 +285,6 @@ async function loadPackedSplats(
   },
 ) {
   // console.log("loadPackedSplats", { url, requestHeader, withCredentials, fileBytes, fileType, pathName, stream, streamLength, encoding, lod, lodBase, lodAbove, nonLod });
-  const ply = new PlyAttributeReader();
   if (!lod) {
     const decoder = decode_to_packedsplats(
       fileType,
@@ -312,12 +303,8 @@ async function loadPackedSplats(
       chunked,
       chunkedLength,
       sendStatus,
-      onChunk: ply.push,
     });
-    const result = withAttribs(
-      toPackedResult(decoded as DecodedPackedResult),
-      ply,
-    );
+    const result = toPackedResult(decoded as DecodedPackedResult);
     if (result.splatEncoding.lodOpacity) {
       return { lodSplats: result };
     }
@@ -334,7 +321,6 @@ async function loadPackedSplats(
     chunked,
     chunkedLength,
     sendStatus,
-    onChunk: ply.push,
   });
 
   if (decoded.has_lod()) {
@@ -346,10 +332,7 @@ async function loadPackedSplats(
 
   if (lodAbove !== undefined) {
     if (decoded.len() < lodAbove) {
-      return withAttribs(
-        toPackedResult(decoded.to_packedsplats() as DecodedPackedResult),
-        ply,
-      );
+      return toPackedResult(decoded.to_packedsplats() as DecodedPackedResult);
     }
   }
 
@@ -359,10 +342,7 @@ async function loadPackedSplats(
 
   if (nonLod) {
     // Wait until LoD computation is complete before resolving full PackedSplats result
-    result = withAttribs(
-      toPackedResult(decoded.to_packedsplats() as DecodedPackedResult),
-      ply,
-    );
+    result = toPackedResult(decoded.to_packedsplats() as DecodedPackedResult);
   }
 
   const initialSplats = decoded.len();
@@ -371,7 +351,6 @@ async function loadPackedSplats(
     `Loaded ${initialSplats} splats. Starting ${lodName} LoD build...`,
   );
 
-  const lodAttribs = setLodAttribs(decoded, ply.finish());
   const lodStart = performance.now();
   if (lod === "quality") {
     const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.25));
@@ -387,11 +366,7 @@ async function loadPackedSplats(
   );
 
   const lodPacked = decoded.to_packedsplats_lod();
-  result.lodSplats = withLodAttribs(
-    toPackedResult(lodPacked as DecodedPackedResult),
-    decoded,
-    lodAttribs,
-  );
+  result.lodSplats = toPackedResult(lodPacked as DecodedPackedResult);
   return result as
     | (PackedResult & { lodSplats: PackedResult })
     | { lodSplats: PackedResult };
@@ -409,7 +384,7 @@ type DecodedExtResult = {
   sh2Codes?: Uint32Array;
   sh3Codes?: [Uint32Array, Uint32Array];
   lodTree?: Uint32Array;
-  attribSpecs?: AttributeSpec[];
+  attribSpecs?: AttribValues["specs"];
   attribColumns?: Float64Array[];
 };
 
@@ -426,7 +401,7 @@ function toExtResult(packed: DecodedExtResult): ExtResult {
       sh2Codes: packed.sh2Codes,
       sh3Codes: packed.sh3Codes,
       lodTree: packed.lodTree,
-      attribs: attribsFromResult(packed),
+      attribs: attribValues(packed),
     },
   };
 }
@@ -472,7 +447,6 @@ async function loadExtSplats(
   },
 ) {
   // console.log("loadExtSplats", { url, requestHeader, withCredentials, fileBytes, fileType, pathName, stream, streamLength, lod, lodBase, lodAbove, nonLod });
-  const ply = new PlyAttributeReader();
   if (!lod) {
     const decoder = decode_to_extsplats(
       fileType,
@@ -490,9 +464,8 @@ async function loadExtSplats(
       chunked,
       chunkedLength,
       sendStatus,
-      onChunk: ply.push,
     });
-    const result = withAttribs(toExtResult(decoded as DecodedExtResult), ply);
+    const result = toExtResult(decoded as DecodedExtResult);
     if (result.extra.lodTree) {
       return { lodSplats: result };
     }
@@ -509,7 +482,6 @@ async function loadExtSplats(
     chunked,
     chunkedLength,
     sendStatus,
-    onChunk: ply.push,
   });
 
   if (decoded.has_lod()) {
@@ -520,10 +492,7 @@ async function loadExtSplats(
 
   if (lodAbove !== undefined) {
     if (decoded.len() < lodAbove) {
-      return withAttribs(
-        toExtResult(decoded.to_extsplats() as DecodedExtResult),
-        ply,
-      );
+      return toExtResult(decoded.to_extsplats() as DecodedExtResult);
     }
   }
 
@@ -533,10 +502,7 @@ async function loadExtSplats(
 
   if (nonLod) {
     // Wait until LoD computation is complete before resolving full PackedSplats result
-    result = withAttribs(
-      toExtResult(decoded.to_extsplats() as DecodedExtResult),
-      ply,
-    );
+    result = toExtResult(decoded.to_extsplats() as DecodedExtResult);
   }
 
   const initialSplats = decoded.len();
@@ -545,7 +511,6 @@ async function loadExtSplats(
     `Loaded ${initialSplats} splats. Starting ${lodName} LoD build...`,
   );
 
-  const lodAttribs = setLodAttribs(decoded, ply.finish());
   const lodStart = performance.now();
   if (lod === "quality") {
     const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.75));
@@ -561,11 +526,7 @@ async function loadExtSplats(
   );
 
   const lodPacked = decoded.to_extsplats_lod();
-  result.lodSplats = withLodAttribs(
-    toExtResult(lodPacked as DecodedExtResult),
-    decoded,
-    lodAttribs,
-  );
+  result.lodSplats = toExtResult(lodPacked as DecodedExtResult);
   return result as
     | (ExtResult & { lodSplats: ExtResult })
     | { lodSplats: ExtResult };

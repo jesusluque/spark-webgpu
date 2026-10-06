@@ -59,4 +59,3 @@ export {
   type AttributeSpec,
   type LodMerge,
 } from "./attributes/schema";
-export { PlyAttributeReader } from "./attributes/plyAttributes";

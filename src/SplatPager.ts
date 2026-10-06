@@ -55,7 +55,7 @@ interface PageUpload {
   packedArray: Uint32Array;
   extArray?: Uint32Array;
   shArrays: Array<Uint32Array>;
-  /** The chunk's extra attributes (an AttribPool after postMessage), if any. */
+  /** The chunk's extra attributes (the worker's AttribValues), if any. */
   attribs?: unknown;
 }
 
