@@ -147,4 +147,31 @@ describe.skipIf(!device)("SrgbComposite", () => {
     expect(reinhard(fromHalf(px[0]))).toBeCloseTo(shown, 3);
     composite.dispose();
   });
+
+  // three's viewport may reach past the target (an offset or tiled view):
+  // the scissor stays inside it, as a scissor past the attachment is invalid.
+  it("composites within a viewport partly outside the target", async () => {
+    const color = d.createTexture({
+      size: [64, 64],
+      format: "rgba16float",
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.COPY_SRC |
+        GPUTextureUsage.COPY_DST,
+    });
+    const composite = new SrgbComposite(d);
+    d.pushErrorScope("validation");
+    const encoder = d.createCommandEncoder();
+    composite.beginLayer(encoder, color, undefined).end();
+    composite.composite(
+      encoder,
+      color,
+      { view: color.createView() },
+      { x: -16, y: 32, z: 64, w: 64 },
+    );
+    d.queue.submit([encoder.finish()]);
+    expect(await d.popErrorScope()).toBeNull();
+    composite.dispose();
+    color.destroy();
+  });
 });
