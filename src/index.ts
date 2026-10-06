@@ -134,6 +134,10 @@ export {
 } from "./webgpu/WgpuLod";
 export { WgpuSplatPager } from "./webgpu/WgpuSplatPager";
 export {
+  WgpuReadTarget,
+  type WgpuReadTargetOptions,
+} from "./webgpu/WgpuReadTarget";
+export {
   WgpuCubeMap,
   type WgpuCubeMapOptions,
 } from "./webgpu/WgpuCubeMap";

@@ -14,6 +14,7 @@
 //   duck.material.envMap = envMap;
 
 import * as THREE from "three";
+import { rowStride } from "./WgpuReadTarget";
 import type { WgpuSplatRenderer } from "./WgpuSplatRenderer";
 
 export interface WgpuCubeMapOptions {
@@ -228,8 +229,7 @@ export class WgpuCubeMap {
     const row = width * 4;
     return faces.map((v) => {
       const src = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
-      // Rows may come padded to 256 bytes.
-      const stride = src.length / height;
+      const stride = rowStride(src.length, width, height);
       const out = new Uint8Array(row * height);
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {

@@ -46,6 +46,16 @@
       if (++frames >= 30 && window.__lodState !== undefined || (!lod && !rad && frames === 30)) window.__ready = true;
     });
     window.__spark = spark;
+    // An offscreen render read back (SparkRenderer target / renderReadTarget).
+    window.__readTarget = async (width, height, superXY = 1) => {
+      const offscreen = new SparkRenderer({ renderer, target: { width, height, superXY } });
+      // Its sort runs in a worker: a few renders until it has an order.
+      for (let i = 0; i < 20; i++) {
+        offscreen.renderTarget({ scene, camera });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return Array.from(await offscreen.renderReadTarget({ scene, camera }));
+    };
     const gl = renderer.getContext();
     const pixel = new Uint8Array(4);
     // Throughput: the normal animation loop for `seconds`, the object turning

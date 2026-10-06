@@ -12,7 +12,7 @@
   </script>
   <script type="module">
     import * as THREE from "three/webgpu";
-    import { ExtSplats, GpuSplatSource, PackedSplats, PagedSplats, WgpuLod, WgpuSplatRenderer, utils } from "@sparkjsdev/spark";
+    import { ExtSplats, GpuSplatSource, WgpuReadTarget, PackedSplats, PagedSplats, WgpuLod, WgpuSplatRenderer, utils } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "../js/get-asset-url.js";
     import { bench, setupCompare, syntheticPacked, waitSettled } from "./compare.js";
 
@@ -54,6 +54,11 @@
     }
     window.__splats = splats;
     window.__lod = lodDriver;
+    // An offscreen render read back (WgpuReadTarget).
+    window.__readTarget = async (width, height, superXY = 1) => {
+      const offscreen = new WgpuReadTarget(splats, { width, height, superXY });
+      return Array.from(await offscreen.renderReadTarget({ scene, camera }));
+    };
     const settled = lodDriver
       ? waitSettled(() => ({
         lod: lodDriver.stats.traversals,
