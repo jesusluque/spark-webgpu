@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Relightable Corvette: athenea's Corvette baked to Gaussian splats with a
+  light transfer per splat, thinned for the web (about 1.2M splats), relit
+  live under any HDRI by athenea's own relighting code in Spark's WebGPU
+  backend. The scene is built by corvette.js (shared with the dev page).
+    ?base=<url/>    where corvette.json, the .athc clouds and hdri/ are
+    ?hdri=<name>    ?glass=0  ?trim=0  ?catcher=0  ?gui=0  ?view=agx|aces2|standard
+-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Relightable Corvette · Spark WebGPU</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./site.css">
+</head>
+
+<body>
+  <div class="hud">
+    <h1><a href="./">&larr;</a>Relightable Corvette</h1>
+    <p>A Corvette baked to Gaussian splats, each carrying how it receives light, thinned to 1.1M splats for the web. Pick an HDRI and the car is relit on the GPU: the dome with its shadows, an optional sun, the glass and the car’s shadow on the ground. Drag to orbit, scroll to zoom.</p>
+    <div class="stats" id="stats">loading… (about 71 MB)</div>
+  </div>
+  <div class="credits">
+    Corvette model by Billy Mukhiddinov (<a href="https://www.blendkit.com/asset-gallery-detail/a16f1abf-86d5-4cec-9c89-69224c1b7a42/">BlendKit</a>), baked to Gaussian splats by athenea (modified) · HDRIs from <a href="https://polyhaven.com">Poly Haven</a> (CC0) ·
+    <a href="https://github.com/sparkjsdev/spark">Spark</a> (MIT) · <a href="https://threejs.org">three.js</a> (MIT) · <a href="https://lil-gui.georgealways.com">lil-gui</a> (MIT)
+  </div>
+  <canvas id="canvas" tabindex="0"></canvas>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/webgpu": "./vendor/three/three.webgpu.min.js",
+        "three/addons/": "./vendor/three/addons/",
+        "lil-gui": "./vendor/lil-gui/lil-gui.esm.min.js",
+        "@sparkjsdev/spark": "./vendor/spark/spark.module.min.js",
+        "@sparkjsdev/spark/webgpu": "./vendor/spark/spark.webgpu.module.min.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
+    import { downloadProgress, requireWebGPU } from "./site.js";
+    import { createCorvette } from "./corvette.js";
+
+    const params = new URLSearchParams(location.search);
+    // The car's files live on R2; ?base= points anywhere else (testing).
+    const base = params.get("base") ?? "https://athenea-assets.lucab.co.uk/sparkwebgpu/corvette/";
+    const status = document.getElementById("stats");
+    const adapter = await requireWebGPU();
+    // The clouds and the bake's sky: about 71 MB on the first visit.
+    const download = downloadProgress({
+      match: (url) => /\.(athc|hdr)(\?|$)/.test(url),
+      expectedBytes: 71 * 1024 * 1024,
+    });
+    const renderer = new THREE.WebGPURenderer({
+      canvas: document.getElementById("canvas"),
+      requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
+    });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    await renderer.init();
+    await createCorvette({ renderer, base, params, status });
+    download.done();
+  </script>
+</body>
+
+</html>
