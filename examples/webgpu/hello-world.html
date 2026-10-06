@@ -34,6 +34,8 @@
     const renderer = new THREE.WebGPURenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
+    // WebGPURenderer clears to transparent; WebGLRenderer's default is opaque black.
+    renderer.setClearColor(0x000000, 1);
 
     const spark = new SparkRenderer({ renderer });
     scene.add(spark);

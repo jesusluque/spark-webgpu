@@ -20,6 +20,13 @@ import {
   wgslStructTexture,
 } from "./dyno";
 import { getTextureSize } from "./utils";
+import { gpuTextures } from "./webgpu/dyno/textures";
+
+// The renderers RgbaArray works with: on three's WebGPURenderer the values
+// come from the CPU (fromPackedSplats) or from SparkRenderer.getRgba.
+type AnyRenderer = THREE.WebGLRenderer | { isWebGPURenderer?: boolean };
+const isWebGPU = (renderer: AnyRenderer) =>
+  !!(renderer as { isWebGPURenderer?: boolean }).isWebGPURenderer;
 
 // An RgbaArray is a collection of ordered RGBA8 values, which can be used as a dyno
 // data source, for example for recoloring Gsplats via SplatMesh.splatRgba.
@@ -44,6 +51,13 @@ export class RgbaArray {
   source: THREE.DataArrayTexture | null = null;
   // Set to true if source array is updated to have it upload to GPU
   needsUpdate = true;
+  // On WebGPU, values a kernel wrote (SparkRenderer.getRgba): `placeholder`
+  // stands for `texture` in dyno uniforms (see gpuTextures).
+  private gpu: {
+    device: GPUDevice;
+    texture: GPUTexture;
+    placeholder: THREE.DataArrayTexture;
+  } | null = null;
 
   // Use this as a TRgbaArray in a dyno graph
   dyno: DynoUniform<typeof TRgbaArray, "rgbaArray">;
@@ -85,6 +99,11 @@ export class RgbaArray {
 
   // Free up resources
   dispose() {
+    if (this.gpu) {
+      this.gpu.texture.destroy();
+      this.gpu.placeholder.dispose();
+      this.gpu = null;
+    }
     if (this.readback) {
       this.readback.dispose();
       this.readback = null;
@@ -111,6 +130,7 @@ export class RgbaArray {
 
   // Get the THREE.DataArrayTexture from either the readback or the source.
   getTexture(): THREE.DataArrayTexture {
+    if (this.gpu) return this.gpu.placeholder;
     let texture = this.readback?.getTexture();
     if (this.source || this.array) {
       texture = this.maybeUpdateSource();
@@ -159,11 +179,17 @@ export class RgbaArray {
     reader,
     count,
     renderer,
-  }: { reader: Rgba8Readback; count: number; renderer: THREE.WebGLRenderer }) {
-    if (!this.readback) {
-      this.readback = new Readback({ renderer });
+  }: { reader: Rgba8Readback; count: number; renderer: AnyRenderer }) {
+    if (isWebGPU(renderer)) {
+      throw new Error(
+        "RgbaArray.render needs a WebGLRenderer: on WebGPU use SparkRenderer.getRgba",
+      );
     }
-    this.readback.render({ reader, count, renderer });
+    const gl = renderer as THREE.WebGLRenderer;
+    if (!this.readback) {
+      this.readback = new Readback({ renderer: gl });
+    }
+    this.readback.render({ reader, count, renderer: gl });
     this.capacity = this.readback.capacity;
     this.count = this.readback.count;
   }
@@ -178,8 +204,12 @@ export class RgbaArray {
     packedSplats: PackedSplats;
     base: number;
     count: number;
-    renderer: THREE.WebGLRenderer;
+    renderer: AnyRenderer;
   }) {
+    if (isWebGPU(renderer)) {
+      this.fromPackedArray(packedSplats, base, count);
+      return this;
+    }
     const { dynoSplats, dynoBase, dynoCount, reader } = RgbaArray.makeDynos();
     dynoSplats.packedSplats = packedSplats;
     dynoBase.value = base;
@@ -188,8 +218,88 @@ export class RgbaArray {
     return this;
   }
 
+  // The RGBA8 values decoded on the CPU, as the WebGL readback computes them.
+  private fromPackedArray(
+    packedSplats: PackedSplats,
+    base: number,
+    maxCount: number,
+  ) {
+    const packed = packedSplats.packedArray;
+    const count = Math.max(
+      0,
+      Math.min(maxCount, packedSplats.numSplats - base),
+    );
+    const array = this.ensureCapacity(count);
+    const { rgbMin, rgbMax, lodOpacity } = packedSplats.splatEncoding;
+    if (packed) {
+      const bytes = new Uint8Array(packed.buffer, packed.byteOffset);
+      const plain = rgbMin === 0 && rgbMax === 1 && !lodOpacity;
+      const toByte = (v: number) =>
+        Math.round(Math.min(1, Math.max(0, v)) * 255);
+      const range = (rgbMax - rgbMin) / 255;
+      for (let i = 0; i < count; i++) {
+        const s = (base + i) * 16;
+        for (let c = 0; c < 4; c++) {
+          const byte = bytes[s + c];
+          array[i * 4 + c] = plain
+            ? byte
+            : c < 3
+              ? toByte(rgbMin + byte * range)
+              : toByte(((lodOpacity ? 2 : 1) * byte) / 255);
+        }
+      }
+    }
+    this.count = count;
+    this.needsUpdate = true;
+  }
+
+  /**
+   * @internal The GPU texture for `count` values that a WebGPU kernel will
+   * write (SparkRenderer.getRgba); the array then reads from it.
+   */
+  gpuTexture(device: GPUDevice, count: number): GPUTexture {
+    const { width, height, depth, maxSplats } = getTextureSize(count);
+    let gpu = this.gpu;
+    if (
+      !gpu ||
+      gpu.device !== device ||
+      gpu.texture.width !== width ||
+      gpu.texture.height !== height ||
+      gpu.texture.depthOrArrayLayers !== depth
+    ) {
+      this.dispose();
+      const texture = device.createTexture({
+        label: "RgbaArray",
+        size: { width, height, depthOrArrayLayers: depth },
+        format: "rgba8unorm",
+        usage:
+          GPUTextureUsage.STORAGE_BINDING |
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.COPY_SRC,
+      });
+      const placeholder = new THREE.DataArrayTexture(
+        null,
+        width,
+        height,
+        depth,
+      );
+      placeholder.format = THREE.RGBAFormat;
+      placeholder.type = THREE.UnsignedByteType;
+      gpuTextures.set(placeholder, texture);
+      gpu = { device, texture, placeholder };
+      this.gpu = gpu;
+    }
+    // A new version: generates that read the array run again.
+    gpu.placeholder.version += 1;
+    this.capacity = maxSplats;
+    this.count = count;
+    this.array = null;
+    return gpu.texture;
+  }
+
   // Read back the RGBA8 values from the readback buffer.
   async read(): Promise<Uint8Array> {
+    if (this.gpu) return this.readGpu(this.gpu);
     if (!this.readback) {
       throw new Error("No readback");
     }
@@ -200,7 +310,39 @@ export class RgbaArray {
     return result.subarray(0, this.count * 4);
   }
 
+  private async readGpu({
+    device,
+    texture,
+  }: { device: GPUDevice; texture: GPUTexture }): Promise<Uint8Array> {
+    const { width, height, depthOrArrayLayers } = texture;
+    const bytes = width * height * depthOrArrayLayers * 4;
+    const staging = device.createBuffer({
+      label: "RgbaArray readback",
+      size: bytes,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    const encoder = device.createCommandEncoder({ label: "RgbaArray read" });
+    // Rows of 2048 texels are 256-byte aligned: index order, tightly packed.
+    encoder.copyTextureToBuffer(
+      { texture },
+      { buffer: staging, bytesPerRow: width * 4, rowsPerImage: height },
+      { width, height, depthOrArrayLayers },
+    );
+    device.queue.submit([encoder.finish()]);
+    try {
+      await staging.mapAsync(GPUMapMode.READ);
+      if (!this.array || this.array.length < bytes) {
+        this.array = new Uint8Array(bytes);
+      }
+      this.array.set(new Uint8Array(staging.getMappedRange(), 0, bytes));
+    } finally {
+      staging.destroy();
+    }
+    return this.array.subarray(0, this.count * 4);
+  }
+
   async getArray(): Promise<Uint8Array> {
+    if (this.gpu) return this.read();
     if (this.readback) {
       return await this.read();
     }

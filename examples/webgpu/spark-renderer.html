@@ -20,6 +20,7 @@
       &mode=target        render into a RenderTarget, then show it (WebGPU)
       &mode=post          through THREE.PostProcessing's scene pass (WebGPU)
       &msaa=1             antialias: true
+      &srgb=1             srgbBlend: target and post modes blend in sRGB too
       &file=<asset>       default butterfly.spz
   -->
   <script type="importmap">
@@ -52,7 +53,7 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x101018);
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-    const spark = new SparkRenderer({ renderer });
+    const spark = new SparkRenderer({ renderer, srgbBlend: params.get("srgb") === "1" });
     scene.add(spark);
 
     const mesh = new SplatMesh({ url: await getAssetFileURL(params.get("file") ?? "butterfly.spz") });

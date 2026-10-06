@@ -3,6 +3,7 @@ import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
 import { PagedSplats } from "./PagedSplats";
 import { Readback } from "./Readback";
+import { RgbaArray } from "./RgbaArray";
 import { SplatAccumulator } from "./SplatAccumulator";
 import type { SplatGenerator } from "./SplatGenerator";
 import { SplatGeometry } from "./SplatGeometry";
@@ -10,6 +11,8 @@ import { SplatMesh } from "./SplatMesh";
 import { SplatPager } from "./SplatPager";
 import { SplatWorker } from "./SplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
+import { dynoBlock } from "./dyno/base";
+import { splitGsplat } from "./dyno/splats";
 import { SPARK_ENABLE_HOOKS, sparkHook } from "./hooks";
 import { getShaders } from "./shaders";
 import {
@@ -25,7 +28,9 @@ import {
   type WebGPURendererLike,
   isWebGPURenderer,
 } from "./webgpu/SparkWebGPU";
+import { readCubeFaces } from "./webgpu/WgpuCubeMap";
 import { readTargetPixels } from "./webgpu/WgpuReadTarget";
+import { rowStride } from "./webgpu/WgpuReadTarget";
 
 export interface SparkRendererOptions {
   /**
@@ -323,6 +328,22 @@ export interface SparkRendererOptions {
    */
   fragmentShader?: string;
   /**
+   * Splat colours are data to store as they are (depth or ids packed into
+   * RGB), not sRGB colours to convert to the target's colour space: no
+   * conversion, and on an sRGB-format target (8-bit sRGB render target) the
+   * stored bytes equal the colours.
+   * @default false
+   */
+  rawColor?: boolean;
+  /**
+   * WebGPU: blend splats in sRGB space into linear render targets too, as
+   * WebGL Spark blends them on the canvas, rather than in the target's linear
+   * space as WebGL Spark does in render targets. On the canvas they always
+   * blend in sRGB.
+   * @default false
+   */
+  srgbBlend?: boolean;
+  /**
    * Set the splat shader material to be transparent which determines if the
    * splats are rendered during the first opaque THREE.js render pass or the
    * second transparent render pass.
@@ -374,6 +395,10 @@ export class SparkRenderer extends THREE.Mesh {
 
   sortRadial: boolean;
   minSortIntervalMs: number;
+  /** See SparkRendererOptions.rawColor. */
+  rawColor: boolean;
+  /** See SparkRendererOptions.srgbBlend. */
+  srgbBlend: boolean;
 
   readonly timer: THREE.Timer;
   private readonly ownsTimer: boolean;
@@ -522,6 +547,8 @@ export class SparkRenderer extends THREE.Mesh {
           transparent: true,
           depthTest: options.depthTest ?? true,
           depthWrite: false,
+          // Only reported (premultipliedAlpha): WebGPU always blends so.
+          premultipliedAlpha,
         }) as unknown as THREE.ShaderMaterial)
       : new THREE.ShaderMaterial({
           glslVersion: THREE.GLSL3,
@@ -555,6 +582,8 @@ export class SparkRenderer extends THREE.Mesh {
       );
     }
     this.onDirty = options.onDirty;
+    this.rawColor = options.rawColor ?? false;
+    this.srgbBlend = options.srgbBlend ?? false;
     this.dirty = true;
     this.autoUpdate = options.autoUpdate ?? true;
     this.preUpdate = options.preUpdate ?? true;
@@ -650,7 +679,7 @@ export class SparkRenderer extends THREE.Mesh {
         ...origTargetOptions,
       };
 
-      // WebGPURenderer renders into plain RenderTargets.
+      // WebGPURenderer renders into three's core RenderTarget.
       const Target = (
         webgpu ? THREE.RenderTarget : THREE.WebGLRenderTarget
       ) as typeof THREE.WebGLRenderTarget;
@@ -797,9 +826,10 @@ export class SparkRenderer extends THREE.Mesh {
     camera: THREE.Camera,
   ) {
     const spark = SparkRenderer.sparkOverride ?? this;
-    if (this.webgpu) {
-      // renderTarget() draws another SparkRenderer's splats in its place.
-      spark.webgpu?.onBeforeRender(scene, camera);
+    if (spark.webgpu) {
+      // render(), renderTarget() and renderCubeMap() draw the splats as that
+      // SparkRenderer, through this mesh in the scene, as on WebGL.
+      spark.webgpu.onBeforeRender(scene, camera, this);
       return;
     }
 
@@ -905,8 +935,11 @@ export class SparkRenderer extends THREE.Mesh {
         : isXRRenderTarget
           ? currentRenderTarget.texture.colorSpace
           : THREE.ColorManagement.workingColorSpace;
-    this.uniforms.encodeLinear.value =
-      outputColorSpace !== THREE.SRGBColorSpace;
+    this.uniforms.encodeLinear.value = spark.rawColor
+      ? // Encoded on store by an sRGB-format target: decoded back to the same.
+        currentRenderTarget?.texture.colorSpace === THREE.SRGBColorSpace &&
+        currentRenderTarget.texture.type === THREE.UnsignedByteType
+      : outputColorSpace !== THREE.SRGBColorSpace;
 
     this.uniforms.ordering.value =
       spark.orderingTexture ?? SparkRenderer.emptyOrdering;
@@ -1968,14 +2001,37 @@ export class SparkRenderer extends THREE.Mesh {
     }
     const superPixels = this.superPixels;
 
-    await this.renderer.readRenderTargetPixelsAsync(
-      this.target,
-      0,
-      0,
-      width,
-      height,
-      superPixels,
-    );
+    if (this.webgpu) {
+      // WebGPU reads rows top to bottom, padded to 256 bytes: flipped to
+      // WebGL's readPixels order.
+      const gpu = this.renderer as unknown as {
+        readRenderTargetPixelsAsync(
+          ...args: [THREE.RenderTarget, number, number, number, number]
+        ): Promise<ArrayBufferView>;
+      };
+      const data = await gpu.readRenderTargetPixelsAsync(
+        this.target,
+        0,
+        0,
+        width,
+        height,
+      );
+      const src = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      const stride = rowStride(src.length, width, height);
+      for (let y = 0; y < height; y++) {
+        const from = (height - 1 - y) * stride;
+        superPixels.set(src.subarray(from, from + width * 4), y * width * 4);
+      }
+    } else {
+      await this.renderer.readRenderTargetPixelsAsync(
+        this.target,
+        0,
+        0,
+        width,
+        height,
+        superPixels,
+      );
+    }
 
     const { superXY } = this;
     if (superXY === 1) {
@@ -2062,7 +2118,6 @@ export class SparkRenderer extends THREE.Mesh {
     update: boolean;
     filter: boolean;
   }): Promise<THREE.CubeTexture> {
-    this.requireWebGL("renderCubeMap");
     if (
       !SparkRenderer.cubeRender ||
       SparkRenderer.cubeRender.target.width !== size ||
@@ -2072,7 +2127,16 @@ export class SparkRenderer extends THREE.Mesh {
       if (SparkRenderer.cubeRender) {
         SparkRenderer.cubeRender.target.dispose();
       }
-      const target = new THREE.WebGLCubeRenderTarget(size, {
+      // three/webgpu's CubeRenderTarget on WebGPU when "three" resolves to
+      // it; its backend renders into either.
+      const CubeTarget = this.webgpu
+        ? ((
+            THREE as unknown as {
+              CubeRenderTarget?: typeof THREE.WebGLCubeRenderTarget;
+            }
+          ).CubeRenderTarget ?? THREE.WebGLCubeRenderTarget)
+        : THREE.WebGLCubeRenderTarget;
+      const target = new CubeTarget(size, {
         format: THREE.RGBAFormat,
         type: THREE.UnsignedByteType,
         generateMipmaps: filter,
@@ -2094,7 +2158,8 @@ export class SparkRenderer extends THREE.Mesh {
       object.visible = false;
     }
 
-    if (update) {
+    // On WebGPU each face's render updates the splats (SparkWebGPU).
+    if (update && !this.webgpu) {
       const tempCamera = new THREE.Camera();
       tempCamera.position.copy(worldCenter);
       await this.update({ scene, camera: tempCamera });
@@ -2119,6 +2184,12 @@ export class SparkRenderer extends THREE.Mesh {
   async readCubeTargets(): Promise<Uint8Array[]> {
     if (!SparkRenderer.cubeRender) {
       throw new Error("No cube render");
+    }
+    if (this.webgpu) {
+      return readCubeFaces(
+        this.renderer as unknown as Parameters<typeof readCubeFaces>[0],
+        SparkRenderer.cubeRender.target as unknown as THREE.RenderTarget,
+      );
     }
 
     const textures = SparkRenderer.cubeRender.target.texture;
@@ -2168,6 +2239,8 @@ export class SparkRenderer extends THREE.Mesh {
     hideObjects: THREE.Object3D[];
     update: boolean;
   }): Promise<THREE.Texture> {
+    // three's WebGPU PMREMGenerator: see WgpuCubeMap.renderEnvMap.
+    this.requireWebGL("renderEnvMap");
     const cubeTexture = await this.renderCubeMap({
       scene,
       worldCenter,
@@ -2204,6 +2277,36 @@ export class SparkRenderer extends THREE.Mesh {
         }
       }
     });
+  }
+
+  /**
+   * The RGBA of `generator`'s splats as it generates them now (modifiers,
+   * recolor), by splat index, into `rgba` (a new RgbaArray by default):
+   * e.g. to bake painted colours into SplatMesh.splatRgba. On WebGPU the
+   * mesh must have been drawn by this renderer, and SH colour is for the
+   * last camera it was drawn with.
+   */
+  getRgba({
+    generator,
+    rgba = new RgbaArray(),
+  }: { generator: SplatGenerator; rgba?: RgbaArray }): RgbaArray {
+    if (this.webgpu) {
+      this.webgpu.getRgba(generator, rgba);
+      return rgba;
+    }
+    const gen = generator.generator;
+    if (!gen) {
+      throw new Error("SparkRenderer.getRgba: generator has no dyno");
+    }
+    rgba.render({
+      renderer: this.renderer as THREE.WebGLRenderer,
+      count: generator.numSplats,
+      reader: dynoBlock({ index: "int" }, { rgba8: "vec4" }, ({ index }) => {
+        const { gsplat } = gen.apply({ index });
+        return { rgba8: splitGsplat(gsplat).outputs.rgba };
+      }),
+    });
+    return rgba;
   }
 
   async getLodTreeLevel(

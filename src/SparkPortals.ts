@@ -144,7 +144,7 @@ export interface PortalPair {
 }
 
 export interface SparkPortalsOptions {
-  /** The THREE.WebGLRenderer */
+  /** The THREE.WebGLRenderer, or three's WebGPURenderer */
   renderer: THREE.WebGLRenderer;
   /** The scene to render */
   scene: THREE.Scene;
@@ -250,7 +250,10 @@ export class SparkPortals {
 
     const sparkOpts = options.sparkOptions ?? {};
 
-    // Primary renderer with portal shader
+    // Primary renderer with portal shader (built into the WebGPU splat
+    // shader, which reads the same disk uniforms).
+    const webgpu = !!(this.renderer as { isWebGPURenderer?: boolean })
+      .isWebGPURenderer;
     this.portalRenderer = new SparkRenderer({
       renderer: this.renderer,
       extraUniforms: {
@@ -259,9 +262,15 @@ export class SparkPortals {
         diskRadius: { value: 0 },
         diskTwoSided: { value: false },
       },
-      fragmentShader: DISK_PORTAL_FRAGMENT_SHADER,
+      fragmentShader: webgpu ? undefined : DISK_PORTAL_FRAGMENT_SHADER,
       ...sparkOpts,
     });
+    // On WebGPU both passes draw with portalRenderer's splats (one copy of
+    // the LoD pages), its LoD traversed from the main camera, as the
+    // shared lodInstances do on WebGL.
+    if (this.portalRenderer.webgpu) {
+      this.portalRenderer.webgpu.lodCamera = this.camera;
+    }
     this.scene.add(this.portalRenderer);
 
     // Secondary renderer for behind-portal pass
@@ -659,7 +668,10 @@ export class SparkPortals {
     // Pass 1: Behind portal view (uses shared lodInstances)
     this.setPortalDiskUniforms(this.camera2, otherPortal, pair.radius, true);
     this.renderer.autoClear = true;
-    this.behindRenderer.render(this.scene, this.camera2);
+    const behind = this.portalRenderer.webgpu
+      ? this.portalRenderer
+      : this.behindRenderer;
+    behind.render(this.scene, this.camera2);
 
     // Pass 2: Main view (updates portalRenderer's lodInstances for next frame)
     this.setPortalDiskUniforms(this.camera, primaryPortal, -pair.radius, true);

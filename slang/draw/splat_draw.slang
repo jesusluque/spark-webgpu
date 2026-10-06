@@ -21,6 +21,7 @@ static const uint DRAW_LOD_INFLATE = 8u;    // trade LOD opacity for size
 static const uint DRAW_ORTHOGRAPHIC = 16u;
 static const uint DRAW_ENCODE_LINEAR = 32u; // sRGB colours to linear output
 static const uint DRAW_PREMULTIPLIED = 64u; // write premultiplied alpha
+static const uint DRAW_DISK_CLIP = 128u;    // portal disk clip (diskCenter)
 
 struct DrawParams {
     float4 proj0;   // projection matrix columns
@@ -52,6 +53,12 @@ struct DrawParams {
     uint flags;
     uint pad0;
     uint pad1;
+
+    // DRAW_DISK_CLIP, as SparkPortals' DISK_PORTAL_FRAGMENT_SHADER: a disk in
+    // view space, center xyz and radius w (> 0: draw only what is behind it,
+    // seen through it; < 0: drop what is behind it), normal xyz, w two-sided.
+    float4 diskCenter;
+    float4 diskNormal;
 };
 
 StructuredBuffer<uint> ordering;
@@ -74,6 +81,9 @@ struct VertexOut {
     float2 splatUv : TEXCOORD0;
     nointerpolation float adjustedStdDev : TEXCOORD1;
     nointerpolation uint splatIndex : TEXCOORD2;
+    // View ray through the fragment (z = -1) and the splat's axial depth.
+    float3 viewRay : TEXCOORD3;
+    nointerpolation float viewDepth : TEXCOORD4;
 };
 
 // VertexOut without semantics, for the stage functions below: slangc gives
@@ -287,13 +297,43 @@ float4 computeSplatFragment(SplatVertex v) {
     return hasFlag(DRAW_PREMULTIPLIED) ? float4(rgba.rgb * rgba.a, rgba.a) : rgba;
 }
 
+// Whether the portal disk hides this fragment (DRAW_DISK_CLIP).
+bool diskClipped(float3 viewRay, float depth) {
+    float3 viewDir = normalize(viewRay);
+    float rayT = depth / max(1e-6, -viewDir.z);
+    float radius = abs(params.diskCenter.w);
+    bool renderBehind = params.diskCenter.w > 0.0;
+    float3 diskN = normalize(params.diskNormal.xyz);
+    float denom = dot(viewDir, diskN);
+    bool allowPortal = params.diskNormal.w > 0.5 ? abs(denom) > 1e-6 : denom < -1e-6;
+    bool hitsDisk = false;
+    float t = 0.0;
+    if (allowPortal) {
+        t = dot(params.diskCenter.xyz, diskN) / denom;
+        if (t > 0.0) {
+            float3 q = t * viewDir - params.diskCenter.xyz;
+            hitsDisk = dot(q, q) <= radius * radius;
+        }
+    }
+    float eps = 1e-4 * max(1.0, abs(t));
+    if (renderBehind) {
+        return !hitsDisk || rayT <= t + eps;
+    }
+    return hitsDisk && rayT >= t - eps;
+}
+
 [shader("vertex")]
 VertexOut splatVertex(uint vertexId: SV_VertexID, uint instanceId: SV_InstanceID) {
     SplatVertex s = computeSplatVertex(vertexId, instanceId);
-    return { s.position, s.rgba, s.splatUv, s.adjustedStdDev, s.splatIndex };
+    float2 ndc = s.position.xy / s.position.w;
+    float3 viewRay = float3(ndc.x / params.proj0.x, ndc.y / params.proj1.y, -1.0);
+    return { s.position, s.rgba, s.splatUv, s.adjustedStdDev, s.splatIndex, viewRay, s.position.w };
 }
 
 [shader("fragment")]
 float4 splatFragment(VertexOut v) : SV_Target {
+    if (hasFlag(DRAW_DISK_CLIP) && params.diskCenter.w != 0.0 && diskClipped(v.viewRay, v.viewDepth)) {
+        discard;
+    }
     return computeSplatFragment({ v.position, v.rgba, v.splatUv, v.adjustedStdDev, v.splatIndex });
 }

@@ -46,8 +46,8 @@
     camera.position.y = 0.5;
 
     // The duck occludes the splats: both go into a target with depth, shown
-    // by a full-screen quad. (Splats blend in linear space there, sRGB on
-    // WebGL's canvas: midtones differ a little from envmap-webgl.html.)
+    // by a full-screen quad. srgbBlend blends the splats in sRGB space there,
+    // as on WebGL's canvas (?blend=linear: in the target's linear space).
     const target = new THREE.RenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1), type: THREE.HalfFloatType });
     const output = new THREE.QuadMesh(new THREE.MeshBasicNodeMaterial({ colorNode: THREE.TSL.texture(target.texture) }));
     function resize() {
@@ -60,7 +60,9 @@
     resize();
     window.addEventListener("resize", resize);
 
-    const splats = new WgpuSplatRenderer(renderer);
+    const splats = new WgpuSplatRenderer(renderer, {
+      srgbBlend: new URLSearchParams(location.search).get("blend") !== "linear",
+    });
     const packed = new PackedSplats({ url: await getAssetFileURL("fireplace.spz") });
     await packed.initialized;
     const source = GpuSplatSource.fromPackedSplats(splats.device, packed);

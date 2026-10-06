@@ -24,6 +24,11 @@ import * as THREE from "three";
 import { GpuSorter } from "./GpuSorter";
 import { GpuSplatSource } from "./GpuSplatSource";
 import { KernelRegistry } from "./KernelRegistry";
+import {
+  SRGB_LAYER_BLEND,
+  SRGB_LAYER_FORMAT,
+  SrgbComposite,
+} from "./SrgbComposite";
 import { type GpuCapabilities, capabilitiesOf } from "./capabilities";
 import { sortBackToFront } from "./cpuSort";
 import {
@@ -57,6 +62,38 @@ const DRAW_LOD_INFLATE = 8;
 const DRAW_ORTHOGRAPHIC = 16;
 const DRAW_ENCODE_LINEAR = 32;
 const DRAW_PREMULTIPLIED = 64;
+const DRAW_DISK_CLIP = 128;
+
+/** A portal disk in view space that clips the splats (WgpuSplatRenderer.diskClip). */
+export interface SplatDiskClip {
+  center: THREE.Vector3;
+  normal: THREE.Vector3;
+  /**
+   * > 0: draw only the splats behind the disk, seen through it; < 0: drop
+   * the splats behind it where it is seen; 0: no clip.
+   */
+  radius: number;
+  /** Clip seen from either side (else only facing against the normal). */
+  twoSided: boolean;
+}
+
+// The ext accumulator's RGBA (packSplatExt: rg, b and alpha as halves) into
+// an RgbaArray texture, at splatTexCoord(index).
+const BAKE_RGBA_WGSL = /* wgsl */ `
+@group(0) @binding(0) var<storage, read> splats: array<vec4u>;
+@group(0) @binding(1) var rgba: texture_storage_2d_array<rgba8unorm, write>;
+@group(0) @binding(2) var<uniform> count: vec4u;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= count.x) { return; }
+  let a = splats[2u * i];
+  let b = splats[2u * i + 1u];
+  let value = vec4f(unpack2x16float(b.x), unpack2x16float(b.y).x, unpack2x16float(a.w).x);
+  textureStore(rgba, vec2u(i & 2047u, (i >> 11u) & 2047u), i >> 22u, clamp(value, vec4f(0.0), vec4f(1.0)));
+}
+`;
 
 export interface WgpuSplatMesh {
   source: GpuSplatSource;
@@ -115,6 +152,12 @@ export interface WgpuSplatRendererOptions {
    * projected 3D ones (SparkRenderer.enable2DGS). Default false.
    */
   enable2DGS?: boolean;
+  /**
+   * render(): blend the splats in sRGB space into linear targets too, as
+   * WebGL Spark does on the canvas (see SrgbComposite), rather than in the
+   * target's linear space. Default false.
+   */
+  srgbBlend?: boolean;
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -144,6 +187,11 @@ export interface SplatPassTarget {
   extraFormats?: GPUTextureFormat[];
   /** For reversed-depth buffers. @default "less-equal" */
   depthCompare?: GPUCompareFunction;
+  /**
+   * The pass draws into an SrgbComposite layer: alpha accumulates the
+   * transmittance. Colours are written as sRGB (linear is ignored).
+   */
+  layer?: boolean;
 }
 
 /** A draw pipeline replacing the default one, with its extra resources. */
@@ -195,6 +243,11 @@ export class WgpuSplatRenderer {
   /** What the device allows; consulted for the sort path and sizes. */
   readonly capabilities: GpuCapabilities;
   readonly stages: SplatRendererStage[] = [];
+  /**
+   * The portal clip of SparkPortals' DISK_PORTAL_FRAGMENT_SHADER, for the
+   * next draws (default draw only, not attribute variants).
+   */
+  diskClip: SplatDiskClip | null = null;
 
   private capacity = 0;
   private accumulator: GPUBuffer | null = null;
@@ -210,6 +263,8 @@ export class WgpuSplatRenderer {
   private dynoKernels: DynoKernels;
   private lastTime = performance.now() / 1000;
   private dynoDirty = false;
+  private bakePipeline?: GPUComputePipeline;
+  private srgb?: SrgbComposite;
 
   // Sort state: a readback in flight, and the order last uploaded.
   private sortPending = false;
@@ -249,6 +304,7 @@ export class WgpuSplatRenderer {
       lodInflate: false,
       covSplats: false,
       enable2DGS: false,
+      srgbBlend: false,
       ...options,
     };
     this.capabilities = capabilitiesOf(this.device);
@@ -508,18 +564,25 @@ export class WgpuSplatRenderer {
       return;
     }
 
-    this.writeDrawParams(camera, target.width, target.height, target.linear);
+    this.writeDrawParams(
+      camera,
+      target.width,
+      target.height,
+      target.linear && !target.layer,
+    );
     const depthFormat = this.options.depthTest ? target.depthFormat : null;
     const key = [
       target.format,
       target.depthFormat,
       target.sampleCount,
       target.depthCompare,
+      target.layer ? "layer" : "",
       ...(target.extraFormats ?? []),
     ].join("/");
     let rp = this.pipelines.get(key);
     if (!rp) {
       const { colorTarget } = this.pipelineStates(target.format, null);
+      if (target.layer) colorTarget.blend = SRGB_LAYER_BLEND;
       rp = createReflectedRenderPipeline(this.device, drawModule, {
         vertex: "splatVertex",
         fragment: "splatFragment",
@@ -653,84 +716,180 @@ export class WgpuSplatRenderer {
     cameraPos: THREE.Vector3,
     cameraDir: THREE.Vector3,
   ) {
-    const kernel = this.registry.get(generateModule, "generate");
     const pass = encoder.beginComputePass({ label: "generate" });
+    let base = 0;
+    for (const mesh of this.meshes) {
+      const count = this.meshCount(mesh);
+      this.encodeGenerate(pass, mesh, {
+        base,
+        count,
+        lod: mesh.lodIndices != null,
+        cameraPos,
+        cameraDir,
+        outSplats: this.accumulator as GPUBuffer,
+        sortMetric: this.metric as GPUBuffer,
+      });
+      base += count;
+    }
+    pass.end();
+  }
+
+  // One mesh's generate dispatch: `count` splats into outSplats from `base`.
+  private encodeGenerate(
+    pass: GPUComputePassEncoder,
+    mesh: WgpuSplatMesh,
+    out: {
+      base: number;
+      count: number;
+      /** Through the mesh's LOD indices (else source indices 0..count). */
+      lod: boolean;
+      cameraPos: THREE.Vector3;
+      cameraDir: THREE.Vector3;
+      outSplats: GPUBuffer;
+      sortMetric: GPUBuffer;
+      /** Plain Gsplats even when the accumulator holds covariance splats. */
+      noCov?: boolean;
+    },
+  ) {
+    const { base, count, cameraPos, cameraDir } = out;
+    const kernel = this.registry.get(generateModule, "generate");
     const position = new THREE.Vector3();
     const rotation = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const inverse = new THREE.Matrix4();
     const basis = new THREE.Matrix4();
-    let base = 0;
-    for (const mesh of this.meshes) {
-      const { source, object } = mesh;
-      object.updateMatrixWorld();
-      object.matrixWorld.decompose(position, rotation, scale);
-      let dyno: DynoDispatch | null = null;
-      if (DynoKernels.active(mesh.dyno)) {
-        dyno = this.dynoKernels.prepare(mesh, mesh.dyno);
-        if (mesh.dyno.worldSpace) {
-          position.set(0, 0, 0);
-          rotation.identity();
-          scale.set(1, 1, 1);
-        }
+    const { source, object } = mesh;
+    object.updateMatrixWorld();
+    object.matrixWorld.decompose(position, rotation, scale);
+    let dyno: DynoDispatch | null = null;
+    if (DynoKernels.active(mesh.dyno)) {
+      dyno = this.dynoKernels.prepare(mesh, mesh.dyno);
+      if (mesh.dyno.worldSpace) {
+        position.set(0, 0, 0);
+        rotation.identity();
+        scale.set(1, 1, 1);
       }
-      const viewObject = cameraPos
-        .clone()
-        .applyMatrix4(inverse.copy(object.matrixWorld).invert());
-      const count = this.meshCount(mesh);
-      let flags = GEN_OUT_EXT;
-      if (source.format === "ext") flags |= GEN_SRC_EXT;
-      if (mesh.lodIndices) flags |= GEN_USE_LOD;
-      if (source.lodOpacity) flags |= GEN_LOD_OPACITY;
-      if (this.options.sortRadial) flags |= GEN_SORT_RADIAL;
-      if (dyno && mesh.dyno?.generator) flags |= GEN_DYNO_SOURCE;
-      if (this.options.covSplats) {
-        flags |= GEN_OUT_COV;
-        // Gsplat world modifiers need the similarity transform before them.
-        if (!mesh.dyno?.worldModifiers?.length) flags |= GEN_COV_TRANSFORM;
-      }
-      if (dyno && mesh.dyno?.worldSpace) basis.identity();
-      else basis.copy(object.matrixWorld);
-      const b = basis.elements;
-      const params = UniformWriter.for(generateModule).setAll({
-        numSplats: count,
-        outBase: base,
-        flags,
-        numSh: source.numSh,
-        srcCount: source.count,
-        rotate: [rotation.x, rotation.y, rotation.z, rotation.w],
-        translateScale: [
-          position.x,
-          position.y,
-          position.z,
-          (scale.x + scale.y + scale.z) / 3,
-        ],
-        recolor: mesh.recolor.toArray(),
-        encoding: source.encoding,
-        shMax: source.shMax,
-        viewObject: [viewObject.x, viewObject.y, viewObject.z, 0],
-        viewCenter: [cameraPos.x, cameraPos.y, cameraPos.z, 0],
-        viewDir: [cameraDir.x, cameraDir.y, cameraDir.z, 0],
-        outOrigin: [0, 0, 0, 0],
-        covBasis0: [b[0], b[1], b[2], 0],
-        covBasis1: [b[4], b[5], b[6], 0],
-        covBasis2: [b[8], b[9], b[10], 0],
-      });
-      (dyno?.kernel ?? kernel).dispatch(pass, {
-        bindings: dyno?.bindings,
-        grid: [count],
-        buffers: {
-          src: source.src,
-          sh: source.sh ?? this.emptyBuffer,
-          lodIndices: mesh.lodBuffer ?? this.emptyBuffer,
-          outSplats: this.accumulator as GPUBuffer,
-          sortMetric: this.metric as GPUBuffer,
-        },
-        uniforms: params.data,
-      });
-      base += count;
     }
+    const viewObject = cameraPos
+      .clone()
+      .applyMatrix4(inverse.copy(object.matrixWorld).invert());
+    let flags = GEN_OUT_EXT;
+    if (source.format === "ext") flags |= GEN_SRC_EXT;
+    if (out.lod) flags |= GEN_USE_LOD;
+    if (source.lodOpacity) flags |= GEN_LOD_OPACITY;
+    if (this.options.sortRadial) flags |= GEN_SORT_RADIAL;
+    if (dyno && mesh.dyno?.generator) flags |= GEN_DYNO_SOURCE;
+    if (this.options.covSplats && !out.noCov) {
+      flags |= GEN_OUT_COV;
+      // Gsplat world modifiers need the similarity transform before them.
+      if (!mesh.dyno?.worldModifiers?.length) flags |= GEN_COV_TRANSFORM;
+    }
+    if (dyno && mesh.dyno?.worldSpace) basis.identity();
+    else basis.copy(object.matrixWorld);
+    const b = basis.elements;
+    const params = UniformWriter.for(generateModule).setAll({
+      numSplats: count,
+      outBase: base,
+      flags,
+      numSh: source.numSh,
+      srcCount: source.count,
+      rotate: [rotation.x, rotation.y, rotation.z, rotation.w],
+      translateScale: [
+        position.x,
+        position.y,
+        position.z,
+        (scale.x + scale.y + scale.z) / 3,
+      ],
+      recolor: mesh.recolor.toArray(),
+      encoding: source.encoding,
+      shMax: source.shMax,
+      viewObject: [viewObject.x, viewObject.y, viewObject.z, 0],
+      viewCenter: [cameraPos.x, cameraPos.y, cameraPos.z, 0],
+      viewDir: [cameraDir.x, cameraDir.y, cameraDir.z, 0],
+      outOrigin: [0, 0, 0, 0],
+      covBasis0: [b[0], b[1], b[2], 0],
+      covBasis1: [b[4], b[5], b[6], 0],
+      covBasis2: [b[8], b[9], b[10], 0],
+    });
+    (dyno?.kernel ?? kernel).dispatch(pass, {
+      bindings: dyno?.bindings,
+      grid: [count],
+      buffers: {
+        src: source.src,
+        sh: source.sh ?? this.emptyBuffer,
+        lodIndices: mesh.lodBuffer ?? this.emptyBuffer,
+        outSplats: out.outSplats,
+        sortMetric: out.sortMetric,
+      },
+      uniforms: params.data,
+    });
+  }
+
+  /**
+   * `mesh`'s splats as generated now (its modifiers and recolor, SH for
+   * `camera`), their RGBA by source index into `texture`: an rgba8unorm
+   * 2d-array with STORAGE_BINDING, splatTexCoord layout (RgbaArray's). For
+   * SparkRenderer.getRgba, which bakes painted colours into SplatMesh.splatRgba.
+   */
+  bakeRgba(mesh: WgpuSplatMesh, camera: THREE.Camera, texture: GPUTexture) {
+    const count = mesh.source.count;
+    if (count === 0) return;
+    camera.updateMatrixWorld();
+    const cameraPos = new THREE.Vector3().setFromMatrixPosition(
+      camera.matrixWorld,
+    );
+    const cameraDir = new THREE.Vector3(0, 0, -1).transformDirection(
+      camera.matrixWorld,
+    );
+    const { device } = this;
+    const outSplats = createStorage(device, count * 32, "baked splats");
+    const sortMetric = createStorage(device, count * 4, "baked metric");
+    const encoder = device.createCommandEncoder({ label: "bake rgba" });
+    const pass = encoder.beginComputePass({ label: "bake rgba" });
+    this.encodeGenerate(pass, mesh, {
+      base: 0,
+      count,
+      lod: false,
+      cameraPos,
+      cameraDir,
+      outSplats,
+      sortMetric,
+      noCov: true,
+    });
+    this.bakePipeline ??= device.createComputePipeline({
+      label: "bake rgba",
+      layout: "auto",
+      compute: {
+        module: device.createShaderModule({ code: BAKE_RGBA_WGSL }),
+        entryPoint: "main",
+      },
+    });
+    const countBuffer = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(countBuffer, 0, new Uint32Array([count, 0, 0, 0]));
+    pass.setPipeline(this.bakePipeline);
+    pass.setBindGroup(
+      0,
+      device.createBindGroup({
+        layout: this.bakePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: outSplats } },
+          {
+            binding: 1,
+            resource: texture.createView({ dimension: "2d-array" }),
+          },
+          { binding: 2, resource: { buffer: countBuffer } },
+        ],
+      }),
+    );
+    pass.dispatchWorkgroups(Math.ceil(count / 256));
     pass.end();
+    this.registry.submit(encoder.finish());
+    outSplats.destroy();
+    sortMetric.destroy();
+    countBuffer.destroy();
   }
 
   private copyMetric(encoder: GPUCommandEncoder, total: number): GPUBuffer {
@@ -799,14 +958,16 @@ export class WgpuSplatRenderer {
   private pipeline(
     format: GPUTextureFormat,
     depthFormat: GPUTextureFormat | null,
+    layer = false,
   ) {
-    const key = `${format}/${depthFormat}`;
+    const key = `${format}/${depthFormat}${layer ? "/layer" : ""}`;
     let p = this.pipelines.get(key);
     if (!p) {
       const { colorTarget, depthStencil } = this.pipelineStates(
         format,
         depthFormat,
       );
+      if (layer) colorTarget.blend = SRGB_LAYER_BLEND;
       p = createReflectedRenderPipeline(this.device, drawModule, {
         vertex: "splatVertex",
         fragment: "splatFragment",
@@ -835,7 +996,6 @@ export class WgpuSplatRenderer {
     const depthTexture = this.options.depthTest ? depth : null;
     const depthView = depthTexture?.createView();
     const depthFormat = depthTexture?.format ?? null;
-    this.writeDrawParams(camera, size.x, size.y, linear);
 
     let variant: SplatDrawVariant | null = null;
     for (const s of this.stages) {
@@ -846,20 +1006,22 @@ export class WgpuSplatRenderer {
           height: size.y,
         }) ?? null;
     }
-    const rp = variant?.pipeline ?? this.pipeline(target.format, depthFormat);
+    // Blended in sRGB in a layer of their own, composited after.
+    const layer = linear && this.options.srgbBlend && !variant;
+    this.writeDrawParams(camera, size.x, size.y, linear && !layer);
+    const rp =
+      variant?.pipeline ??
+      (layer
+        ? this.pipeline(SRGB_LAYER_FORMAT, depthFormat, true)
+        : this.pipeline(target.format, depthFormat));
     const groups = createBindGroups(this.device, rp, {
       ordering: gpu ? this.sorter.ordering : (this.ordering as GPUBuffer),
       splats: this.accumulator as GPUBuffer,
       params: this.drawUniform,
       ...variant?.buffers,
     });
-    const pass = encoder.beginRenderPass({
-      label: "splats",
-      colorAttachments: [
-        { view: target.createView(), loadOp: "load", storeOp: "store" },
-        ...(variant?.attachments ?? []),
-      ],
-      depthStencilAttachment: depthView
+    const depthAttachment: GPURenderPassDepthStencilAttachment | undefined =
+      depthView
         ? {
             view: depthView,
             depthReadOnly: true,
@@ -867,8 +1029,17 @@ export class WgpuSplatRenderer {
               ? { stencilReadOnly: true }
               : {}),
           }
-        : undefined,
-    });
+        : undefined;
+    const pass = layer
+      ? this.srgbComposite.beginLayer(encoder, target, depthAttachment)
+      : encoder.beginRenderPass({
+          label: "splats",
+          colorAttachments: [
+            { view: target.createView(), loadOp: "load", storeOp: "store" },
+            ...(variant?.attachments ?? []),
+          ],
+          depthStencilAttachment: depthAttachment,
+        });
     pass.setPipeline(rp.pipeline);
     groups.forEach((g, i) => pass.setBindGroup(i, g));
     if (gpu) {
@@ -879,6 +1050,17 @@ export class WgpuSplatRenderer {
     this.stats.draws += 1;
     this.stats.drawn = gpu ? (gpuSorted as number) : this.drawCount;
     pass.end();
+    if (layer) {
+      this.srgbComposite.composite(encoder, target, {
+        view: target.createView(),
+      });
+    }
+  }
+
+  /** Composites splat layers over linear targets (srgbBlend). */
+  get srgbComposite(): SrgbComposite {
+    this.srgb ??= new SrgbComposite(this.device);
+    return this.srgb;
   }
 
   // The draw uniforms for this camera and target size.
@@ -894,6 +1076,7 @@ export class WgpuSplatRenderer {
     const p = camera.projectionMatrix.elements;
     const basis = new THREE.Matrix3().setFromMatrix4(view).elements;
     const o = this.options;
+    const disk = this.diskClip?.radius ? this.diskClip : null;
     const params = UniformWriter.for(drawModule).setAll({
       proj0: p.slice(0, 4),
       proj1: p.slice(4, 8),
@@ -917,6 +1100,10 @@ export class WgpuSplatRenderer {
       clipXY: o.clipXY,
       focalAdjustment: o.focalAdjustment,
       falloff: o.falloff,
+      diskCenter: disk ? [...disk.center.toArray(), disk.radius] : [0, 0, 0, 0],
+      diskNormal: disk
+        ? [...disk.normal.toArray(), disk.twoSided ? 1 : 0]
+        : [0, 0, 0, 0],
       flags:
         DRAW_EXT |
         DRAW_PREMULTIPLIED |
@@ -924,6 +1111,7 @@ export class WgpuSplatRenderer {
         (o.enable2DGS ? DRAW_2DGS : 0) |
         (o.lodInflate ? DRAW_LOD_INFLATE : 0) |
         (linear ? DRAW_ENCODE_LINEAR : 0) |
+        (disk ? DRAW_DISK_CLIP : 0) |
         ((camera as THREE.OrthographicCamera).isOrthographicCamera
           ? DRAW_ORTHOGRAPHIC
           : 0),
@@ -939,6 +1127,7 @@ export class WgpuSplatRenderer {
     this.drawUniform.destroy();
     this.emptyBuffer.destroy();
     this.sorter.destroy();
+    this.srgb?.dispose();
     this.registry.destroy();
   }
 }
