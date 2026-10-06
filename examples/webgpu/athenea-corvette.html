@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • athenea Corvette, light (WebGPU)</title>
+  <style>
+    body { margin: 0; background-color: black; }
+    canvas { display: block; touch-action: none; }
+    .overlay { position: fixed; margin: 12px; bottom: 0; color: white; font-family: sans-serif; white-space: pre; }
+  </style>
+</head>
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
+        "three/tsl": "../js/vendor/three/build/three.tsl.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js",
+        "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
+      }
+    }
+  </script>
+  <div class="overlay"><p id="status">loading…</p></div>
+  <canvas id="canvas" tabindex="0" style="outline: none;"></canvas>
+  <script type="module">
+    // athenea's Corvette, light: the TX clouds athenea baked per material
+    // (paint, rims, metal, chrome, the three glasses) and its relightable
+    // trim, merged down by usd-athc (--cell) to about 1.4M splats, relit by
+    // athenea's splat_relight under any dome (atheneaRelightPlugin).
+    //
+    //   ?base=<dir>     where corvette.json, the .athc clouds and hdri/ are
+    //                   (default ./corvette/)
+    //   ?hdri=<name>    the dome (default the bake's, autoshop_01_1k.hdr)
+    //   ?glass=0  ?trim=0  ?catcher=0  ?gui=0  ?view=agx|aces2|standard
+    //   ?shot=1         athenea's /World/Camera, still (for comparisons)
+    import * as THREE from "three/webgpu";
+    import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
+    // The scene is shared with the public page (examples/webgpu-site/corvette.html).
+    import { createCorvette } from "../webgpu-site/corvette.js";
+
+    const params = new URLSearchParams(location.search);
+    const base = params.get("base") ?? "./corvette/";
+    const status = document.getElementById("status");
+    const adapter = await navigator.gpu?.requestAdapter();
+    const renderer = new THREE.WebGPURenderer({
+      canvas: document.getElementById("canvas"),
+      requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
+    });
+    renderer.setPixelRatio(devicePixelRatio);
+    renderer.setSize(innerWidth, innerHeight);
+    await renderer.init();
+    await createCorvette({ renderer, base, params, status });
+  </script>
+</body>
+</html>
