@@ -97,6 +97,7 @@ Splats are not tone mapped, as on WebGL.
 | sogs.html | `SkyMesh` for `Sky` | 0.97 |
 | debug-color.html, lod-on-demand.html | – | 0.13, 0.23 |
 | particle-animation.html | – | 3.09 (time-driven noise) |
+| glsl.html | WGSL for its GLSL dynos, opaque clear color | 0.16 |
 
 `spark-renderer.html` puts a cube through a splat mesh. Use
 `?backend=webgl` for the WebGL version, and `&mode=target`, `&mode=post` or
