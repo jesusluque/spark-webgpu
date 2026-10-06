@@ -51,6 +51,29 @@ The image matches the quad draw to within a level: a mean difference of 0.3–0.
 
 On Apple GPUs it pays off only where many splats pile up on a pixel and early termination skips most of them. In Chrome on an Apple GPU, dense synthetic clouds (1–4M splats, and close-ups) reach 1.8–4.4× the frame rate. Captured scenes (penguin, valley, robot-head) are 1.1–1.7× slower, because a tile blends all 256 of its pixels for each listed splat, where the rasterizer shades only covered fragments. It stays opt-in.
 
+### Choosing per frame: `rasterizer: "auto"`
+
+`rasterizer: "auto"` (`AutoRasterizer.ts`) draws each frame on whichever path the GPU runs faster, by timing them. Nothing cheap computed before the draw predicts the order: pairs per tile is no higher on the synthetic clouds the tiles win than on the captured scenes the quads win, since it ignores early termination and fragment counts.
+
+- **Timing.** `DrawTimer` stamps the end of a one-thread marker pass after the sort and the end of the draw's last pass (a pass's beginning can be stamped before the passes ahead of it finish on Apple GPUs; an empty pass, or one stamping only its end, gets no timestamps). Frames are read back in batches of four on one path; a batch's sample is its median span, or the mean period between consecutive draws' ends when less, since spans stretch when an unthrottled loop overlaps frames. The current path is timed one batch in 16 frames.
+- **Probes.** The other path is drawn for four frames, after 30 frames, then at intervals doubling to 960 while it loses; the interval drops back to 30 when the current path's time moves by more than the gap the last probe saw (1.25–2×), the only case where the order may have flipped. A switch needs the other path 10% and 0.2 ms faster. A probe of the tiles first runs the tile stages once untimed on a quad frame and waits for their pair count, so a probe never drops pairs. The two paths agree to about 0.5/255, so probes and switches don't show.
+- **Without `timestamp-query`** it draws hardware. With `profile: true` it reads the profiler's frame span instead.
+- `stats.rasterizer` is the path the last draw took, `stats.auto` the policy's state (estimates, probes, switches, interval).
+
+Readbacks lag the GPU queue: a few frames when paced, but seconds in an unthrottled headless loop (0.5 s on penguin, 15 s on the 4M cloud), and auto settles only after a few of them. Paced (`__bench`, each frame waited on), in Chrome on an Apple GPU at 1280×720, it settled on the faster path in 21 of 21 runs. Median frame ms of 3 interleaved runs, with other work on the GPU:
+
+| Scene | hardware | tiles | auto |
+| --- | --- | --- | --- |
+| 1M synthetic | 11.3 | 6.8 | 6.0 |
+| 2M synthetic | 25.6 | 11.3 | 16.5 |
+| 4M synthetic | 70.0 | 21.6 | 26.0 |
+| 1M close-up | 37.8 | 10.1 | 10.2 |
+| penguin | 2.9 | 4.1 | 2.5 |
+| valley | 5.6 | 7.8 | 3.9 |
+| robot-head | 2.6 | 3.3 | 2.0 |
+
+The default stays `"hardware"`: auto needs `timestamp-query`, and in an unthrottled loop dense scenes stayed on the quads for over 15 s, slower than hardware while they waited.
+
 ## Buffer layouts and the 8-storage-buffers rule
 
 WebGPU guarantees only 8 storage buffers per shader stage, and that is what Safari gives by default. So per-splat data is **interleaved**, one buffer per kind of data, and no kernel binds more than 5 storage buffers:
