@@ -49,6 +49,7 @@ const GEN_LOD_OPACITY = 8;
 const GEN_SORT_RADIAL = 16;
 const GEN_DYNO_SOURCE = 256;
 const GEN_OUT_COV = 512;
+const GEN_CULL = 2048;
 const GEN_COV_TRANSFORM = 1024;
 
 const DRAW_EXT = 1;
@@ -121,6 +122,12 @@ export interface WgpuSplatRendererOptions {
    * draw costs the same with either on Apple GPUs.
    */
   accumulator?: "ext" | "packed" | "auto";
+  /**
+   * Drop splats in generate that the draw would skip (center outside the
+   * clipXY frustum, alpha under minAlpha), so the sort and the draw handle
+   * only the rest. Same image; default true.
+   */
+  cull?: boolean;
   /**
    * Accumulate covariance splats (SparkRenderer.covSplats): mesh transforms
    * may scale non-uniformly or shear, and meshes may use CovSplat modifiers
@@ -275,6 +282,7 @@ export class WgpuSplatRenderer {
       lodInflate: false,
       profile: false,
       accumulator: "auto",
+      cull: true,
       covSplats: false,
       enable2DGS: false,
       ...options,
@@ -443,6 +451,9 @@ export class WgpuSplatRenderer {
       this.options.sortBits,
       this.options.sortRadial ? 1 : 0,
       this.packedFor(total) ? 1 : 0,
+      this.options.cull ? 1 : 0,
+      this.options.clipXY,
+      this.options.minAlpha,
       this.options.covSplats ? 1 : 0,
       ...camera.matrixWorld.elements,
       ...camera.projectionMatrix.elements,
@@ -531,7 +542,7 @@ export class WgpuSplatRenderer {
     const encoder = this.device.createCommandEncoder({ label: "splats" });
     if (this.options.sort === "gpu") {
       if (this.changedSince(camera, total)) {
-        this.generateAll(encoder, cameraPos, cameraDir);
+        this.generateAll(encoder, camera, cameraPos, cameraDir);
         this.encodeSort(encoder, total);
         this.stats.generated += 1;
       }
@@ -539,7 +550,7 @@ export class WgpuSplatRenderer {
       this.submit(encoder);
       return;
     }
-    this.generateAll(encoder, cameraPos, cameraDir);
+    this.generateAll(encoder, camera, cameraPos, cameraDir);
     this.draw(encoder, camera, target);
     const version = this.mappingVersion;
     const readback = this.sortPending ? null : this.copyMetric(encoder, total);
@@ -570,12 +581,12 @@ export class WgpuSplatRenderer {
     let readback: GPUBuffer | null = null;
     if (gpu) {
       if (this.changedSince(camera, total)) {
-        this.generateAll(encoder, cameraPos, cameraDir);
+        this.generateAll(encoder, camera, cameraPos, cameraDir);
         this.encodeSort(encoder, total);
         this.stats.generated += 1;
       }
     } else {
-      this.generateAll(encoder, cameraPos, cameraDir);
+      this.generateAll(encoder, camera, cameraPos, cameraDir);
       readback = this.sortPending ? null : this.copyMetric(encoder, total);
     }
     const version = this.mappingVersion;
@@ -713,10 +724,11 @@ export class WgpuSplatRenderer {
   // every frame that regenerates.
   private generateAll(
     encoder: GPUCommandEncoder,
+    camera: THREE.Camera,
     cameraPos: THREE.Vector3,
     cameraDir: THREE.Vector3,
   ) {
-    this.generate(encoder, cameraPos, cameraDir);
+    this.generate(encoder, camera, cameraPos, cameraDir);
     if (this.stages.length) {
       let base = 0;
       const ranges = this.meshes.map((mesh) => {
@@ -730,10 +742,12 @@ export class WgpuSplatRenderer {
 
   private generate(
     encoder: GPUCommandEncoder,
+    camera: THREE.Camera,
     cameraPos: THREE.Vector3,
     cameraDir: THREE.Vector3,
   ) {
     const kernel = this.registry.get(generateModule, "generate");
+    const cull = this.cullParams(camera);
     const packed = this.packedFor(
       this.meshes.reduce((n, m) => n + this.meshCount(m), 0),
     );
@@ -768,7 +782,8 @@ export class WgpuSplatRenderer {
         .clone()
         .applyMatrix4(inverse.copy(object.matrixWorld).invert());
       const count = this.meshCount(mesh);
-      let flags = packed ? 0 : GEN_OUT_EXT;
+      let flags =
+        (packed ? 0 : GEN_OUT_EXT) | (this.options.cull ? GEN_CULL : 0);
       if (source.format === "ext") flags |= GEN_SRC_EXT;
       if (mesh.lodIndices) flags |= GEN_USE_LOD;
       if (source.lodOpacity) flags |= GEN_LOD_OPACITY;
@@ -788,6 +803,7 @@ export class WgpuSplatRenderer {
         flags,
         numSh: source.numSh,
         srcCount: source.count,
+        shStride: source.shStride,
         rotate: [rotation.x, rotation.y, rotation.z, rotation.w],
         translateScale: [
           position.x,
@@ -805,6 +821,7 @@ export class WgpuSplatRenderer {
         covBasis0: [b[0], b[1], b[2], 0],
         covBasis1: [b[4], b[5], b[6], 0],
         covBasis2: [b[8], b[9], b[10], 0],
+        ...cull,
       });
       (dyno?.kernel ?? kernel).dispatch(pass, {
         bindings: dyno?.bindings,
@@ -821,6 +838,24 @@ export class WgpuSplatRenderer {
       base += count;
     }
     pass.end();
+  }
+
+  // generate's copy of the draw's early outs (GEN_CULL), for this camera.
+  private cullParams(camera: THREE.Camera) {
+    const view = camera.matrixWorldInverse;
+    const vp = new THREE.Matrix4().multiplyMatrices(
+      camera.projectionMatrix,
+      view,
+    ).elements;
+    const v = view.elements;
+    return {
+      cullProj0: vp.slice(0, 4),
+      cullProj1: vp.slice(4, 8),
+      cullProj2: vp.slice(8, 12),
+      cullProj3: vp.slice(12, 16),
+      cullViewZ: [v[2], v[6], v[10], v[14]],
+      cullParams: [this.options.clipXY, this.options.minAlpha, 0, 0],
+    };
   }
 
   private copyMetric(encoder: GPUCommandEncoder, total: number): GPUBuffer {

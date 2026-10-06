@@ -30,6 +30,7 @@ static const uint GEN_DYNO_SOURCE = 256u; // dynoSource generates the splats
 static const uint GEN_OUT_COV = 512u;    // accumulator holds covariance splats
 static const uint GEN_COV_TRANSFORM = 1024u; // covBasis transforms the CovSplat
                                          // (else the similarity, before it)
+static const uint GEN_CULL = 2048u;      // drop splats the draw would skip
 
 struct GenerateParams {
     uint numSplats;   // output splats for this mesh (the LOD count when LOD is on)
@@ -38,7 +39,7 @@ struct GenerateParams {
     int numSh;        // SH degrees to evaluate, 0-3
 
     uint srcCount;    // splats in the source
-    uint pad0;
+    uint shStride;    // uint4s per splat in sh; 0: all degrees (3 packed, 4 ext)
     uint pad1;
     uint pad2;
 
@@ -54,7 +55,28 @@ struct GenerateParams {
     float4 covBasis0;       // object to world linear part, columns
     float4 covBasis1;       // (GEN_COV_TRANSFORM)
     float4 covBasis2;
+    float4 cullProj0;       // world to clip, columns (GEN_CULL)
+    float4 cullProj1;
+    float4 cullProj2;
+    float4 cullProj3;
+    float4 cullViewZ;       // world to view z, a row
+    float4 cullParams;      // x clipXY, y minAlpha
 };
+
+// The draw's per-splat early outs (splat_draw.slang computeSplatVertex) on
+// the world center and alpha: splats it would drop get no sort slot and no
+// draw instance. Same tests, so the image is unchanged.
+bool culled(float3 center, float alpha) {
+    if (alpha == 0.0 || alpha < params.cullParams.y) {
+        return true;
+    }
+    if (dot(params.cullViewZ.xyz, center) + params.cullViewZ.w >= 0.0) {
+        return true;
+    }
+    float4 clip = params.cullProj0 * center.x + params.cullProj1 * center.y + params.cullProj2 * center.z + params.cullProj3;
+    float limit = params.cullParams.x * clip.w;
+    return clip.z < 0.0 || clip.z >= clip.w || abs(clip.x) > limit || abs(clip.y) > limit;
+}
 
 StructuredBuffer<uint4> src;
 StructuredBuffer<uint4> sh;
@@ -81,12 +103,17 @@ float3 shColor(uint index, float3 center) {
         return float3(0.0);
     }
     float3 dir = normalize(center - params.viewObject.xyz);
+    // Load only the degrees used: a pool sized for fewer has no room for more.
+    int n = params.numSh;
+    uint4 zero = uint4(0u);
     if (hasFlag(GEN_SRC_EXT)) {
-        uint b = 4u * index;
-        return evaluateExtSH(params.numSh, dir, sh[b], sh[b + 1u], sh[b + 2u], sh[b + 3u]);
+        uint b = (params.shStride != 0u ? params.shStride : 4u) * index;
+        return evaluateExtSH(n, dir, sh[b], n >= 2 ? sh[b + 1u] : zero,
+                             n >= 3 ? sh[b + 2u] : zero, n >= 3 ? sh[b + 3u] : zero);
     }
-    uint b = 3u * index;
-    return evaluatePackedSH(params.numSh, dir, params.shMax.xyz, sh[b].xy, sh[b + 1u], sh[b + 2u]);
+    uint b = (params.shStride != 0u ? params.shStride : 3u) * index;
+    return evaluatePackedSH(n, dir, params.shMax.xyz, sh[b].xy, n >= 2 ? sh[b + 1u] : zero,
+                            n >= 3 ? sh[b + 2u] : zero);
 }
 
 [shader("compute")]
@@ -139,6 +166,7 @@ void generate(uint3 tid: SV_DispatchThreadID) {
         float3 rel = s.center - params.viewCenter.xyz;
         metric = hasFlag(GEN_SORT_RADIAL) ? length(rel) : dot(rel, params.viewDir.xyz) + 100.0;
         if (!isActive(s.flags)) metric = INFINITY; // a modifier dropped it
+        if (hasFlag(GEN_CULL) && culled(s.center, cov ? c.rgba.a : s.rgba.a)) metric = INFINITY;
     }
 
     uint o = params.outBase + i;

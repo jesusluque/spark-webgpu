@@ -17,6 +17,8 @@ import * as THREE from "three";
 import type { PagedSplats } from "../PagedSplats";
 import { SplatPager, type SplatPagerOptions } from "../SplatPager";
 import { GpuSplatSource } from "./GpuSplatSource";
+import { KernelRegistry } from "./KernelRegistry";
+import restrideModule from "./generated/kernels/pool_restride";
 import { createStorage } from "./gpuBuffers";
 
 const PAGE_SPLATS = 65536;
@@ -43,6 +45,11 @@ export class WgpuSplatPager extends SplatPager {
   // Paged chunk decoding skips attributes for now.
   /** Per-splat words of each pool, by name. */
   readonly pools: Record<"core" | "sh", Pool>;
+  // SH degrees the SH pool's stride holds: it is sized for the data that
+  // arrives (an SH1 scene takes a third of SH3's memory) and widened when a
+  // page with more degrees comes.
+  private shDegree = 0;
+  private registry: KernelRegistry | null = null;
 
   constructor(device: GPUDevice, options: WgpuSplatPagerOptions) {
     const ext = options.extSplats ?? false;
@@ -69,7 +76,7 @@ export class WgpuSplatPager extends SplatPager {
     this.device = device;
     this.pools = {
       core: { wordsPerSplat: coreWords, buffer: null },
-      sh: { wordsPerSplat: shWords, buffer: null },
+      sh: { wordsPerSplat: 0, buffer: null },
     };
     this.ensurePool(this.pools.core, "splat pages");
   }
@@ -90,7 +97,7 @@ export class WgpuSplatPager extends SplatPager {
     const sh = this.pools.sh.buffer;
     const numSh = sh ? Math.min(splats.numSh, splats.maxSh, this.curSh) : 0;
     const e = splats.splatEncoding;
-    return new GpuSplatSource(
+    const source = new GpuSplatSource(
       this.extSplats ? "ext" : "packed",
       this.maxSplats,
       this.pools.core.buffer as GPUBuffer,
@@ -100,6 +107,36 @@ export class WgpuSplatPager extends SplatPager {
       e ? [e.rgbMin, e.rgbMax, e.lnScaleMin, e.lnScaleMax] : undefined,
       e?.lodOpacity ?? false,
     );
+    source.shStride = this.pools.sh.wordsPerSplat / 4;
+    return source;
+  }
+
+  // uint4s per splat for `degree` SH degrees: packed sh1 (padded), sh2, sh3;
+  // ext sh1, sh2, sh3a + sh3b.
+  private shSlots(degree: number) {
+    return degree === 3 && this.extSplats ? 4 : degree;
+  }
+
+  // Makes the SH pool hold `degree` degrees, moving the pages already there.
+  private ensureShDegree(degree: number) {
+    if (degree <= this.shDegree) return;
+    const sh = this.pools.sh;
+    const oldSlots = sh.wordsPerSplat / 4;
+    const newSlots = this.shSlots(degree);
+    const old = sh.buffer;
+    sh.wordsPerSplat = 4 * newSlots;
+    sh.buffer = null;
+    const buffer = this.ensurePool(sh, "SH pages");
+    if (old) {
+      this.registry ??= new KernelRegistry(this.device);
+      this.registry.get(restrideModule, "restride").run({
+        grid: [this.maxSplats],
+        buffers: { src: old, dst: buffer },
+        uniforms: new Uint32Array([this.maxSplats, oldSlots, newSlots, 0]),
+      });
+      old.destroy();
+    }
+    this.shDegree = degree;
   }
 
   // No textures: SplatPager's dyno blocks are never compiled on this path.
@@ -130,15 +167,17 @@ export class WgpuSplatPager extends SplatPager {
 
     const numSh = Math.min(shArrays.length, 3);
     if (numSh === 0 || this.maxSh === 0) return;
-    this.curSh = Math.max(this.curSh, Math.min(numSh, this.maxSh));
+    const degree = Math.min(numSh, this.maxSh);
+    this.curSh = Math.max(this.curSh, degree);
+    this.ensureShDegree(degree);
     const sh = this.pools.sh;
-    this.ensurePool(sh, "SH pages");
     // Packed: sh1 (2 words, padded to 4), sh2, sh3. Ext: sh1, sh2, sh3a, sh3b.
     const stride = sh.wordsPerSplat;
     const perArray = this.extSplats ? [4, 4, 4, 4] : [2, 4, 4];
+    const arrays = shArrays.slice(0, this.shSlots(degree));
     const words = new Uint32Array(count * stride);
     for (let i = 0; i < count; i++) {
-      shArrays.forEach((array, k) => {
+      arrays.forEach((array, k) => {
         const n = perArray[k];
         words.set(array.subarray(n * i, n * i + n), stride * i + 4 * k);
       });
@@ -158,6 +197,7 @@ export class WgpuSplatPager extends SplatPager {
 
   dispose() {
     super.dispose();
+    this.registry?.destroy();
     for (const pool of Object.values(this.pools)) {
       pool.buffer?.destroy();
       pool.buffer = null;

@@ -339,7 +339,12 @@ export class WgpuLod {
       // The pool's SH buffer and the encoding appear with the first pages.
       if (m.splats instanceof PagedSplats && this.pager) {
         const source = this.pager.source(m.splats);
-        if (source.numSh !== m.lodSource.numSh) this.markRendererDirty();
+        if (
+          source.numSh !== m.lodSource.numSh ||
+          source.sh !== m.lodSource.sh
+        ) {
+          this.markRendererDirty();
+        }
         m.mesh.source = m.lodSource = source;
       }
     }
