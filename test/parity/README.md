@@ -55,19 +55,28 @@ is one `ex(name, [scenarios])` line.
 ## Safari
 
 ```sh
-npm run test:parity -- --browser safari              # WebGPU in Safari vs WebGL in Chrome
-npm run test:parity -- --webgl safari --webgpu safari
+npm run test:parity -- --browser safari                  # WebGPU vs WebGL, both in Safari
+npm run test:parity -- --webgl chrome --webgpu safari    # WebGPU in Safari vs WebGL in Chrome
 ```
 
 Safari runs through `safaridriver` (W3C WebDriver over HTTP, `webdriver.mjs`).
 It needs Safari's Develop > "Allow Remote Automation" (or
 `safaridriver --enable`). Without it, the runner prints how to enable it and
-skips with exit code 0. WebDriver has no init scripts, so the runner's Vite
-injects the clock into every page and reads its config from
-`sessionStorage`, which the runner sets from a blank same-origin page. For
-that reason, Safari needs the runner's own Vite, not `--base`. Chrome
-renders at Safari's device pixel ratio so that the screenshots line up.
-Cases with file inputs are skipped on Safari.
+skips with exit code 0. Safari drives one automation session at a time, so
+the runner waits up to `--safari-wait` seconds (600) for another session to
+end. Use `--safari-port` to keep away from other safaridrivers.
+
+WebDriver has no init scripts, so the runner's Vite injects the clock into
+every page and reads its config from `sessionStorage`, which the runner sets
+from a blank same-origin page. For that reason, Safari needs the runner's
+own Vite, not `--base`. Cases with file inputs are skipped on Safari.
+
+Across browsers, the screenshots differ in colour management as well as in
+rendering: Safari's come in the display's colour space. Chrome runs with
+`--force-color-profile=display-p3-d65` against Safari (`--color-profile`),
+which brings hello-world from 1.00 to 0.79/255, but the thresholds are
+calibrated on same-browser pairs. Safari WebGL vs Safari WebGPU is the
+comparison to gate on, and hello-world is 0.03 there, as on Chrome.
 
 ## Performance mode
 

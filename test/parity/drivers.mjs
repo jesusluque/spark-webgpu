@@ -110,9 +110,10 @@ export class ChromeDriver {
     this.caps = { files: true, routes: true };
   }
 
-  static async launch({ perf = false, headed = false } = {}) {
+  static async launch({ perf = false, headed = false, colorProfile } = {}) {
     const { chromium } = await import("playwright");
     const args = ["--enable-unsafe-webgpu"];
+    if (colorProfile) args.push(`--force-color-profile=${colorProfile}`);
     if (perf) args.push("--disable-gpu-vsync", "--disable-frame-rate-limit");
     const browser = await chromium.launch({
       channel: "chrome",

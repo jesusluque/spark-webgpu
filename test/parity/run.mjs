@@ -6,7 +6,7 @@
 //   --base <url>        reuse a running server instead of starting Vite
 //   --port <n>          port for the runner's Vite (default 8081)
 //   --out <dir>         report directory (default test/parity/out)
-//   --browser safari    WebGPU in Safari against WebGL in Chrome
+//   --browser safari    WebGPU against WebGL, both in Safari
 //   --webgl <b>, --webgpu <b>   the browser for each side: chrome | safari
 //   --perf              also measure fps on both backends (real clock)
 //   --perf-only         only measure fps
@@ -17,6 +17,7 @@
 //   --headed            show Chrome
 //   --safari-port <n>   safaridriver's port (4444)
 //   --safari-wait <s>   how long to wait for another Safari session to end (600)
+//   --color-profile <p> Chrome's colour profile against Safari (display-p3-d65)
 
 import fs from "node:fs";
 import path from "node:path";
@@ -51,6 +52,7 @@ export function parseArgs(argv) {
     headed: false,
     safariPort: 4444,
     safariWait: 600,
+    colorProfile: "display-p3-d65",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -60,7 +62,9 @@ export function parseArgs(argv) {
     else if (a === "--out") o.out = val();
     else if (a === "--browser") {
       const b = val();
-      if (b === "safari") o.webgpu = "safari";
+      // Both sides in Safari: across browsers, colour management alone
+      // shifts the picture (see README).
+      if (b === "safari") o.webgl = o.webgpu = "safari";
       else if (b !== "chrome") throw new Error(`unknown browser ${b}`);
     } else if (a === "--webgl") o.webgl = val();
     else if (a === "--webgpu") o.webgpu = val();
@@ -73,6 +77,7 @@ export function parseArgs(argv) {
     else if (a === "--headed") o.headed = true;
     else if (a === "--safari-port") o.safariPort = Number(val());
     else if (a === "--safari-wait") o.safariWait = Number(val());
+    else if (a === "--color-profile") o.colorProfile = val();
     else if (a.startsWith("--")) throw new Error(`unknown option ${a}`);
     else o.filters.push(a);
   }
@@ -388,12 +393,6 @@ function matches(filters, item) {
   return !filters.length || filters.some((f) => item.id.includes(f));
 }
 
-async function launch(name, opts, perf = false) {
-  if (name === "chrome")
-    return ChromeDriver.launch({ perf, headed: opts.headed });
-  return SafariDriver.launch({ port: opts.safariPort });
-}
-
 export async function main(argv) {
   const opts = parseArgs(argv);
   const items = cases.filter((c) => matches(opts.filters, c));
@@ -441,7 +440,12 @@ export async function main(argv) {
       }
     }
     if (!opts.perfOnly && [opts.webgl, opts.webgpu].includes("chrome")) {
-      drivers.chrome = await launch("chrome", opts);
+      // Safari's screenshots come in the display's colour space: Chrome
+      // against Safari renders in the same one.
+      drivers.chrome = await ChromeDriver.launch({
+        headed: opts.headed,
+        colorProfile: drivers.safari ? opts.colorProfile : undefined,
+      });
       closers.push(() => drivers.chrome.close());
     }
     ctx.drivers = { webgl: drivers[opts.webgl], webgpu: drivers[opts.webgpu] };
