@@ -227,4 +227,35 @@ describe.skipIf(!device)("TileRasterizer", () => {
     color.destroy();
     depth.destroy();
   });
+
+  it("matches through the sRGB layer (srgbBlend)", async () => {
+    const color = texture("rgba16float");
+    const depth = d.createTexture({
+      size: [W, H],
+      format: "depth16unorm",
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST,
+    });
+    d.queue.writeTexture(
+      { texture: depth },
+      new Uint16Array(W * H).fill(0xffff),
+      { bytesPerRow: W * 2 },
+      [W, H],
+    );
+    const options = { srgbBlend: true } as const;
+    const hw = await renderWith({ ...options, rasterizer: "hardware" }, color, {
+      depth,
+    });
+    const tiles = await renderWith({ ...options, rasterizer: "tiles" }, color, {
+      depth,
+    });
+    const { mean, max } = compare(hw, tiles);
+    if (process.env.TILES_LOG) console.log("layer", mean * 255, max * 255);
+    expect(mean).toBeLessThan(1 / 255);
+    expect(max).toBeLessThan(8 / 255);
+    color.destroy();
+    depth.destroy();
+  });
 });
