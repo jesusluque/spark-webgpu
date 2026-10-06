@@ -209,13 +209,13 @@ compacted sort mostly helps when many active splats are off screen.
 | streaming-lod.html | adapter storage limits | 0.82 (fully streamed) |
 | depth-of-field.html | – | 0.97 |
 | on-demand.html | `await renderer.init()`, adapter storage limits | 0.74 (fully streamed) |
-| splat-shader-effects.html | WGSL for its GLSL dyno | 0.46 |
+| splat-shader-effects.html | WGSL for its GLSL dyno | 0.72 (the suite measures 0.72 on every build back to 3c6f02a) |
 | procedural-splats.html | – | random stars differ |
 | sogs.html | `SkyMesh` for `Sky` | 0.97 |
 | debug-color.html, lod-on-demand.html | – | 0.13, 0.23 |
 | particle-animation.html | – | 3.09 (time-driven noise) |
 | glsl.html | WGSL for its GLSL dynos, opaque clear color | 0.16 |
-| dynamic-lighting.html (lighting on, debug SDFs) | – | 0.22, 0.23 |
+| dynamic-lighting.html (lighting on, debug SDFs) | – | 0.22, 0.23 (Safari 0.21, 0.22) |
 | mobile-joystick.html (still, after look + walk) | opaque clear color | 0.36, 0.38 |
 | multiple-viewpoints.html (still, turning) | the screens' map and UVs (three, see above) | 0.02, 0.05 |
 | interactive-deform.html (still, drag, bounce, rotate) | WGSL for its GLSL dyno, main.js inlined | 0.08, 0.09, 0.09, 0.09 |
@@ -235,7 +235,7 @@ in-pass paths, and `&msaa=1` for antialiasing.
 | splat-painter.html (paint, erase, undo strokes) | `spark.getRgba` for `RgbaArray.render` | 0.57; exported SPZ: same splats, 88 bytes of 40 MB differ |
 | render-cube-depth.html (depth on) | WGSL dyno, TSL depth material, linear output + `rawColor` in depth mode | 1.05 off, 6.13 on (low packed-depth bits); cube readback means within 0.3/255 |
 | portal.html | no fragmentShader (built-in disk clip) | 0.32 (local assets substituted) |
-| newportal.html | adapter storage limits | 0.33 with a non-paged scene; paged LoD streams differently |
+| newportal.html | adapter storage limits | 0.33 with a non-paged scene; 0.00 on the suite's substitute .rad, which shows mostly the dark portal disk on both |
 | splat-portal.html (+ splat-portal/main.js) | TSL portal material | 0.58 |
 | editor.html (normal colour, clip, grid) | – | 0.01 empty, 0.46 with a file, 0.30 with debug options |
 

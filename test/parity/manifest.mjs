@@ -219,7 +219,9 @@ export const cases = [
   ...ex("streaming-lod", [{ readme: 0.67, settle: PAGED }]),
   ...ex("depth-of-field", [{ readme: 0.97 }]),
   ...ex("on-demand", [{ readme: 0.7, hide: ["#stats"], settle: PAGED }]),
-  ...ex("splat-shader-effects", [{ readme: 0.46 }]),
+  // README said 0.46 before this suite existed; the suite measures 0.72 on
+  // every build back to 3c6f02a, so the 0.46 was measured another way.
+  ...ex("splat-shader-effects", [{ readme: 0.72, max: { mean: 0.84 } }]),
   ...ex("procedural-splats", [
     { note: "README: random stars differ (drawn in different orders)" },
   ]),
@@ -497,6 +499,8 @@ export const cases = [
       readme: 0.33,
       routes: [newportalRoute],
       settle: PAGED,
+      // The substitute .rad around the camera: the view is mostly the
+      // portal disk onto its dark interior, on WebGL as well.
       note: "README's 0.33 is with a non-paged scene; this streams a paged one",
     },
   ]),
