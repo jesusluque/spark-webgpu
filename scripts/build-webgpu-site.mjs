@@ -5,6 +5,7 @@
 // (Spark's MIT example assets) are downloaded once into the cache folder.
 // Files over 25 MB never go in the site: they are served from R2 (see
 // lod.html's R2_BASE).
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -55,12 +56,51 @@ for (const name of ["spark.module.min.js", "spark.webgpu.module.min.js"]) {
     throw new Error(`${file} missing: run npm run build:production`);
   }
 }
-// The entry points and their lazy chunks (plugin kernel variants).
-for (const name of fs.readdirSync(path.join(root, "dist"))) {
-  if (name.endsWith(".module.min.js")) {
-    copy(path.join(root, "dist", name), `vendor/spark/${name}`);
+// The entry points and their lazy chunks (plugin kernel variants), in a
+// folder named by their content hash: the entry points keep fixed names and
+// the browsers and Cloudflare cache them for hours, so a new build must not
+// share their URLs with an old one (an old spark.module.min.js under new
+// chunks fails to link, an old WASM fails to read new files).
+const sparkFiles = fs
+  .readdirSync(path.join(root, "dist"))
+  .filter((name) => name.endsWith(".module.min.js"))
+  .sort();
+const hash = crypto.createHash("sha256");
+for (const name of sparkFiles) {
+  hash.update(name);
+  hash.update(fs.readFileSync(path.join(root, "dist", name)));
+}
+const sparkDir = `vendor/spark/${hash.digest("hex").slice(0, 12)}`;
+for (const name of sparkFiles) {
+  copy(path.join(root, "dist", name), `${sparkDir}/${name}`);
+}
+for (const name of fs.readdirSync(out)) {
+  if (!name.endsWith(".html")) continue;
+  const file = path.join(out, name);
+  const html = fs.readFileSync(file, "utf8");
+  fs.writeFileSync(
+    file,
+    html.replaceAll('"./vendor/spark/spark.', `"./${sparkDir}/spark.`),
+  );
+}
+// Pages and the shared helpers revalidate on every load; the hashed Spark
+// folder never changes. (Rules must not overlap: Pages joins the headers of
+// every rule that matches.)
+const revalidate = ["/"];
+for (const name of fs.readdirSync(out)) {
+  if (/\.(html|js|css)$/.test(name)) {
+    revalidate.push(`/${name}`);
+    if (name.endsWith(".html")) revalidate.push(`/${name.slice(0, -5)}`);
   }
 }
+fs.writeFileSync(
+  path.join(out, "_headers"),
+  [
+    ...revalidate.map((p) => `${p}\n  Cache-Control: no-cache`),
+    `/${sparkDir}/*\n  Cache-Control: public, max-age=31536000, immutable`,
+    "",
+  ].join("\n"),
+);
 for (const name of [
   "three.core.min.js",
   "three.module.min.js",

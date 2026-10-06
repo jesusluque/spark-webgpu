@@ -58,3 +58,93 @@ export function fpsMeter(report) {
     }
   };
 }
+
+const MB = 1024 * 1024;
+
+function formatSeconds(s) {
+  if (!Number.isFinite(s)) return "…";
+  if (s < 60) return `${Math.max(1, Math.round(s))} s`;
+  const m = Math.floor(s / 60);
+  return `${m} min ${String(Math.round(s % 60)).padStart(2, "0")} s`;
+}
+
+/**
+ * Shows a download bar with megabytes, speed and time left for every fetch
+ * whose URL matches `match`. It wraps window.fetch and counts the bytes as
+ * the response bodies are read, so it covers the loaders' own fetches.
+ * `expectedBytes` (optional) is the total to show before the responses'
+ * Content-Length headers arrive. Returns { done() } to remove the bar.
+ */
+export function downloadProgress({
+  match,
+  expectedBytes = 0,
+  label = "Downloading",
+}) {
+  const box = document.createElement("div");
+  box.className = "download";
+  box.innerHTML = `<div class="download-text"></div><div class="download-bar"><div></div></div>`;
+  document.body.appendChild(box);
+  const text = box.querySelector(".download-text");
+  const fill = box.querySelector(".download-bar > div");
+
+  let loaded = 0;
+  let announced = 0; // sum of Content-Length of the matched responses
+  const started = performance.now();
+  let finished = false;
+
+  function render() {
+    if (finished) return;
+    const total = Math.max(announced, expectedBytes, loaded);
+    const elapsed = (performance.now() - started) / 1000;
+    const rate = elapsed > 0.5 ? loaded / elapsed : 0;
+    const left =
+      rate > 0 && total > loaded ? (total - loaded) / rate : Number.NaN;
+    const parts = [
+      `${label} ${(loaded / MB).toFixed(0)} of ${(total / MB).toFixed(0)} MB`,
+    ];
+    if (rate > 0) parts.push(`${(rate / MB).toFixed(1)} MB/s`);
+    if (total > loaded) parts.push(`${formatSeconds(left)} left`);
+    text.textContent = parts.join(" · ");
+    fill.style.width = `${total ? Math.min(100, (100 * loaded) / total) : 0}%`;
+  }
+  const timer = setInterval(render, 250);
+  render();
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const response = await originalFetch(input, init);
+    const url = typeof input === "string" ? input : input.url;
+    if (finished || !match(url) || !response.body) return response;
+    const length = Number(response.headers.get("Content-Length") ?? 0);
+    announced += length;
+    const reader = response.body.getReader();
+    const counted = new ReadableStream({
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        loaded += value.byteLength;
+        controller.enqueue(value);
+      },
+      cancel(reason) {
+        return reader.cancel(reason);
+      },
+    });
+    return new Response(counted, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  };
+
+  return {
+    done() {
+      finished = true;
+      clearInterval(timer);
+      window.fetch = originalFetch;
+      box.remove();
+    },
+  };
+}

@@ -43,7 +43,7 @@
     import GUI from "lil-gui";
     import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
     import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
-    import { requireWebGPU } from "./site.js";
+    import { downloadProgress, requireWebGPU } from "./site.js";
     import {
       splatRequiredLimits,
       fx,
@@ -66,6 +66,11 @@
     window.__athenea = { loaded: false, error: null };
 
     const adapter = await requireWebGPU();
+    // The clouds and the sky: about 290 MB on the first visit.
+    const download = downloadProgress({
+      match: (url) => /\.(athc|hdr)(\?|$)/.test(url),
+      expectedBytes: 290 * 1024 * 1024,
+    });
     const renderer = new THREE.WebGPURenderer({
       canvas: document.getElementById("canvas"),
       requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
@@ -181,9 +186,10 @@
       window.__athenea.loaded = true;
     } catch (error) {
       window.__athenea.error = String(error);
-      status.textContent = `error: ${error} (the pawn's files are not under ${base}?)`;
+      status.textContent = `error: ${error}`;
       console.error(error);
     }
+    download.done();
 
     if (params.get("gui") !== "0") {
       const gui = new GUI({ title: "athenea relight" });
