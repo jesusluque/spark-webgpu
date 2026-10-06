@@ -4,6 +4,7 @@
 
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
+import { PackedSplats } from "../../src/PackedSplats";
 import * as d from "../../src/dyno";
 
 type Val = d.DynoVal<d.DynoType>;
@@ -973,3 +974,80 @@ textureCases.push([
     }).outputs.out as Val,
   [2, 4, 6, 3 + 1 + 7],
 ]);
+
+// readPackedSplat from another PackedSplats (a struct uniform with its
+// packed texture), checked against the CPU decode of the same splat.
+const packed = new PackedSplats();
+packed.pushSplat(
+  new THREE.Vector3(0.5, -1, 2),
+  new THREE.Vector3(0.1, 0.02, 0.3),
+  new THREE.Quaternion(0.2, 0.4, -0.1, 0.9).normalize(),
+  0.25,
+  new THREE.Color(0.2, 0.6, 0.9),
+);
+packed.pushSplat(
+  new THREE.Vector3(-3, 0.25, 1),
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Quaternion(),
+  1,
+  new THREE.Color(1, 1, 1),
+);
+const near = (expected: number[], tolerance: number) => (v: number[]) => {
+  expect(v.length).toBe(expected.length);
+  v.forEach((a, i) =>
+    expect(Math.abs(a - expected[i]), `component ${i}`).toBeLessThan(tolerance),
+  );
+};
+const readPacked = (index: number) =>
+  d.splitGsplat(d.readPackedSplat(packed.dyno, i1(index))).outputs;
+const cpu = packed.getSplat(0);
+textureCases.push(
+  [
+    "readPackedSplat center, opacity",
+    "vec4",
+    () => {
+      const s = readPacked(0);
+      return d.extendVec(s.center, s.opacity);
+    },
+    near([...cpu.center.toArray(), cpu.opacity], 1e-3),
+  ],
+  [
+    "readPackedSplat scales, rgb",
+    "vec4",
+    () => {
+      const s = readPacked(0);
+      return d.extendVec(d.add(s.scales, s.rgb), s.opacity);
+    },
+    near(
+      [
+        cpu.scales.x + cpu.color.r,
+        cpu.scales.y + cpu.color.g,
+        cpu.scales.z + cpu.color.b,
+        cpu.opacity,
+      ],
+      1e-3,
+    ),
+  ],
+  [
+    "readPackedSplat quaternion",
+    "vec4",
+    () => readPacked(0).quaternion,
+    near(cpu.quaternion.toArray(), 1e-3),
+  ],
+  [
+    "readPackedSplat active, index",
+    "ivec4",
+    () => {
+      const zero = readPacked(1);
+      const out = readPacked(5);
+      return d.combine({
+        vectorType: "ivec4",
+        x: d.int(readPacked(0).active),
+        y: d.int(zero.active),
+        z: d.int(out.active),
+        w: zero.index,
+      } as never);
+    },
+    [1, 0, 0, 1],
+  ],
+);
