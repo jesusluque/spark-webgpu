@@ -245,7 +245,7 @@ export class WgpuSplatRenderer {
   readonly stages: SplatRendererStage[] = [];
   /**
    * The portal clip of SparkPortals' DISK_PORTAL_FRAGMENT_SHADER, for the
-   * next draws (default draw only, not attribute variants).
+   * next draws (default draw and attribute variants).
    */
   diskClip: SplatDiskClip | null = null;
 
