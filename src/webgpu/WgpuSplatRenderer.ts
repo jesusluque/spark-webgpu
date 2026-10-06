@@ -518,6 +518,8 @@ export class WgpuSplatRenderer {
       this.options.clipXY,
       this.options.minAlpha,
       this.options.covSplats ? 1 : 0,
+      // A stage added later (attributes) has gathered nothing yet.
+      this.stages.length,
       ...camera.matrixWorld.elements,
       ...camera.projectionMatrix.elements,
     ];
