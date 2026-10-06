@@ -127,6 +127,8 @@ describe.skipIf(!device)("TileRasterizer", () => {
     options: WgpuSplatRendererOptions,
     color: GPUTexture,
     target?: { depth: GPUTexture },
+    frames = 3,
+    check?: (splats: WgpuSplatRenderer) => void,
   ) {
     const fakeTarget = target
       ? ({
@@ -156,13 +158,14 @@ describe.skipIf(!device)("TileRasterizer", () => {
     });
     splats.add(cloud(20000));
     // Later frames have the pair buffers sized from a readback.
-    for (let frame = 0; frame < 3; frame++) {
+    for (let frame = 0; frame < frames; frame++) {
       clear(color);
       splats.render(camera, fakeTarget);
       await d.queue.onSubmittedWorkDone();
       await new Promise((r) => setTimeout(r, 5));
     }
     const px = await read(color);
+    check?.(splats);
     splats.dispose();
     return px;
   }
@@ -193,6 +196,34 @@ describe.skipIf(!device)("TileRasterizer", () => {
     expect(lit).toBeGreaterThan(W * H * 0.1);
     canvas.destroy();
   });
+
+  it("auto: times both paths and draws the same image", async () => {
+    const canvas = texture("bgra8unorm");
+    const hw = await renderWith({ rasterizer: "hardware" }, canvas);
+    const timed = d.features.has("timestamp-query");
+    const auto = await renderWith(
+      { rasterizer: "auto" },
+      canvas,
+      undefined,
+      120,
+      (splats) => {
+        const { auto, rasterizer } = splats.stats;
+        if (!timed) {
+          // Without timestamps it keeps to the quad draw.
+          expect(rasterizer).toBe("hardware");
+          return;
+        }
+        expect(auto?.probes).toBeGreaterThan(0);
+        expect(auto?.hardwareMs).toBeGreaterThan(0);
+        expect(auto?.tilesMs).toBeGreaterThan(0);
+        expect(rasterizer).toBe(auto?.probing ? rasterizer : auto?.path);
+      },
+    );
+    const { mean, max } = compare(hw, auto);
+    expect(mean).toBeLessThan(1 / 255);
+    expect(max).toBeLessThan(8 / 255);
+    canvas.destroy();
+  }, 60000);
 
   it("tests depth and matches in a float target", async () => {
     const color = texture("rgba16float");

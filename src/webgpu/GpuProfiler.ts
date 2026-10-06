@@ -20,6 +20,16 @@ export class GpuProfiler {
   last: Record<string, number> = {};
   /** Frames whose timings have been read back. */
   resolved = 0;
+  /**
+   * Called with each frame's timings as they are read back, and the GPU
+   * clock (ns) at the end of each label's last pass.
+   */
+  onFrame:
+    | ((
+        frame: Readonly<Record<string, number>>,
+        ends: Readonly<Record<string, number>>,
+      ) => void)
+    | null = null;
 
   private querySet: GPUQuerySet;
   private resolveBuffer: GPUBuffer;
@@ -28,8 +38,9 @@ export class GpuProfiler {
 
   private constructor(
     readonly device: GPUDevice,
-    /** Weight of the newest frame in the smoothed values. */
+    /** Weight of the newest frame in the smoothed values (0: none kept). */
     readonly smoothing = 0.1,
+    readbacks = READBACKS,
   ) {
     this.querySet = device.createQuerySet({
       label: "GpuProfiler",
@@ -41,7 +52,7 @@ export class GpuProfiler {
       size: MAX_QUERIES * 8,
       usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
     });
-    for (let i = 0; i < READBACKS; i++) {
+    for (let i = 0; i < readbacks; i++) {
       this.free.push(
         device.createBuffer({
           label: "GpuProfiler readback",
@@ -52,10 +63,17 @@ export class GpuProfiler {
     }
   }
 
-  /** A profiler, or null when the device lacks timestamp-query. */
-  static create(device: GPUDevice, smoothing?: number): GpuProfiler | null {
+  /**
+   * A profiler, or null when the device lacks timestamp-query. `readbacks`:
+   * frames in flight it can time (more for an unthrottled loop).
+   */
+  static create(
+    device: GPUDevice,
+    smoothing?: number,
+    readbacks?: number,
+  ): GpuProfiler | null {
     if (!device.features.has("timestamp-query")) return null;
-    return new GpuProfiler(device, smoothing);
+    return new GpuProfiler(device, smoothing, readbacks);
   }
 
   /**
@@ -104,6 +122,7 @@ export class GpuProfiler {
         () => {
           const t = new BigInt64Array(readback.getMappedRange(0, bytes));
           const frame: Record<string, number> = {};
+          const ends: Record<string, number> = {};
           let total = 0;
           let first = t[0];
           let last = t[0];
@@ -112,6 +131,7 @@ export class GpuProfiler {
             // Skip garbage from passes that never ran (end before start).
             if (ms < 0 || ms > 1e4) return;
             frame[label] = (frame[label] ?? 0) + ms;
+            ends[label] = Number(t[2 * i + 1]);
             total += ms;
             if (t[2 * i] < first) first = t[2 * i];
             if (t[2 * i + 1] > last) last = t[2 * i + 1];
@@ -124,11 +144,14 @@ export class GpuProfiler {
           this.last = frame;
           readback.unmap();
           this.free.push(readback);
+          // Smoothing 0: per-frame labels, read through onFrame only.
           const k = this.resolved === 0 ? 1 : this.smoothing;
           for (const [label, ms] of Object.entries(frame)) {
+            if (this.smoothing === 0) break;
             this.ms[label] = (this.ms[label] ?? ms) * (1 - k) + ms * k;
           }
           this.resolved += 1;
+          this.onFrame?.(frame, ends);
         },
         () => this.free.push(readback),
       );
