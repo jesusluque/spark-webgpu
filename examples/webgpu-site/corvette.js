@@ -153,8 +153,12 @@ export async function createCorvette({
 
   // Per-pixel slope and sharp coat (?detail=1): the paint's 0.03-0.07 rough
   // coat reads its mirror per pixel; several times slower.
+  // The clouds' transfers, cells and fields are directions of athenea's
+  // Z-up stage: the relighting runs in the car's frame (`frame`), the dome
+  // and the sun taken into it.
   const relight = atheneaRelightPlugin({
     pixelDetail: params.get("detail") === "1",
+    frame: car,
   });
   const display = atheneaOutputPlugin({
     // athenea's look for the car: the Standard view on sRGB.
