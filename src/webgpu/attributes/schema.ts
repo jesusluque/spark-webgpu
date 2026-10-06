@@ -5,6 +5,8 @@
 // AttribPool holds only plain data, so it survives postMessage from the
 // loader worker; AttribPool.from() restores the methods on the other side.
 
+import { coreAttrib } from "../generated/constants";
+
 export type AttribFormat =
   | "f32"
   | "f16"
@@ -34,18 +36,17 @@ export interface AttributeSpec {
   direction?: boolean;
 }
 
-/** Format codes, as ATTRIB_* in slang/core/attrib.slang. */
+/** Format codes, ATTRIB_* in slang/core/attrib.slang. */
 export const ATTRIB_FORMATS: Record<AttribFormat, number> = {
-  f32: 0,
-  f16: 1,
-  unorm8: 2,
-  snorm8: 3,
-  u8: 4,
-  u16: 5,
-  u32: 6,
+  f32: coreAttrib.ATTRIB_F32,
+  f16: coreAttrib.ATTRIB_F16,
+  unorm8: coreAttrib.ATTRIB_UNORM8,
+  snorm8: coreAttrib.ATTRIB_SNORM8,
+  u8: coreAttrib.ATTRIB_U8,
+  u16: coreAttrib.ATTRIB_U16,
+  u32: coreAttrib.ATTRIB_U32,
 };
-export const ATTRIB_NONE = 0xffffffff;
-export const ATTRIB_DIRECTION = 1;
+export const { ATTRIB_NONE, ATTRIB_DIRECTION } = coreAttrib;
 
 export function formatBytes(format: AttribFormat): number {
   return format === "f32" || format === "u32"

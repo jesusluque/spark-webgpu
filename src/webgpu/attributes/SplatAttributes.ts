@@ -21,6 +21,10 @@ import type {
   WgpuSplatMesh,
   WgpuSplatRenderer,
 } from "../WgpuSplatRenderer";
+import {
+  drawSplatAttribDraw as attribDraw,
+  kernelsAttribGather,
+} from "../generated/constants";
 import attribDrawModule from "../generated/draw/splat_attrib_draw";
 import gatherModule from "../generated/kernels/attrib_gather";
 import { createStorage, upload } from "../gpuBuffers";
@@ -39,15 +43,14 @@ import {
   poolWords,
 } from "./schema";
 
-const GATHER_USE_LOD = 4;
 const _position = new THREE.Vector3();
 const _scale = new THREE.Vector3();
 const COLOR_MODES = {
-  splat: 0,
-  label: 1,
-  relight: 2,
-  project: 3,
-  value: 4,
+  splat: attribDraw.COLOR_SPLAT,
+  label: attribDraw.COLOR_LABEL,
+  relight: attribDraw.COLOR_RELIGHT,
+  project: attribDraw.COLOR_PROJECT,
+  value: attribDraw.COLOR_VALUE,
 } as const;
 export type AttribColorMode = keyof typeof COLOR_MODES;
 
@@ -228,7 +231,7 @@ export class SplatAttributes implements SplatRendererStage {
       const params = UniformWriter.for(gatherModule).setAll({
         numSplats: count,
         outBase: base,
-        flags: mesh.lodIndices ? GATHER_USE_LOD : 0,
+        flags: mesh.lodIndices ? kernelsAttribGather.GATHER_USE_LOD : 0,
         rotate: [q.x, q.y, q.z, q.w],
       });
       kernel.dispatch(pass, {

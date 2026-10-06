@@ -8,6 +8,7 @@
 // texture needs COPY_SRC to be read and COPY_DST to be written, which
 // three's RenderTarget textures have.
 
+import { fxBridge } from "../generated/constants";
 import bridgeModule from "../generated/fx/bridge";
 import { UniformWriter } from "../uniforms";
 import type { Gpu } from "./Gpu";
@@ -15,12 +16,12 @@ import { type FxBuffer, type Rect, placed, rect } from "./types";
 
 const FORMATS: Record<string, { code: number; bytes: number; srgb: boolean }> =
   {
-    rgba16float: { code: 0, bytes: 8, srgb: false },
-    rgba8unorm: { code: 1, bytes: 4, srgb: false },
-    "rgba8unorm-srgb": { code: 1, bytes: 4, srgb: true },
-    bgra8unorm: { code: 2, bytes: 4, srgb: false },
-    "bgra8unorm-srgb": { code: 2, bytes: 4, srgb: true },
-    rgba32float: { code: 3, bytes: 16, srgb: false },
+    rgba16float: { code: fxBridge.kRgba16Float, bytes: 8, srgb: false },
+    rgba8unorm: { code: fxBridge.kRgba8Unorm, bytes: 4, srgb: false },
+    "rgba8unorm-srgb": { code: fxBridge.kRgba8Unorm, bytes: 4, srgb: true },
+    bgra8unorm: { code: fxBridge.kBgra8Unorm, bytes: 4, srgb: false },
+    "bgra8unorm-srgb": { code: fxBridge.kBgra8Unorm, bytes: 4, srgb: true },
+    rgba32float: { code: fxBridge.kRgba32Float, bytes: 16, srgb: false },
   };
 
 export const bridgeFormats = Object.keys(FORMATS) as GPUTextureFormat[];
