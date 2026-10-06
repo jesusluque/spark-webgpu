@@ -176,15 +176,20 @@ export class SparkWebGPU {
     }
 
     const { utils } = backend;
+    const format = utils.getCurrentColorFormat(rc);
     const target: SplatPassTarget = {
-      format: utils.getCurrentColorFormat(rc),
+      format,
       depthFormat: data.descriptor?.depthStencilAttachment
         ? (utils.getCurrentDepthStencilFormat(rc) ?? null)
         : null,
       sampleCount: utils.getSampleCountRenderContext(rc),
       width,
       height,
-      linear: utils.getCurrentColorSpace(rc) !== THREE.SRGBColorSpace,
+      // An -srgb format (8-bit sRGB targets) encodes on store, so the shader
+      // writes linear values to it too.
+      linear:
+        utils.getCurrentColorSpace(rc) !== THREE.SRGBColorSpace ||
+        format.endsWith("-srgb"),
       extraFormats: rc.textures
         ?.slice(1)
         .map((t) => backend.get(t).format as GPUTextureFormat),

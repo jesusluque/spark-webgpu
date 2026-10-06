@@ -25,6 +25,7 @@ import {
   type WebGPURendererLike,
   isWebGPURenderer,
 } from "./webgpu/SparkWebGPU";
+import { readTargetPixels } from "./webgpu/WgpuReadTarget";
 
 export interface SparkRendererOptions {
   /**
@@ -501,9 +502,9 @@ export class SparkRenderer extends THREE.Mesh {
     if (webgpu && !isWebGPURenderer(options.renderer)) {
       throw new Error('SparkRenderer backend "webgpu" needs a WebGPURenderer');
     }
-    if (webgpu && (options.target || options.vertexShader)) {
+    if (webgpu && (options.vertexShader || options.fragmentShader)) {
       throw new Error(
-        "SparkRenderer on WebGPU: target and custom shaders are not supported",
+        "SparkRenderer on WebGPU: custom shaders are not supported",
       );
     }
 
@@ -649,17 +650,13 @@ export class SparkRenderer extends THREE.Mesh {
         ...origTargetOptions,
       };
 
-      this.target = new THREE.WebGLRenderTarget(
-        superWidth,
-        superHeight,
-        targetOptions,
-      );
+      // WebGPURenderer renders into plain RenderTargets.
+      const Target = (
+        webgpu ? THREE.RenderTarget : THREE.WebGLRenderTarget
+      ) as typeof THREE.WebGLRenderTarget;
+      this.target = new Target(superWidth, superHeight, targetOptions);
       if (doubleBuffer) {
-        this.backTarget = new THREE.WebGLRenderTarget(
-          superWidth,
-          superHeight,
-          targetOptions,
-        );
+        this.backTarget = new Target(superWidth, superHeight, targetOptions);
       }
     }
   }
@@ -799,11 +796,12 @@ export class SparkRenderer extends THREE.Mesh {
     scene: THREE.Scene,
     camera: THREE.Camera,
   ) {
+    const spark = SparkRenderer.sparkOverride ?? this;
     if (this.webgpu) {
-      this.webgpu.onBeforeRender(scene, camera);
+      // renderTarget() draws another SparkRenderer's splats in its place.
+      spark.webgpu?.onBeforeRender(scene, camera);
       return;
     }
-    const spark = SparkRenderer.sparkOverride ?? this;
 
     const frame = renderer.info.render.frame;
     const isNewFrame = frame !== spark.lastFrame;
@@ -1922,7 +1920,6 @@ export class SparkRenderer extends THREE.Mesh {
     scene,
     camera,
   }: { scene: THREE.Scene; camera: THREE.Camera }): THREE.WebGLRenderTarget {
-    this.requireWebGL("renderTarget");
     const target = this.backTarget ?? this.target;
     if (!target) {
       throw new Error("No target");
@@ -1952,6 +1949,17 @@ export class SparkRenderer extends THREE.Mesh {
     if (!this.target) {
       throw new Error("Must initialize with target");
     }
+    if (this.webgpu) {
+      // WebGPURenderer returns its own (row-padded, top-down) array.
+      this.targetPixels = await readTargetPixels(
+        this.renderer as unknown as Parameters<typeof readTargetPixels>[0],
+        this.target,
+        this.superXY,
+        this.targetPixels,
+      );
+      return this.targetPixels;
+    }
+
     const { width, height } = this.target;
     const byteSize = width * height * 4;
     if (!this.superPixels || this.superPixels.length < byteSize) {

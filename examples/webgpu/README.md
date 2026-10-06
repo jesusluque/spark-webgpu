@@ -63,6 +63,11 @@ things:
   `maxStorageBufferBindingSize` (128 MB by default, 32–42 pages). Pass
   `requiredLimits: splatRequiredLimits(adapter)` to `WebGPURenderer` to get
   more pages.
+- **Render targets on meshes.** The `target` option, `renderTarget` and
+  `readTarget` work as on WebGL. three's WebGPURenderer (r180) shows a
+  target's texture upside down on a mesh's UVs compared to WebGL, and doesn't
+  pick up a `map` that replaced a plain texture after the material compiled
+  (see `multiple-viewpoints.html`).
 - **Raycasting.** Raycasting works for packed, ext and LoD meshes, but not
   for paged (`.rad`) ones, whose splats live only on the GPU.
 
@@ -70,9 +75,8 @@ things:
 
 These throw or warn:
 
-- `renderTarget`/`readTarget`, `renderCubeMap`/`renderEnvMap`,
-  `getLodTreeLevel`;
-- the `target` option and custom `vertexShader`/`fragmentShader`;
+- `renderCubeMap`/`renderEnvMap`, `getLodTreeLevel`;
+- custom `vertexShader`/`fragmentShader`;
 - WebXR and array cameras;
 - `covSplats`, `enable2DGS`, `accumExtSplats`;
 - SplatMeshes with a custom `SplatSource`.

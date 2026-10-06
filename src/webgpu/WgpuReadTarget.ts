@@ -20,6 +20,50 @@ export function rowStride(length: number, width: number, height: number) {
     : Math.ceil((width * 4) / 256) * 256;
 }
 
+/**
+ * `target`'s pixels as RGBA8, averaged over superXY x superXY blocks, rows
+ * bottom to top as WebGL's readPixels gives them. Reuses `out` when it has
+ * the right size.
+ */
+export async function readTargetPixels(
+  renderer: Pick<RendererLike, "readRenderTargetPixelsAsync">,
+  target: THREE.RenderTarget,
+  superXY: number,
+  out?: Uint8Array,
+): Promise<Uint8Array> {
+  const { width, height } = target;
+  const data = await renderer.readRenderTargetPixelsAsync(
+    target,
+    0,
+    0,
+    width,
+    height,
+  );
+  const src = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  const stride = rowStride(src.length, width, height);
+  const w = width / superXY;
+  const h = height / superXY;
+  const pixels =
+    out && out.length === w * h * 4 ? out : new Uint8Array(w * h * 4);
+  const n = superXY * superXY;
+  for (let y = 0; y < h; y++) {
+    const outRow = (h - 1 - y) * w * 4;
+    for (let x = 0; x < w; x++) {
+      for (let c = 0; c < 4; c++) {
+        let sum = 0;
+        for (let sy = 0; sy < superXY; sy++) {
+          const row = (y * superXY + sy) * stride;
+          for (let sx = 0; sx < superXY; sx++) {
+            sum += src[row + (x * superXY + sx) * 4 + c];
+          }
+        }
+        pixels[outRow + x * 4 + c] = sum / n;
+      }
+    }
+  }
+  return pixels;
+}
+
 export interface WgpuReadTargetOptions {
   width: number;
   height: number;
@@ -86,40 +130,13 @@ export class WgpuReadTarget {
    * them. The array is reused by the next call.
    */
   async readTarget(): Promise<Uint8Array> {
-    const { target, superXY } = this;
-    const { width, height } = target;
-    const data = await this.renderer.readRenderTargetPixelsAsync(
-      target,
-      0,
-      0,
-      width,
-      height,
+    this.pixels = await readTargetPixels(
+      this.renderer,
+      this.target,
+      this.superXY,
+      this.pixels ?? undefined,
     );
-    const src = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-    const stride = rowStride(src.length, width, height);
-    const w = width / superXY;
-    const h = height / superXY;
-    if (!this.pixels || this.pixels.length !== w * h * 4) {
-      this.pixels = new Uint8Array(w * h * 4);
-    }
-    const out = this.pixels;
-    const n = superXY * superXY;
-    for (let y = 0; y < h; y++) {
-      const outRow = (h - 1 - y) * w * 4;
-      for (let x = 0; x < w; x++) {
-        for (let c = 0; c < 4; c++) {
-          let sum = 0;
-          for (let sy = 0; sy < superXY; sy++) {
-            const row = (y * superXY + sy) * stride;
-            for (let sx = 0; sx < superXY; sx++) {
-              sum += src[row + (x * superXY + sx) * 4 + c];
-            }
-          }
-          out[outRow + x * 4 + c] = sum / n;
-        }
-      }
-    }
-    return out;
+    return this.pixels;
   }
 
   async renderReadTarget(options: {
