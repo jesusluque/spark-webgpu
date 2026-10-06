@@ -17,6 +17,8 @@ export function uniformBlock(
   return b;
 }
 
+const fieldMaps = new WeakMap<BindingReflection, Map<string, unknown>>();
+
 export class UniformWriter {
   readonly data: ArrayBuffer;
   private readonly view: DataView;
@@ -25,9 +27,13 @@ export class UniformWriter {
   constructor(readonly block: BindingReflection) {
     this.data = new ArrayBuffer(block.bytes ?? 0);
     this.view = new DataView(this.data);
-    this.fields = new Map(
-      (block.fields ?? []).map((f) => [f.name, f] as never),
-    );
+    // Writers are made per dispatch; the name lookup is made once a block.
+    let fields = fieldMaps.get(block);
+    if (!fields) {
+      fields = new Map((block.fields ?? []).map((f) => [f.name, f] as never));
+      fieldMaps.set(block, fields);
+    }
+    this.fields = fields as typeof this.fields;
   }
 
   static for(module: KernelModule, name = "params") {
