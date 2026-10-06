@@ -18,13 +18,30 @@ import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 //                        and the car is turned here
 //   camera: { position, target, horizontalFov }   athenea's /World/Camera, Y-up
 //   hdri: [names], hdriDefault, domeRotation (degrees, athenea's DomeLight turn)
+//                        names at any size: the page loads the 4k original
+//                        of each from `hdriBase` (site.js HDRI_BASE)
 //   ground: { height }   the dome's floor is projected onto y = 0 from this height
 import * as THREE from "three/webgpu";
-import { addColourCorrector, isWorkstation, mayaControls } from "./site.js";
+import {
+  HALF_MAX,
+  HDRIS_4K,
+  HDRI_BASE,
+  addColourCorrector,
+  fullResHdri,
+  hdriLabel,
+  isWorkstation,
+  mayaControls,
+} from "./site.js";
 
 const { TSL } = THREE;
 
-export async function createCorvette({ renderer, base, params, status }) {
+export async function createCorvette({
+  renderer,
+  base,
+  params,
+  status,
+  hdriBase = params.get("hdriBase") ?? HDRI_BASE,
+}) {
   window.__athenea = { loaded: false, error: null };
   const info = await (
     await fetch(`${base}${params.get("scene") ?? "corvette.json"}`)
@@ -109,13 +126,22 @@ export async function createCorvette({ renderer, base, params, status }) {
       depthWrite: false,
     }),
   );
-  backdrop.material.colorNode = skyTexture.sample(skyUv).rgb.mul(intensity);
+  // Linear radiance into the HalfFloat target, held at its largest finite
+  // value (a sun past it would turn to infinity there).
+  backdrop.material.colorNode = TSL.min(
+    skyTexture.sample(skyUv).rgb.mul(intensity),
+    TSL.vec3(HALF_MAX),
+  );
   scene.add(backdrop);
 
   // The whole car by default: below its splat count, the LoD replaces the
   // small splats with merged ones even close up (?lod=<splats> to cap it).
+  // Float end to end (hdr): the relit light, past 1 in the reflections, is
+  // kept per splat and blended in linear light into the HalfFloat target
+  // over the unclipped dome; athenea's display transform comes last.
   const spark = new SparkRenderer({
     renderer,
+    hdr: true,
     lodSplatCount:
       Number(params.get("lod")) || Math.max(info.splats ?? 0, 2_500_000),
   });
@@ -148,7 +174,7 @@ export async function createCorvette({ renderer, base, params, status }) {
   status.textContent = `loading the car (${megabytes.toFixed(0)} MB)…`;
 
   const state = {
-    hdri: params.get("hdri") ?? info.hdriDefault ?? info.hdri[0],
+    hdri: fullResHdri(params.get("hdri") ?? info.hdriDefault ?? info.hdri[0]),
     rotation: info.domeRotation ?? 0,
     intensity: 1,
     sun: false,
@@ -159,14 +185,21 @@ export async function createCorvette({ renderer, base, params, status }) {
     ground: true,
   };
   const hdrLoader = new HDRLoader().setDataType(THREE.FloatType);
+  // A 4k float dome is 128 MB as a texture: only the one shown is kept (the
+  // browser's HTTP cache keeps the files), a request in flight shared.
   const hdriCache = new Map();
   async function setHdri(name) {
     state.hdri = name;
     if (!hdriCache.has(name)) {
       status.textContent = `loading ${name}…`;
-      hdriCache.set(name, hdrLoader.loadAsync(`${base}hdri/${name}`));
+      hdriCache.set(name, hdrLoader.loadAsync(`${hdriBase}${name}`));
     }
     const tex = await hdriCache.get(name);
+    for (const [other, pending] of hdriCache) {
+      if (other === state.hdri) continue;
+      hdriCache.delete(other);
+      pending.then((t) => t.dispose()).catch(() => {});
+    }
     if (state.hdri !== name) return;
     const { width, height, data } = tex.image;
     relight.set({ hdri: { width, height, data, channels: 4 } });
@@ -217,7 +250,11 @@ export async function createCorvette({ renderer, base, params, status }) {
   if (params.get("gui") !== "0") {
     const gui = new GUI({ title: "Corvette" });
     if (innerWidth < 700) gui.close();
-    gui.add(state, "hdri", info.hdri).name("HDRI").onChange(setHdri);
+    // Every dome at full resolution, the scene's own first.
+    const hdris = [
+      ...new Set([...(info.hdri ?? []).map(fullResHdri), ...HDRIS_4K]),
+    ];
+    gui.add(state, "hdri", hdris).name("HDRI").onChange(setHdri);
     gui
       .add(state, "rotation", -180, 180, 1)
       .name("dome rotation")
@@ -328,7 +365,7 @@ export async function createCorvette({ renderer, base, params, status }) {
     const now = performance.now();
     if (now - last > 500 && window.__athenea.loaded) {
       const fps = (frames * 1000) / (now - last);
-      status.textContent = `${state.hdri.replace(/_1k\.hdr$/, "")} · ${(info.splats / 1e6).toFixed(2)}M splats · ${fps.toFixed(0)} fps`;
+      status.textContent = `${hdriLabel(state.hdri)} · ${(info.splats / 1e6).toFixed(2)}M splats · ${fps.toFixed(0)} fps`;
       window.__athenea.fps = fps;
       frames = 0;
       last = now;

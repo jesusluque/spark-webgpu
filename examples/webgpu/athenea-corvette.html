@@ -32,9 +32,11 @@
     // trim, merged down by usd-athc (--cell) to about 1.4M splats, relit by
     // athenea's splat_relight under any dome (atheneaRelightPlugin).
     //
-    //   ?base=<dir>     where corvette.json, the .athc clouds and hdri/ are
+    //   ?base=<dir>     where corvette.json and the .athc clouds are
     //                   (default ./corvette/)
-    //   ?hdri=<name>    the dome (default the bake's, autoshop_01_1k.hdr)
+    //   ?hdriBase=<dir> the full-resolution (4k) HDRIs (default ./hdri-4k/,
+    //                   publish-r2/sparkwebgpu/hdri-4k/ linked or copied here)
+    //   ?hdri=<name>    the dome (default the bake's, autoshop_01_4k.hdr)
     //   ?glass=0  ?trim=0  ?catcher=0  ?gui=0  ?view=agx|aces2|standard
     //   ?shot=1         athenea's /World/Camera, still (for comparisons)
     import * as THREE from "three/webgpu";
@@ -53,7 +55,8 @@
     renderer.setPixelRatio(devicePixelRatio);
     renderer.setSize(innerWidth, innerHeight);
     await renderer.init();
-    await createCorvette({ renderer, base, params, status });
+    const hdriBase = params.get("hdriBase") ?? "./hdri-4k/";
+    await createCorvette({ renderer, base, params, status, hdriBase });
   </script>
 </body>
 </html>
