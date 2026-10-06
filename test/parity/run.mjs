@@ -16,6 +16,7 @@
 //   --list              print the cases and exit
 //   --headed            show Chrome
 //   --safari-port <n>   safaridriver's port (4444)
+//   --safari-wait <s>   how long to wait for another Safari session to end (600)
 
 import fs from "node:fs";
 import path from "node:path";
@@ -49,6 +50,7 @@ export function parseArgs(argv) {
     list: false,
     headed: false,
     safariPort: 4444,
+    safariWait: 600,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -70,6 +72,7 @@ export function parseArgs(argv) {
     else if (a === "--list") o.list = true;
     else if (a === "--headed") o.headed = true;
     else if (a === "--safari-port") o.safariPort = Number(val());
+    else if (a === "--safari-wait") o.safariWait = Number(val());
     else if (a.startsWith("--")) throw new Error(`unknown option ${a}`);
     else o.filters.push(a);
   }
@@ -419,7 +422,10 @@ export async function main(argv) {
       const name = opts[side];
       if (name === "safari" && !drivers.safari) {
         try {
-          drivers.safari = await SafariDriver.launch({ port: opts.safariPort });
+          drivers.safari = await SafariDriver.launch({
+            port: opts.safariPort,
+            busyWait: opts.safariWait,
+          });
           closers.push(() => drivers.safari.close());
         } catch (e) {
           if (e.code !== "SAFARI_UNAVAILABLE") throw e;

@@ -247,6 +247,13 @@ export function isAutomationDisabled(e) {
   );
 }
 
+/** Is Safari already driven by another session (only one at a time)? */
+export function isSafariBusy(e) {
+  return /already paired|already (has|in) (a|an active) session|session already/i.test(
+    `${e?.message ?? ""} ${e?.detail ?? ""}`,
+  );
+}
+
 /** Starts `safaridriver -p port` and waits for it to answer /status. */
 export async function startSafariDriver(port, bin = "safaridriver") {
   const driver = spawn(bin, ["-p", String(port)], {

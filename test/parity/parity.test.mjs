@@ -15,6 +15,7 @@ import {
   KEYS,
   WebDriver,
   isAutomationDisabled,
+  isSafariBusy,
   keyValue,
 } from "./webdriver.mjs";
 
@@ -216,6 +217,19 @@ describe("Safari unavailable", () => {
     } finally {
       mock.server.close();
     }
+  });
+
+  test("a Safari driven by another session is busy, not disabled", () => {
+    const e = {
+      webdriver: "session not created",
+      message: "POST /session: session not created",
+      detail:
+        "Could not create a session: The Safari instance is already paired with a different session.",
+    };
+    assert.ok(isSafariBusy(e));
+    assert.ok(
+      !isSafariBusy({ detail: "You must enable 'Allow remote automation'" }),
+    );
   });
 
   test("no server is reported as unavailable", async () => {

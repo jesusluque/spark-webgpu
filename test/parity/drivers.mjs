@@ -13,6 +13,7 @@ import { VITE_CLIENT_STUB } from "./clock.mjs";
 import {
   WebDriver,
   isAutomationDisabled,
+  isSafariBusy,
   startSafariDriver,
 } from "./webdriver.mjs";
 
@@ -231,7 +232,11 @@ export class SafariDriver {
   }
 
   /** Throws an error with code SAFARI_UNAVAILABLE when there's no session. */
-  static async launch({ port = 4444, bin = "safaridriver" } = {}) {
+  static async launch({
+    port = 4444,
+    bin = "safaridriver",
+    busyWait = 600,
+  } = {}) {
     let proc;
     try {
       proc = await startSafariDriver(port, bin);
@@ -241,18 +246,33 @@ export class SafariDriver {
       throw err;
     }
     const wd = new WebDriver(`http://localhost:${port}`);
-    try {
-      const caps = await wd.start({ browserName: "safari" });
-      return new SafariDriver(wd, proc, caps);
-    } catch (e) {
-      proc.kill();
-      const err = new Error(
-        isAutomationDisabled(e)
-          ? `Safari refused the WebDriver session (remote automation is off).\nEnable Safari > Settings > Advanced > "Show features for web developers", then Develop > "Allow Remote Automation" (or run \`safaridriver --enable\` once).\nsafaridriver said: ${e.detail || e.message}`
-          : `safaridriver could not create a session: ${e.message}`,
-      );
-      err.code = "SAFARI_UNAVAILABLE";
-      throw err;
+    const t0 = Date.now();
+    for (;;) {
+      try {
+        const caps = await wd.start({ browserName: "safari" });
+        return new SafariDriver(wd, proc, caps);
+      } catch (e) {
+        // Safari drives one session at a time: wait for another one to end.
+        if (isSafariBusy(e) && Date.now() - t0 < busyWait * 1000) {
+          if (Date.now() - t0 < 1000) {
+            console.log(
+              `Safari is busy with another automation session; retrying for up to ${busyWait} s`,
+            );
+          }
+          await sleep(10000);
+          continue;
+        }
+        proc.kill();
+        const err = new Error(
+          isSafariBusy(e)
+            ? `Safari stayed busy with another automation session for ${busyWait} s.\nsafaridriver said: ${e.detail || e.message}`
+            : isAutomationDisabled(e)
+              ? `Safari refused the WebDriver session (remote automation is off).\nEnable Safari > Settings > Advanced > "Show features for web developers", then Develop > "Allow Remote Automation" (or run \`safaridriver --enable\` once).\nsafaridriver said: ${e.detail || e.message}`
+              : `safaridriver could not create a session: ${e.message}`,
+        );
+        err.code = "SAFARI_UNAVAILABLE";
+        throw err;
+      }
     }
   }
 
