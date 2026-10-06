@@ -41,10 +41,12 @@ import {
 } from "../renderPipeline";
 import { UniformWriter } from "../uniforms";
 import {
+  ATTRIB_FORMATS,
   ATTRIB_NONE,
   type AttribPool,
   type AttributeSpec,
   type PoolLayout,
+  attribGroupWords,
   poolHeader,
   poolLayout,
   poolWords,
@@ -355,19 +357,34 @@ export class SplatAttributes implements SplatRendererStage {
 
   private writeParams() {
     const o = this.options;
+    // Per slot: format (ATTRIB_NONE: unused), first word in the record,
+    // words and valid components of its comp4 group.
+    const { layout } = this;
     const slots = (o.slots ?? []).slice(0, 4).map((s) => {
       const { name, comp4 = 0 } = typeof s === "string" ? { name: s } : s;
       const id = this.drawId(name);
-      return [id < 0 ? ATTRIB_NONE : id, comp4];
+      const spec = layout.specs[id];
+      const [first, words] = spec ? attribGroupWords(spec, comp4) : [0, 0];
+      if (!words) return [ATTRIB_NONE, 0, 1, 0];
+      return [
+        ATTRIB_FORMATS[spec.format],
+        layout.offsets[id] + first,
+        words,
+        Math.min(spec.components - 4 * comp4, 4),
+      ];
     });
-    while (slots.length < 4) slots.push([ATTRIB_NONE, 0]);
+    while (slots.length < 4) slots.push([ATTRIB_NONE, 0, 1, 0]);
     const [r, g, b] = o.projection ?? [[1], [0, 1], [0, 0, 1]];
     const row = (v: number[], k: number) =>
       Array.from({ length: 4 }, (_, i) => v[4 * k + i] ?? 0);
     const light = o.light ?? [0.4, 0.8, 0.5];
     const params = UniformWriter.for(attribDrawModule, "attribParams").setAll({
-      slotAttrib: slots.map((s) => s[0]),
-      slotComp4: slots.map((s) => s[1]),
+      slotFormat: slots.map((s) => s[0]),
+      slotWord: slots.map((s) => s[1]),
+      slotWords: slots.map((s) => s[2]),
+      slotCount: slots.map((s) => s[3]),
+      strideWords: layout.strideWords,
+      headerWords: layout.headerWords,
       colorMode: COLOR_MODES[o.colorMode ?? "splat"],
       colorSlot: o.colorSlot ?? 0,
       pickAlpha: o.pickAlpha ?? 0.3,

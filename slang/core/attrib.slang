@@ -118,6 +118,22 @@ public uint2 attribGroupWords(AttribDesc d, uint g) {
     return uint2(first, first < total ? min(per, total - first) : 0u);
 }
 
+// The n (1 to 4) words of a comp4 group at word `base`. Unrolled: a loop
+// storing w[k] would make the vector a private array.
+public uint4 readAttribWords(StructuredBuffer<uint> pool, uint base, uint n) {
+    uint4 w = uint4(pool[base], 0u, 0u, 0u);
+    if (n > 1u) {
+        w.y = pool[base + 1u];
+    }
+    if (n > 2u) {
+        w.z = pool[base + 2u];
+    }
+    if (n > 3u) {
+        w.w = pool[base + 3u];
+    }
+    return w;
+}
+
 // The pool accessors, for read-only and read-write bindings alike.
 
 public uint attribCount(StructuredBuffer<uint> pool) { return pool[1]; }
