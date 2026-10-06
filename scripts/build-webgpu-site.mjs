@@ -56,6 +56,39 @@ for (const name of ["spark.module.min.js", "spark.webgpu.module.min.js"]) {
     throw new Error(`${file} missing: run npm run build:production`);
   }
 }
+// The two entry points must come from the same build: the WebGPU chunk
+// imports the main bundle's minified export names (a dist/ restored from git
+// next to a fresh chunk fails to link in the browser).
+{
+  const main = path.join(root, "dist", "spark.module.min.js");
+  const gpu = path.join(root, "dist", "spark.webgpu.module.min.js");
+  const exported = new Set(
+    [...fs.readFileSync(main, "utf8").matchAll(/export\s*\{([^}]*)\}/g)]
+      .flatMap((m) => m[1].split(","))
+      .map((e) =>
+        e
+          .trim()
+          .split(/\s+as\s+/)
+          .pop(),
+      ),
+  );
+  const imported = [
+    ...fs
+      .readFileSync(gpu, "utf8")
+      .matchAll(
+        /import\s*\{([^}]*)\}\s*from\s*["']\.\/spark\.module\.min\.js["']/g,
+      ),
+  ]
+    .flatMap((m) => m[1].split(","))
+    .map((e) => e.trim().split(/\s+as\s+/)[0])
+    .filter(Boolean);
+  const missing = imported.filter((name) => !exported.has(name));
+  if (missing.length) {
+    throw new Error(
+      `dist/spark.webgpu.module.min.js imports ${missing.slice(0, 5).join(", ")} that dist/spark.module.min.js does not export: run npm run build:production`,
+    );
+  }
+}
 // The entry points and their lazy chunks (plugin kernel variants), in a
 // folder named by their content hash: the entry points keep fixed names and
 // the browsers and Cloudflare cache them for hours, so a new build must not
