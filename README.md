@@ -106,6 +106,12 @@ Copy the following code into an `index.html` file.
 npm install @sparkjsdev/spark
 ```
 
+### WebGPU
+
+Spark also draws with WebGPU when the `renderer` given to `SparkRenderer` is three.js's `WebGPURenderer` (`import * as THREE from "three/webgpu"`). WebGL2 stays the default and WebGL apps don't download the WebGPU backend: it is a separate file, `spark.webgpu.module.js`, which `SparkRenderer` loads on demand. The WebGPU-only API (`WgpuSplatRenderer`, `WgpuLod`, `fx`, `SplatAttributes`, ...) is imported from `@sparkjsdev/spark/webgpu`.
+
+See the [WebGPU backend docs](docs/docs/webgpu.md) and the migration guide with the ported examples, [examples/webgpu/README.md](examples/webgpu/README.md).
+
 ## Run Examples locally
 
 Install [Rust](https://www.rust-lang.org/tools/install) if it's not already installed in your machine.
