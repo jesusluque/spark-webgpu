@@ -14,13 +14,17 @@
 // compute wrote, and rgba16float render targets with depth. Subgroups,
 // timestamp queries, float32-filterable and bgra8unorm-storage are reported for callers that want them, never assumed.
 
+import { kernelsSortRadix } from "./generated/constants";
+
 /** Workgroup threads sort_radix's histogram and scatter entries declare. */
 export const SORT_WORKGROUP_THREADS = 256;
+const { BINS, WG, SCAN_CHUNK } = kernelsSortRadix;
 /**
- * Largest workgroup storage of a sort entry: sHist (16 atomic u32) + sScan
- * (128 vec4<u32>) + sBase (16 u32) + sScanBuf (512 u32), from the WGSL.
+ * Workgroup storage a sort entry may need, at most: sHist (BINS atomic u32)
+ * + sScan (WG vec4<u32>) + sBase (BINS u32) + sScanBuf (SCAN_CHUNK u32).
  */
-export const SORT_WORKGROUP_BYTES = 16 * 4 + 128 * 16 + 16 * 4 + 512 * 4;
+export const SORT_WORKGROUP_BYTES =
+  BINS * 4 + WG * 16 + BINS * 4 + SCAN_CHUNK * 4;
 /** Bytes per splat in the largest per-splat buffer (the ext accumulator). */
 export const ACCUMULATOR_BYTES_PER_SPLAT = 32;
 /** The packed accumulator (WgpuSplatRenderer accumulator "packed"). */

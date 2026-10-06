@@ -4,6 +4,7 @@
 // splats [p * 65536, ...). The CPU AttribPool it exposes holds the schema
 // only, with gpuBuffer set, so SplatAttributes binds the pool as it is.
 
+import { createStorage } from "../gpuBuffers";
 import { columnValues } from "./lodAttributes";
 import {
   AttribPool,
@@ -54,14 +55,11 @@ export class PagedAttribPool {
     readonly maxSplats: number,
   ) {
     this.layout = poolLayout(specs);
-    this.buffer = device.createBuffer({
-      label: "attribute pages",
-      size: Math.ceil((poolWords(this.layout, maxSplats) * 4) / 16) * 16,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC,
-    });
+    this.buffer = createStorage(
+      device,
+      poolWords(this.layout, maxSplats) * 4,
+      "attribute pages",
+    );
     const header = poolHeader(this.layout, maxSplats);
     device.queue.writeBuffer(this.buffer, 0, header);
     this.pool = new AttribPool(maxSplats);

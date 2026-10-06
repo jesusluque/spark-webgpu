@@ -6,24 +6,12 @@
 
 import type { GpuProfiler } from "./GpuProfiler";
 import type { KernelRegistry } from "./KernelRegistry";
+import { kernelsSortRadix } from "./generated/constants";
 import sortModule from "./generated/kernels/sort_radix";
+import { createStorage as storage } from "./gpuBuffers";
 import { UniformWriter } from "./uniforms";
 
-const TILE = 128 * 8;
-const SCAN_CHUNK = 512;
-const BINS = 16;
-
-function storage(device: GPUDevice, bytes: number, label: string, extra = 0) {
-  return device.createBuffer({
-    label,
-    size: Math.max(16, Math.ceil(bytes / 16) * 16),
-    usage:
-      GPUBufferUsage.STORAGE |
-      GPUBufferUsage.COPY_SRC |
-      GPUBufferUsage.COPY_DST |
-      extra,
-  });
-}
+const { TILE, SCAN_CHUNK, BINS } = kernelsSortRadix;
 
 export class GpuSorter {
   readonly device: GPUDevice;
