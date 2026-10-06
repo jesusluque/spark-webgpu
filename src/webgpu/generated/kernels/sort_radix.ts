@@ -19,7 +19,8 @@ export const reflection = {
         "blockHist",
         "drawArgs",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 64
     },
     {
       "name": "compactKeys",
@@ -35,7 +36,8 @@ export const reflection = {
         "valsOut",
         "blockHist",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 512
     },
     {
       "name": "writeDispatch",
@@ -48,7 +50,8 @@ export const reflection = {
       "uses": [
         "sortCount",
         "dispatchArgs"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "radixHistogram",
@@ -63,7 +66,8 @@ export const reflection = {
         "blockHist",
         "sortCount",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 64
     },
     {
       "name": "scanChunks",
@@ -77,7 +81,8 @@ export const reflection = {
         "scanData",
         "chunkSums",
         "scanParams"
-      ]
+      ],
+      "workgroupStorageBytes": 2048
     },
     {
       "name": "addChunkOffsets",
@@ -91,7 +96,8 @@ export const reflection = {
         "scanData",
         "chunkSums",
         "scanParams"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "radixScatter",
@@ -109,7 +115,8 @@ export const reflection = {
         "blockHist",
         "sortCount",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 2112
     }
   ],
   "bindings": [

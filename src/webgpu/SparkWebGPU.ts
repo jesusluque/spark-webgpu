@@ -43,18 +43,10 @@ import {
   openPass,
   webgpuBackend,
 } from "./threeInternals";
+import type { WebGPURendererLike } from "./threeRenderer";
 import { INVERTIBLE_TONE_MAPPINGS } from "./toneMapping";
 
-// three's internals go through threeInternals.ts; this is the public rest.
-export interface WebGPURendererLike extends ThreeWebGPURenderer {
-  isWebGPURenderer?: boolean;
-  info: { frame: number };
-  xr?: { isPresenting?: boolean };
-  outputColorSpace: string;
-  toneMapping?: THREE.ToneMapping;
-  toneMappingExposure?: number;
-  getOutputRenderTarget(): THREE.RenderTarget | null;
-}
+export type { WebGPURendererLike };
 
 /** Whether `renderer` is three's WebGPURenderer (either backend). */
 export function isWebGPURenderer(

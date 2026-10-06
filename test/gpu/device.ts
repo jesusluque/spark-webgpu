@@ -3,6 +3,12 @@
 // GPU suites skip.
 
 import { create, globals } from "webgpu";
+import {
+  createReadback,
+  createStorage,
+  readAndDestroy,
+  writeWords,
+} from "../../src/webgpu/gpuBuffers";
 
 Object.assign(globalThis, globals);
 
@@ -24,42 +30,26 @@ async function open(): Promise<GPUDevice | null> {
 
 export const device = await open();
 
+// Thin wrappers over the library's own buffer helpers, so tests allocate and
+// read back exactly as the renderer does.
+
+/** A storage buffer holding `data`, or `data` zeroed bytes. */
 export function storage(data: ArrayBufferView | number): GPUBuffer {
   const d = device as GPUDevice;
   const size = typeof data === "number" ? data : data.byteLength;
-  const buffer = d.createBuffer({
-    size: Math.max(16, Math.ceil(size / 16) * 16),
-    usage:
-      GPUBufferUsage.STORAGE |
-      GPUBufferUsage.COPY_SRC |
-      GPUBufferUsage.COPY_DST,
-  });
-  if (typeof data !== "number") {
-    d.queue.writeBuffer(
-      buffer,
-      0,
-      data.buffer,
-      data.byteOffset,
-      data.byteLength,
-    );
-  }
+  const buffer = createStorage(d, size, "test storage");
+  if (typeof data !== "number") writeWords(d, buffer, data);
   return buffer;
 }
 
+/** A copy of all of `buffer`. */
 export async function readBack(buffer: GPUBuffer): Promise<ArrayBuffer> {
   const d = device as GPUDevice;
-  const staging = d.createBuffer({
-    size: buffer.size,
-    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-  });
+  const staging = createReadback(d, buffer.size, "test readback");
   const encoder = d.createCommandEncoder();
   encoder.copyBufferToBuffer(buffer, 0, staging, 0, buffer.size);
   d.queue.submit([encoder.finish()]);
-  await staging.mapAsync(GPUMapMode.READ);
-  const copy = staging.getMappedRange().slice(0);
-  staging.unmap();
-  staging.destroy();
-  return copy;
+  return readAndDestroy(staging);
 }
 
 /** Uniform block of `count` followed by padding, as the test kernels use. */

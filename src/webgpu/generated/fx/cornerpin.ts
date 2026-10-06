@@ -19,7 +19,8 @@ export const reflection = {
         "mesh",
         "dst",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "pinBlur",
@@ -33,7 +34,8 @@ export const reflection = {
         "src",
         "dst",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [

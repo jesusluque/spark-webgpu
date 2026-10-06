@@ -18,7 +18,8 @@ export const reflection = {
         "texels",
         "picture",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "packTexels",
@@ -32,7 +33,8 @@ export const reflection = {
         "texelsOut",
         "src",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "restoreChannels",
@@ -46,7 +48,8 @@ export const reflection = {
         "src",
         "picture",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [

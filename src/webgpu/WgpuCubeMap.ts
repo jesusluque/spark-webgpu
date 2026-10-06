@@ -21,6 +21,7 @@ import {
   generateMipmaps,
   gpuTexture,
 } from "./threeInternals";
+import type { WebGPURendererLike } from "./threeRenderer";
 
 export interface WgpuCubeMapOptions {
   /** three objects to draw under the splats (lights, meshes...). */
@@ -34,26 +35,6 @@ export interface WgpuCubeMapOptions {
   hideObjects?: THREE.Object3D[];
   /** Mipmapped and linear, for filtering (renderEnvMap sets it). */
   filter?: boolean;
-}
-
-interface RendererLike extends ThreeWebGPURenderer {
-  getRenderTarget(): THREE.RenderTarget | null;
-  getActiveCubeFace(): number;
-  getActiveMipmapLevel(): number;
-  setRenderTarget(target: THREE.RenderTarget | null, face?: number): void;
-  render(scene: THREE.Object3D, camera: THREE.Camera): void;
-  initTexture(texture: THREE.Texture): void;
-  readRenderTargetPixelsAsync(
-    target: THREE.RenderTarget,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    textureIndex?: number,
-    faceIndex?: number,
-  ): Promise<ArrayBufferView>;
-  coordinateSystem: THREE.CoordinateSystem;
-  xr?: { enabled: boolean };
 }
 
 export class WgpuCubeMap {
@@ -80,8 +61,8 @@ export class WgpuCubeMap {
     } = {},
   ) {}
 
-  private get renderer(): RendererLike {
-    return this.splats.renderer as unknown as RendererLike;
+  private get renderer(): WebGPURendererLike {
+    return this.splats.renderer;
   }
 
   /** The cube target the last renderCubeMap drew into. */
@@ -241,7 +222,7 @@ export class WgpuCubeMap {
  */
 export async function readCubeFaces(
   renderer: Pick<
-    RendererLike,
+    WebGPURendererLike,
     "readRenderTargetPixelsAsync" | "coordinateSystem"
   >,
   target: THREE.RenderTarget,

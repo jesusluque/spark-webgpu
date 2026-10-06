@@ -17,7 +17,8 @@ export const reflection = {
       "uses": [
         "dst",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "checkerBoardMain",
@@ -30,7 +31,8 @@ export const reflection = {
       "uses": [
         "dst",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "colorBarsMain",
@@ -43,7 +45,8 @@ export const reflection = {
       "uses": [
         "dst",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     },
     {
       "name": "colorWheelMain",
@@ -56,7 +59,8 @@ export const reflection = {
       "uses": [
         "dst",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [

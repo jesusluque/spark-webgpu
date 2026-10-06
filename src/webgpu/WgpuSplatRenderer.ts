@@ -58,6 +58,7 @@ import {
   gpuTexture,
   webgpuBackend,
 } from "./threeInternals";
+import type { WebGPURendererLike } from "./threeRenderer";
 import { UniformWriter } from "./uniforms";
 
 const {
@@ -254,8 +255,6 @@ export interface SplatRendererStage {
   ): void;
   draw?(context: SplatDrawContext): SplatDrawVariant | null;
 }
-
-type WebGPURendererLike = ThreeWebGPURenderer;
 
 export class WgpuSplatRenderer {
   readonly device: GPUDevice;

@@ -20,7 +20,8 @@ export const reflection = {
         "attribMap",
         "drawAttribs",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [
