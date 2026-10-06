@@ -9,7 +9,10 @@ import {
   fxTransform,
 } from "../../src/webgpu/generated/constants";
 // @ts-expect-error: a plain .mjs build script, untyped
-import { findConstants } from "../../tools/slang-build/index.mjs";
+import {
+  findConstants,
+  workgroupStorageBytes,
+} from "../../tools/slang-build/index.mjs";
 
 describe("slang-build findConstants", () => {
   it("reads integer constants and expressions over earlier ones", () => {
@@ -52,6 +55,19 @@ describe("slang-build findConstants", () => {
       INF: Number.POSITIVE_INFINITY,
       NEG: Number.NEGATIVE_INFINITY,
     });
+  });
+});
+
+describe("slang-build workgroupStorageBytes", () => {
+  it("rounds each workgroup variable up to 16 bytes, as WebGPU counts", () => {
+    const wgsl = `
+      var<workgroup> a : array<atomic<u32>, i32(16)>;
+      var<workgroup> b : array<vec4<u32>, i32(128)>;
+      var<workgroup> c : u32;
+      var<workgroup> d : array<vec3<f32>, 3>;
+      var<private> e : array<u32, 64>;
+    `;
+    expect(workgroupStorageBytes(wgsl)).toBe(64 + 2048 + 16 + 48);
   });
 });
 

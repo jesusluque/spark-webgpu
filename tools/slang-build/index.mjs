@@ -256,6 +256,43 @@ export function declaredBindings(wgsl) {
   return out;
 }
 
+// Size and alignment of a WGSL type, for the workgroup variables slangc
+// emits (scalars, atomics, vectors and arrays of them).
+function wgslLayout(type) {
+  const t = type.replace(/\s+/g, "");
+  if (/^(u32|i32|f32|bool)$/.test(t)) return { size: 4, align: 4 };
+  if (t === "f16") return { size: 2, align: 2 };
+  let m = t.match(/^atomic<(\w+)>$/);
+  if (m) return wgslLayout(m[1]);
+  m = t.match(/^vec([234])(?:<(\w+)>|([fhiu]))$/);
+  if (m) {
+    const n = Number(m[1]);
+    const c = wgslLayout(
+      m[2] ?? { f: "f32", h: "f16", i: "i32", u: "u32" }[m[3]],
+    );
+    const align = c.size * (n === 3 ? 4 : n);
+    return { size: c.size * n, align };
+  }
+  m = t.match(/^array<(.+),(?:i32|u32)?\(?(\d+)u?\)?>$/);
+  if (m) {
+    const e = wgslLayout(m[1]);
+    const stride = Math.ceil(e.size / e.align) * e.align;
+    return { size: stride * Number(m[2]), align: e.align };
+  }
+  throw new Error(`slang-build: no layout for workgroup type ${type}`);
+}
+
+// The workgroup storage an entry needs against maxComputeWorkgroupStorageSize:
+// WebGPU counts roundUp(16, size) for each workgroup variable the entry uses,
+// and an entry compiled alone declares only those.
+export function workgroupStorageBytes(wgsl) {
+  let total = 0;
+  for (const m of wgsl.matchAll(/var<workgroup>\s*\w+\s*:\s*([^;]+);/g)) {
+    total += Math.ceil(wgslLayout(m[1]).size / 16) * 16;
+  }
+  return total;
+}
+
 function compileOne(exe, file) {
   const source = fs.readFileSync(file, "utf8");
   const entries = findEntries(source);
@@ -283,6 +320,9 @@ function compileOne(exe, file) {
     entry.uses = reflection.bindings
       .filter((b) => declared.has(`${b.group}:${b.binding}`))
       .map((b) => b.name);
+    if (entry.stage === "compute") {
+      entry.workgroupStorageBytes = workgroupStorageBytes(own);
+    }
   }
   fs.rmSync(tmp, { recursive: true, force: true });
 

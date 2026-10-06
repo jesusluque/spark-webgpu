@@ -21,7 +21,8 @@ export const reflection = {
         "outSplats",
         "sortMetric",
         "params"
-      ]
+      ],
+      "workgroupStorageBytes": 0
     }
   ],
   "bindings": [

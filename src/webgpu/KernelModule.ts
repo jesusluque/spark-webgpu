@@ -39,6 +39,8 @@ export interface EntryReflection {
   readonly stage: "compute" | "vertex" | "fragment" | string;
   readonly workgroupSize: readonly number[] | null;
   readonly uses: readonly string[];
+  /** Compute entries: workgroup storage they declare, as WebGPU counts it. */
+  readonly workgroupStorageBytes?: number;
 }
 
 export interface KernelReflection {
