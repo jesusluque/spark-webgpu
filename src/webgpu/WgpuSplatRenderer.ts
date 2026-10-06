@@ -37,7 +37,7 @@ import {
   DynoKernels,
   type WgpuDyno,
 } from "./dyno/DynoKernels";
-import { drawSplatDraw, kernelsGenerate } from "./generated/constants";
+import { drawSplatShape, kernelsGenerate } from "./generated/constants";
 import drawModule from "./generated/draw/splat_draw";
 import generateModule from "./generated/kernels/generate";
 import {
@@ -73,7 +73,7 @@ const {
   DRAW_ENCODE_LINEAR,
   DRAW_PREMULTIPLIED,
   DRAW_DISK_CLIP,
-} = drawSplatDraw;
+} = drawSplatShape;
 
 /** A portal disk in view space that clips the splats (WgpuSplatRenderer.diskClip). */
 export interface SplatDiskClip {

@@ -34,8 +34,8 @@ export const drawSplatAttribDraw = {
   COLOR_VALUE: 4,
 } as const;
 
-/** slang/draw/splat_draw.slang */
-export const drawSplatDraw = {
+/** slang/draw/splat_shape.slang */
+export const drawSplatShape = {
   DRAW_EXT: 1,
   DRAW_COV: 2,
   DRAW_2DGS: 4,
