@@ -4638,6 +4638,30 @@ void main() {
 "
 `;
 
+exports[`dyno GLSL > uniform float, vec2 and bool arrays 1`] = `
+"uniform float f_1[3];
+
+uniform vec2 v_2[2];
+
+uniform bool b_3[2];
+void main() {
+    // DynoBlock(index) => (out_value)
+    {
+        // DynoUniform() => (f_1)
+        
+        // DynoUniform() => (v_2)
+        
+        // DynoUniform() => (b_3)
+        
+        // Dyno(f_1, v_2, b_3) => (out_value)
+        {
+            out_value = v_2[1] + f_1[2] + float(b_3[1]) * 100.0 + float(b_3[0]) * 1000.0;
+        }
+    }
+}
+"
+`;
+
 exports[`dyno GLSL > uniform index 1`] = `
 "uniform int value_1;
 
