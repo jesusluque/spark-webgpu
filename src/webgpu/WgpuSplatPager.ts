@@ -12,6 +12,9 @@
 // capped by the device's maxStorageBufferBindingSize: with default limits
 // (128 MiB) that is 8M packed splats without SH, 2.7M with SH3. Request the
 // adapter's limits from WebGPURenderer (requiredLimits) for more.
+//
+// The core pool (not SH) is also kept on the CPU, in SplatPager's texture
+// data as on WebGL, for SplatMesh.raycast on paged meshes.
 
 import * as THREE from "three";
 import type { PagedSplats } from "../PagedSplats";
@@ -189,6 +192,8 @@ export class WgpuSplatPager extends SplatPager {
     const base = page * PAGE_SPLATS;
     const core = this.pools.core;
     const count = packedArray.length / 4;
+    this.mirror(this.packedTexture, base, packedArray);
+    if (extArray) this.mirror(this.extTexture, base, extArray);
     // Every page, so one without attributes clears the previous tenant's.
     this.uploadAttribs(base, count, attribs);
     if (extArray) {
@@ -221,6 +226,23 @@ export class WgpuSplatPager extends SplatPager {
       });
     }
     this.write(sh, base, words);
+  }
+
+  // Copies a page into the CPU pool SplatMesh.raycast reads, allocated with
+  // the first page (SplatPager's would be allocated up front).
+  private mirror(
+    texture: { value: THREE.DataArrayTexture },
+    splatBase: number,
+    words: Uint32Array,
+  ) {
+    const data = texture.value.image.data as Uint32Array;
+    if (data.length < this.maxSplats * 4) {
+      const pool = new Uint32Array(this.maxSplats * 4);
+      texture.value = new THREE.DataArrayTexture(pool, 1, 1, 1);
+      pool.set(words, splatBase * 4);
+    } else {
+      data.set(words, splatBase * 4);
+    }
   }
 
   private write(pool: Pool, splatBase: number, words: Uint32Array) {

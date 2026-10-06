@@ -6,15 +6,32 @@
 // L + T * B in sRGB, so a full-screen pass composites
 //   linear(L + T * srgb(dst))
 // over a copy of the target. srgb() and linear() are three's own transfer
-// functions, so where no splat covers a pixel three's output pass returns
-// exactly what it would have.
+// functions; pixels no splat covers are left as they were.
+//
+// With tone mapping, three tone-maps the target in its output pass, after
+// everything is blended, where WebGL Spark blends untone-mapped splats over
+// the tone-mapped picture. So the layer is composited over the picture as
+// it will show, srgb(T(dst)), and written back as T's inverse
+// (toneMapping.ts), which the output pass maps to the composited colour.
+// Transparent objects drawn after the splats then still blend over them,
+// in three's linear space. Colours T never produces (AgX and ACES desaturate
+// bright colours, and AgX's white is 0.997) come out as the nearest it
+// does.
 
+import * as THREE from "three";
 import { reuseTexture } from "./gpuBuffers";
 import { FULLSCREEN_TRIANGLE_WGSL } from "./renderPipeline";
+import { toneMappingWgsl } from "./toneMapping";
 
-const COMPOSITE_WGSL = (multisampled: boolean) => /* wgsl */ `
+const COMPOSITE_WGSL = (
+  multisampled: boolean,
+  toneMapping: number,
+) => /* wgsl */ `
 @group(0) @binding(0) var dstTex: ${multisampled ? "texture_multisampled_2d" : "texture_2d"}<f32>;
 @group(0) @binding(1) var layerTex: ${multisampled ? "texture_multisampled_2d" : "texture_2d"}<f32>;
+// x: three's toneMappingExposure.
+@group(0) @binding(2) var<uniform> params: vec4f;
+${toneMappingWgsl(toneMapping)}
 ${FULLSCREEN_TRIANGLE_WGSL}
 // three's sRGBTransferOETF / sRGBTransferEOTF.
 fn toSrgb(c: vec3f) -> vec3f {
@@ -30,8 +47,13 @@ fn fragmentMain(@builtin(position) p: vec4f${multisampled ? ", @builtin(sample_i
   let dst = textureLoad(dstTex, xy, ${multisampled ? "s" : "0"});
   let layer = textureLoad(layerTex, xy, ${multisampled ? "s" : "0"});
   let t = layer.a;
-  let rgb = layer.rgb + t * toSrgb(max(dst.rgb, vec3f(0.0)));
-  return vec4f(toLinear(rgb), 1.0 - t + t * dst.a);
+  if (t == 1.0 && all(layer.rgb == vec3f(0.0))) {
+    return dst;
+  }
+  let exposure = params.x;
+  let shown = toneMap(max(dst.rgb, vec3f(0.0)), exposure);
+  let rgb = layer.rgb + t * toSrgb(shown);
+  return vec4f(inverseToneMap(toLinear(rgb), exposure), 1.0 - t + t * dst.a);
 }
 `;
 
@@ -52,11 +74,25 @@ interface Scratch {
   copy: GPUTexture;
 }
 
+/** three's tone mapping, as its output pass will apply it. */
+export interface CompositeToneMapping {
+  /** A THREE.*ToneMapping in INVERTIBLE_TONE_MAPPINGS. */
+  toneMapping: number;
+  exposure: number;
+}
+
 export class SrgbComposite {
   private pipelines = new Map<string, GPURenderPipeline>();
   private scratch: Scratch | null = null;
+  private readonly params: GPUBuffer;
 
-  constructor(readonly device: GPUDevice) {}
+  constructor(readonly device: GPUDevice) {
+    this.params = device.createBuffer({
+      label: "splat layer composite params",
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+  }
 
   /** A layer for `color` (the target's attachment texture), cleared. */
   beginLayer(
@@ -81,20 +117,34 @@ export class SrgbComposite {
 
   /**
    * Composites the layer over `color`, through `view` (its attachment view,
-   * which may resolve), within `viewport` when given.
+   * which may resolve), within `viewport` when given, under three's
+   * `toneMapping` when its output pass tone-maps `color`.
    */
   composite(
     encoder: GPUCommandEncoder,
     color: GPUTexture,
     attachment: Pick<GPURenderPassColorAttachment, "view" | "resolveTarget">,
     viewport?: { x: number; y: number; z: number; w: number } | null,
+    toneMapping: CompositeToneMapping = {
+      toneMapping: THREE.NoToneMapping,
+      exposure: 1,
+    },
   ) {
     const { layer, copy } = this.ensureScratch(color);
     encoder.copyTextureToTexture({ texture: color }, { texture: copy }, [
       color.width,
       color.height,
     ]);
-    const pipeline = this.pipeline(color.format, color.sampleCount);
+    const pipeline = this.pipeline(
+      color.format,
+      color.sampleCount,
+      toneMapping.toneMapping,
+    );
+    this.device.queue.writeBuffer(
+      this.params,
+      0,
+      new Float32Array([toneMapping.exposure, 0, 0, 0]),
+    );
     const pass = encoder.beginRenderPass({
       label: "splat layer composite",
       colorAttachments: [{ ...attachment, loadOp: "load", storeOp: "store" }],
@@ -111,6 +161,7 @@ export class SrgbComposite {
         entries: [
           { binding: 0, resource: copy.createView() },
           { binding: 1, resource: layer.createView() },
+          { binding: 2, resource: { buffer: this.params } },
         ],
       }),
     );
@@ -145,12 +196,16 @@ export class SrgbComposite {
     return this.scratch;
   }
 
-  private pipeline(format: GPUTextureFormat, sampleCount: number) {
-    const key = `${format}/${sampleCount}`;
+  private pipeline(
+    format: GPUTextureFormat,
+    sampleCount: number,
+    toneMapping: number,
+  ) {
+    const key = `${format}/${sampleCount}/${toneMapping}`;
     let pipeline = this.pipelines.get(key);
     if (!pipeline) {
       const module = this.device.createShaderModule({
-        code: COMPOSITE_WGSL(sampleCount > 1),
+        code: COMPOSITE_WGSL(sampleCount > 1, toneMapping),
       });
       pipeline = this.device.createRenderPipeline({
         label: "splat layer composite",
@@ -168,5 +223,6 @@ export class SrgbComposite {
     this.scratch?.layer.destroy();
     this.scratch?.copy.destroy();
     this.scratch = null;
+    this.params.destroy();
   }
 }

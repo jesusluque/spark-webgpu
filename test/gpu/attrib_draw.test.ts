@@ -242,4 +242,45 @@ describe.skipIf(!device)("splat attributes in the renderer", () => {
     attrs.dispose();
     splats.dispose();
   });
+
+  // The portal clip applies to the attribute variant as to the default draw.
+  it("clips attribute draws by the portal disk", async () => {
+    const splats = new WgpuSplatRenderer(fakeRenderer as never, {
+      depthTest: false,
+    });
+    const attrs = new SplatAttributes(splats, {
+      colorMode: "splat",
+      targets: { id: true },
+    });
+    splats.add(rowSource(3, 0.15, 1.2));
+    const cam = camera();
+    const pixel = (i: number): [number, number] => {
+      const p = new THREE.Vector3((i - 1) * 1.2, 0, 0).project(cam);
+      return [Math.floor(((p.x + 1) / 2) * W), Math.floor(((1 - p.y) / 2) * H)];
+    };
+    // A disk in front of the middle splat only, facing the camera.
+    const drawn = async (radius: number) => {
+      splats.diskClip = {
+        center: new THREE.Vector3(0, 0, -3.5),
+        normal: new THREE.Vector3(0, 0, 1),
+        radius,
+        twoSided: false,
+      };
+      clearCanvas();
+      splats.render(cam);
+      await d.queue.onSubmittedWorkDone();
+      const out: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        if ((await attrs.pick(...pixel(i)))?.index === i) out.push(i);
+      }
+      return out;
+    };
+    // Behind the disk, seen through it: the middle splat only...
+    expect(await drawn(0.5)).toEqual([1]);
+    // ...and dropping that: the other two.
+    expect(await drawn(-0.5)).toEqual([0, 2]);
+    expect(await drawn(0)).toEqual([0, 1, 2]);
+    attrs.dispose();
+    splats.dispose();
+  });
 });

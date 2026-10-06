@@ -58,6 +58,9 @@ struct AttribVertexOut {
     nointerpolation float4 slot1 : TEXCOORD4;
     nointerpolation float4 slot2 : TEXCOORD5;
     nointerpolation float4 slot3 : TEXCOORD6;
+    // For DRAW_DISK_CLIP, as splat_draw.slang's VertexOut.
+    float3 viewRay : TEXCOORD7;
+    nointerpolation float viewDepth : TEXCOORD8;
 };
 
 float4 readSlot(uint k, uint splat) {
@@ -131,6 +134,9 @@ AttribVertexOut splatAttribVertex(uint vertexId: SV_VertexID, uint instanceId: S
     o.splatUv = base.splatUv;
     o.adjustedStdDev = base.adjustedStdDev;
     o.splatIndex = base.splatIndex;
+    float2 ndc = base.position.xy / base.position.w;
+    o.viewRay = float3(ndc.x / params.proj0.x, ndc.y / params.proj1.y, -1.0);
+    o.viewDepth = base.position.w;
     uint splat = base.splatIndex;
     o.slot0 = readSlot(0u, splat);
     o.slot1 = readSlot(1u, splat);
@@ -153,6 +159,9 @@ struct AttribFragmentOut {
 
 [shader("fragment")]
 AttribFragmentOut splatAttribFragment(AttribVertexOut v) {
+    if (hasFlag(DRAW_DISK_CLIP) && params.diskCenter.w != 0.0 && diskClipped(v.viewRay, v.viewDepth)) {
+        discard;
+    }
     SplatVertex base;
     base.position = v.position;
     base.rgba = v.rgba;
