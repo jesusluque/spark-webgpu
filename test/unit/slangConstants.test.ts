@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { LN_SCALE_MAX, LN_SCALE_MIN } from "../../src/defines";
+import { WGSL_PRELUDE, f32Literal } from "../../src/dyno/wgsl/prelude";
 import { MERGE_OPERATIONS } from "../../src/webgpu/fx/effects/Merge";
 import { TRANSFORM_FILTERS } from "../../src/webgpu/fx/effects/Transform";
-import { fxMerge, fxTransform } from "../../src/webgpu/generated/constants";
+import {
+  coreMath,
+  fxMerge,
+  fxTransform,
+} from "../../src/webgpu/generated/constants";
 // @ts-expect-error: a plain .mjs build script, untyped
 import { findConstants } from "../../tools/slang-build/index.mjs";
 
@@ -24,7 +30,45 @@ describe("slang-build findConstants", () => {
       D: 16,
       kX: 0,
       kY: 1,
+      F: 1.5,
     });
+  });
+
+  it("reads float constants", () => {
+    const source = `
+      static const float A = -12.0;
+      public static const float B = 1.5e3f;
+      static const float C = A * 0.5 + .25;
+      static const float INF = 1.0 / 0.0;
+      static const float NEG = -1.0 / 0.0;
+      static const float NAN = 0.0 / 0.0;
+      static const float4 V = float4(1.0);
+      static const float X = sqrt(2.0);
+    `;
+    expect(findConstants(source)).toEqual({
+      A: -12,
+      B: 1500,
+      C: -5.75,
+      INF: Number.POSITIVE_INFINITY,
+      NEG: Number.NEGATIVE_INFINITY,
+    });
+  });
+});
+
+describe("Slang and JS constants agree", () => {
+  it("scale range", () => {
+    expect(coreMath.LN_SCALE_MIN).toBe(LN_SCALE_MIN);
+    expect(coreMath.LN_SCALE_MAX).toBe(LN_SCALE_MAX);
+    expect(coreMath.PI).toBe(Math.PI);
+  });
+
+  it("the dyno WGSL prelude takes them as f32 literals", () => {
+    expect(f32Literal(-12)).toBe("-12.0");
+    expect(f32Literal(0.5)).toBe("0.5");
+    expect(f32Literal(1e-7)).toBe("1e-7");
+    expect(WGSL_PRELUDE).toContain("const LN_SCALE_MIN: f32 = -12.0;");
+    expect(WGSL_PRELUDE).toContain("const LN_SCALE_MAX: f32 = 9.0;");
+    expect(WGSL_PRELUDE).toContain("const SPLAT_TEX_WIDTH_MASK: u32 = 2047u;");
   });
 });
 
