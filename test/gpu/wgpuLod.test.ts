@@ -6,6 +6,8 @@ import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { PackedSplats } from "../../src/PackedSplats";
+import { SparkRenderer } from "../../src/SparkRenderer";
+import { SplatMesh } from "../../src/SplatMesh";
 import { SplatWorker } from "../../src/SplatWorker";
 import { setPackedSplat } from "../../src/utils";
 import { WgpuLod } from "../../src/webgpu/WgpuLod";
@@ -217,5 +219,189 @@ describe.skipIf(!device)("WgpuLod", () => {
     expect(level.length).toBeGreaterThan(1);
     expect(Math.max(...level)).toBeLessThan(lodSplats.numSplats);
     dispose();
+  });
+
+  it("keeps a coarser raycast selection, as SparkRenderer.lodRaycast", async () => {
+    const { lod, frame, dispose } = setup({ lodRaycast: 200 });
+    const m = await lod.add(lodPackedSplats());
+    await frame();
+    const drawn = m.lastIndices.length;
+    expect(drawn).toBeGreaterThan(1000);
+    const raycast = m.raycastIndices as { numSplats: number };
+    expect(raycast.numSplats).toBeGreaterThan(0);
+    expect(raycast.numSplats).toBeLessThanOrEqual(
+      Math.min(200, Math.round(drawn * 0.1)),
+    );
+    dispose();
+
+    const none = setup({ lodRaycast: 0 });
+    const m2 = await none.lod.add(lodPackedSplats());
+    await none.frame();
+    expect(m2.raycastIndices).toBeUndefined();
+    none.dispose();
+  });
+
+  it("hides a mesh and shows it again with its tree and selection", async () => {
+    const { splats, lod, frame, calls, dispose } = setup();
+    const m = await lod.add(lodPackedSplats());
+    await frame();
+    const selection = m.lastIndices;
+    expect(selection.length).toBeGreaterThan(0);
+
+    lod.setVisible(m, false);
+    expect(m.mesh.lodIndices?.length).toBe(0);
+    calls.length = 0;
+    await frame();
+    // Not traversed while hidden; nothing rebuilt or released.
+    const traversed = calls.filter((c) => c.name === "traverseLodTrees");
+    expect(traversed.every((c) => !(m.id in (c.args.instances as object))));
+    expect(splats.meshes).toContain(m.mesh);
+
+    lod.setVisible(m, true);
+    expect(m.mesh.lodIndices).toBe(selection);
+    await frame();
+    expect(calls.map((c) => c.name)).not.toContain("initLodTree");
+    expect(calls.map((c) => c.name)).not.toContain("disposeLodTree");
+    expect(lod.meshes).toEqual([m]);
+    dispose();
+  });
+
+  it("releases trees no mesh drew for lodCleanupTimeoutMs", async () => {
+    const kept = setup();
+    const packed = lodPackedSplats();
+    const lodSplats = packed.lodSplats as PackedSplats;
+    const first = await kept.lod.add(packed);
+    await kept.frame();
+    // Within the timeout: the tree stays, and a new mesh of the same splats
+    // reuses it.
+    kept.lod.remove(first);
+    kept.calls.length = 0;
+    await kept.frame();
+    await kept.lod.add(packed);
+    await kept.frame();
+    const names = kept.calls.map((c) => c.name);
+    expect(names).not.toContain("initLodTree");
+    expect(names).not.toContain("disposeLodTree");
+    expect(await kept.lod.getLodTreeLevel(lodSplats, 0)).not.toBeNull();
+    kept.dispose();
+
+    const released = setup({ lodCleanupTimeoutMs: 0 });
+    const m = await released.lod.add(packed);
+    await released.frame();
+    const hidden = await released.lod.add(packed);
+    released.lod.setVisible(hidden, false);
+    // Still drawn by m: kept.
+    await released.frame();
+    expect(released.lod.active).toBe(true);
+    expect(released.calls.map((c) => c.name)).not.toContain("disposeLodTree");
+    // Drawn by none: released on the next update, then re-built on show.
+    released.lod.remove(m);
+    await released.frame();
+    expect(released.calls.map((c) => c.name)).toContain("disposeLodTree");
+    expect(await released.lod.getLodTreeLevel(lodSplats, 0)).toBeNull();
+    released.calls.length = 0;
+    released.lod.setVisible(hidden, true);
+    await released.frame();
+    expect(released.calls.map((c) => c.name)).toContain("initLodTree");
+    expect(hidden.lastIndices.length).toBeGreaterThan(0);
+    released.lod.remove(hidden);
+    await released.frame();
+    expect(released.lod.active).toBe(false);
+    released.dispose();
+  });
+
+  // SparkRenderer on WebGPU: a LoD SplatMesh hidden and shown again reuses
+  // its WgpuLod mesh, and gets raycast indices from it.
+  it("reuses a hidden SplatMesh's LoD mesh through SparkRenderer", async () => {
+    const W = 64;
+    const target = d.createTexture({
+      size: [W, W],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    const rc = {
+      textures: null,
+      depthTexture: null,
+      renderTarget: null,
+      width: W,
+      height: W,
+      viewport: false,
+      viewportValue: new THREE.Vector4(0, 0, W, W),
+    };
+    const rcData: Record<string, unknown> = {};
+    const three = {
+      isWebGPURenderer: true,
+      info: { frame: 0 },
+      outputColorSpace: THREE.SRGBColorSpace,
+      getOutputRenderTarget: () => null,
+      _currentRenderContext: rc,
+      _frameBufferTarget: null,
+      backend: {
+        isWebGPUBackend: true,
+        device: d,
+        context: {
+          getCurrentTexture: () => target,
+          canvas: { width: W, height: W },
+        },
+        get: (resource: object) => (resource === rc ? rcData : {}),
+        utils: {
+          getCurrentColorFormat: () => target.format,
+          getCurrentDepthStencilFormat: () => undefined,
+          getSampleCountRenderContext: () => 1,
+          getCurrentColorSpace: () => THREE.SRGBColorSpace,
+        },
+      },
+    };
+    const spark = new SparkRenderer({ renderer: three as never });
+    spark.lodSplatCount = 5000;
+    spark.lodRaycast = 100;
+    const scene = new THREE.Scene();
+    scene.add(spark);
+    const mesh = new SplatMesh({ packedSplats: lodPackedSplats() });
+    scene.add(mesh);
+    const cam = camera();
+    const { worker, calls, idle } = inProcessWorker();
+    const render = async () => {
+      three.info.frame += 1;
+      const encoder = d.createCommandEncoder();
+      const descriptor: GPURenderPassDescriptor = {
+        colorAttachments: [
+          { view: target.createView(), loadOp: "clear", storeOp: "store" },
+        ],
+      };
+      rcData.descriptor = descriptor;
+      rcData.currentPass = encoder.beginRenderPass(descriptor);
+      spark.onBeforeRender(three as never, scene, cam);
+      (rcData.currentPass as GPURenderPassEncoder).end();
+      d.queue.submit([encoder.finish()]);
+      const lod = spark.webgpu?.lod as unknown as { worker: SplatWorker };
+      lod.worker = worker;
+      await idle();
+      // WgpuLod.add's then.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    await mesh.initialized;
+    for (let i = 0; i < 3; i++) await render();
+    const lod = spark.webgpu?.lod as WgpuLod;
+    const [lodMesh] = lod.meshes;
+    expect(lodMesh.lastIndices.length).toBeGreaterThan(0);
+    expect(mesh.raycastIndices).toBe(lodMesh.raycastIndices);
+    expect(mesh.raycastIndices?.numSplats).toBeLessThanOrEqual(100);
+
+    mesh.visible = false;
+    await render();
+    expect(lod.meshes).toEqual([lodMesh]);
+    expect(lodMesh.visible).toBe(false);
+    calls.length = 0;
+    mesh.visible = true;
+    await render();
+    expect(lod.meshes).toEqual([lodMesh]);
+    expect(lodMesh.visible).toBe(true);
+    expect(calls.map((c) => c.name)).not.toContain("initLodTree");
+
+    scene.remove(mesh);
+    await render();
+    expect(lod.meshes).toEqual([]);
+    spark.dispose();
   });
 });

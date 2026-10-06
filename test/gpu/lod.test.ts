@@ -260,6 +260,12 @@ describe.skipIf(!device)("LoD", () => {
       }
     ).uploadPage(1, fill(1, 4), shArrays, fill(2, 4));
     expect(pager.curSh).toBe(3);
+    // The CPU copy of the core pool that SplatMesh.raycast reads.
+    const ext1 = pager.packedTexture.value.image.data as Uint32Array;
+    const ext2 = pager.extTexture.value.image.data as Uint32Array;
+    expect(ext1.length).toBe(pager.maxSplats * 4);
+    expect(ext1[(PAGE + 57) * 4 + 1]).toBe(1000000 + 4 * 57 + 1);
+    expect(ext2[(PAGE + 57) * 4 + 2]).toBe(2000000 + 4 * 57 + 2);
     const core = new Uint32Array(
       await readBack(pager.pools.core.buffer as GPUBuffer),
     );

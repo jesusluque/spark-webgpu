@@ -203,7 +203,7 @@ export class SparkWebGPU {
       this.lastFrame = frame;
       this.applyOptions();
       this.sync(scene, camera);
-      if (this.lod?.meshes.length && this.spark.enableDriveLod) {
+      if (this.lod?.active && this.spark.enableDriveLod) {
         this.lod.update(this.lodCamera ?? camera, { x: width, y: height });
       }
     }
@@ -516,6 +516,9 @@ export class SparkWebGPU {
     l.coneFov = spark.coneFov;
     l.coneFoveate = spark.coneFoveate;
     l.enableLodFetching = spark.enableLodFetching;
+    l.lodCleanupTimeoutMs = spark.lodCleanupTimeoutMs;
+    l.lodRaycast = spark.lodRaycast;
+    l.lodRaycastIntervalMs = spark.lodRaycastIntervalMs;
   }
 
   // Matches the WgpuSplatRenderer meshes to the scene's visible generators.
@@ -556,7 +559,8 @@ export class SparkWebGPU {
     }
     for (const [node, entry] of this.entries) {
       if (shown.has(node)) continue;
-      this.detach(entry);
+      // Hidden LoD meshes keep their WgpuLod mesh, to be shown again.
+      this.detach(entry, all.has(node));
       if (!all.has(node)) this.entries.delete(node);
     }
   }
@@ -654,15 +658,20 @@ export class SparkWebGPU {
     return true;
   }
 
-  // What SplatMesh.update leaves for raycast(): the splats drawn, as source
-  // indices into lodSplats for a LoD selection. Paged splats live only on
-  // the GPU here, so they can't be raycast.
+  // What SplatMesh.update leaves for raycast(): for a LoD selection, the
+  // raycast traversal's indices into lodSplats (paged: into the page pool,
+  // which WgpuSplatPager mirrors on the CPU), else the splats drawn.
   private updateRaycast(node: SplatMesh, entry: Entry) {
+    const lodMesh = entry.lodMesh;
+    const drawn = lodMesh?.mesh.lodIndices;
+    node.raycastIndices =
+      lodMesh && drawn
+        ? (lodMesh.raycastIndices ?? {
+            numSplats: drawn.length,
+            indices: drawn,
+          })
+        : undefined;
     if (node.paged) return;
-    const indices = entry.lodMesh?.mesh.lodIndices;
-    node.raycastIndices = indices
-      ? { numSplats: indices.length, indices }
-      : undefined;
     node.context.enableLod.value = false;
     const base = node.packedSplats ?? node.extSplats;
     node.context.numSplats.value = entry.pending ? 0 : (base?.numSplats ?? 0);
@@ -700,12 +709,14 @@ export class SparkWebGPU {
       .add(splats as PackedSplats, node, { lodScale: node.lodScale })
       .then((lodMesh) => {
         entry.pending = false;
-        if (entry.detached) {
+        // Dropped, or rebuilt for new splats, while loading.
+        if (this.entries.get(node) !== entry) {
           lod.remove(lodMesh);
           return;
         }
         lodMesh.mesh.dyno = entry.dyno;
         entry.lodMesh = lodMesh;
+        if (entry.detached) lod.setVisible(lodMesh, false);
         this.spark.setDirty();
       })
       .catch((error) => {
@@ -721,21 +732,28 @@ export class SparkWebGPU {
       // Uploaded again if no other mesh kept the splats.
       entry.shared = this.acquire(entry.shared.splats);
       entry.mesh = splats.add(entry.shared.source, node, entry.dyno);
+    } else if (entry.lodMesh) {
+      // LoD: shown again, with its sources and tree.
+      this.lod?.setVisible(entry.lodMesh, true);
     } else if (node instanceof SplatMesh) {
-      // LoD: added again, as WgpuLod releases its trees on removal.
       if (!entry.pending) this.addLod(node, entry);
     } else {
       entry.mesh = splats.addGenerator(node.numSplats, entry.dyno, node);
     }
   }
 
-  private detach(entry: Entry) {
+  // Stops drawing an entry. `keep`: a hidden LoD mesh stays in WgpuLod,
+  // hidden, as SparkRenderer keeps a LoD mesh's tree and textures.
+  private detach(entry: Entry, keep = false) {
+    if (entry.lodMesh && !keep) {
+      this.lod?.remove(entry.lodMesh);
+      entry.lodMesh = undefined;
+    }
     if (entry.detached) return;
     entry.detached = true;
     if (entry.mesh) this.splats?.remove(entry.mesh);
     entry.mesh = undefined;
-    if (entry.lodMesh) this.lod?.remove(entry.lodMesh);
-    entry.lodMesh = undefined;
+    if (entry.lodMesh) this.lod?.setVisible(entry.lodMesh, false);
     if (entry.shared) this.release(entry.shared);
   }
 

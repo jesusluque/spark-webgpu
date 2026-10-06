@@ -50,6 +50,19 @@ export interface WgpuLodOptions {
   numLodFetchers?: number;
   /** @default true */
   enableLodFetching?: boolean;
+  /**
+   * A tree no mesh draws is released this long after it was last drawn,
+   * as SparkRenderer.lodCleanupTimeoutMs. @default 3000
+   */
+  lodCleanupTimeoutMs?: number;
+  /**
+   * Splats in each raycast selection (WgpuLodMesh.raycastIndices), a second
+   * coarser traversal, as SparkRenderer.lodRaycast; 0 for none (raycasts
+   * then use the drawn selection). Default 10K on mobile, else 25K.
+   */
+  lodRaycast?: number;
+  /** Minimum time between raycast traversals. @default 500 */
+  lodRaycastIntervalMs?: number;
   /** Called when LoD state changed and a new frame should be rendered. */
   onDirty?: () => void;
 }
@@ -77,20 +90,44 @@ export interface WgpuLodMesh extends WgpuLodMeshOptions {
   baseSource?: GpuSplatSource;
   lodSource: GpuSplatSource;
   lastIndices: Uint32Array;
+  /** False while hidden (setVisible): kept, with its tree, but not drawn. */
+  visible: boolean;
+  /**
+   * The splats to raycast, as SplatMesh.raycastIndices: indices into the
+   * LoD splats (paged: the page pool) of the last raycast traversal.
+   */
+  raycastIndices?: { numSplats: number; indices: Uint32Array };
 }
 
 interface TreeRecord {
   lodId: number;
   rootPage?: number;
+  /** When a mesh last drew it (performance.now()). */
+  lastTouched: number;
+}
+
+const NO_SPLATS = new Uint32Array(0);
+
+// A mesh as the worker's traverseLodTrees takes it.
+interface LodInstance {
+  instanceId: string;
+  lodId: number;
+  rootPage?: number;
+  viewToObjectCols: number[];
+  lodScale: number;
+  behindFoveate: number;
+  coneFov0: number;
+  coneFov: number;
+  coneFoveate: number;
 }
 
 let nextId = 0;
 
 export class WgpuLod {
   readonly options: Required<
-    Omit<WgpuLodOptions, "lodSplatCount" | "onDirty">
+    Omit<WgpuLodOptions, "lodSplatCount" | "onDirty" | "lodRaycast">
   > &
-    Pick<WgpuLodOptions, "lodSplatCount" | "onDirty">;
+    Pick<WgpuLodOptions, "lodSplatCount" | "onDirty" | "lodRaycast">;
   readonly meshes: WgpuLodMesh[] = [];
   pager?: WgpuSplatPager;
   /** Time of the last traversal in ms, and the splats it selected. */
@@ -119,6 +156,7 @@ export class WgpuLod {
     maxSplats: number;
   };
   private lastPixelLimit?: number;
+  private lastRaycastTime = Number.NEGATIVE_INFINITY;
 
   constructor(
     readonly renderer: WgpuSplatRenderer,
@@ -137,6 +175,8 @@ export class WgpuLod {
       maxPagedSplats: defaultPages * 65536,
       numLodFetchers: 3,
       enableLodFetching: true,
+      lodCleanupTimeoutMs: 3000,
+      lodRaycastIntervalMs: 500,
       ...options,
     };
   }
@@ -178,7 +218,8 @@ export class WgpuLod {
       mesh,
       enableLod: true,
       lodSource: source,
-      lastIndices: new Uint32Array(0),
+      lastIndices: NO_SPLATS,
+      visible: true,
     };
     // Draw nothing until the first traversal picks the splats.
     if (this.lodSplatsOf(lodMesh)) {
@@ -198,18 +239,29 @@ export class WgpuLod {
       lodMesh.lodSource.destroy();
       lodMesh.baseSource?.destroy();
     }
+    // Its tree stays for another mesh of the same splats until the timed
+    // release in update(), as on WebGL.
     this.version += 1;
-    // Release the tree once no other mesh draws the same splats.
-    const splats = this.lodSplatsOf(lodMesh);
-    if (splats && !this.meshes.some((m) => this.lodSplatsOf(m) === splats)) {
-      const record = this.trees.get(splats);
-      if (record) {
-        this.trees.delete(splats);
-        this.lodIdToSplats.delete(record.lodId);
-        this.disposeQueue.push(record.lodId);
-      }
-      if (splats instanceof PagedSplats) this.pager?.removeSplats(splats);
-    }
+  }
+
+  /** Whether update() still has work: meshes, or trees to release. */
+  get active(): boolean {
+    return (
+      this.meshes.length > 0 ||
+      this.trees.size > 0 ||
+      this.disposeQueue.length > 0
+    );
+  }
+
+  /**
+   * Hides a mesh without removing it: a SplatMesh hidden and shown again
+   * keeps its sources, last selection and (until the timed release) tree.
+   */
+  setVisible(lodMesh: WgpuLodMesh, visible: boolean) {
+    if (lodMesh.visible === visible) return;
+    lodMesh.visible = visible;
+    this.applySelection(lodMesh);
+    this.version += 1;
   }
 
   /**
@@ -237,8 +289,19 @@ export class WgpuLod {
     lodMesh.enableLod = enable;
     // Without LoD splats the mesh draws in full either way.
     if (!this.lodSplatsOf(lodMesh)) return;
+    this.applySelection(lodMesh);
+    this.version += 1;
+  }
+
+  // Points the mesh at what it draws now: nothing while hidden, its LoD
+  // selection, or with LoD off its full-detail splats.
+  private applySelection(lodMesh: WgpuLodMesh) {
     const { splats, mesh } = lodMesh;
-    if (enable) {
+    if (!lodMesh.visible) {
+      this.renderer.setLodIndices(mesh, NO_SPLATS);
+    } else if (!this.lodSplatsOf(lodMesh)) {
+      this.renderer.setLodIndices(mesh, null);
+    } else if (lodMesh.enableLod) {
       mesh.source = lodMesh.lodSource;
       this.renderer.setLodIndices(mesh, lodMesh.lastIndices);
     } else if (!(splats instanceof PagedSplats) && splats.numSplats > 0) {
@@ -249,9 +312,8 @@ export class WgpuLod {
       mesh.source = lodMesh.baseSource;
       this.renderer.setLodIndices(mesh, null);
     } else {
-      this.renderer.setLodIndices(mesh, new Uint32Array(0));
+      this.renderer.setLodIndices(mesh, NO_SPLATS);
     }
-    this.version += 1;
   }
 
   private ensurePager() {
@@ -347,12 +409,16 @@ export class WgpuLod {
     }
 
     const lodMeshes = this.meshes.filter(
-      (m) => m.enableLod && this.lodSplatsOf(m),
+      (m) => m.visible && m.enableLod && this.lodSplatsOf(m),
     );
+    const now = performance.now();
     for (const m of lodMeshes) {
       m.object.updateMatrixWorld();
       const splats = this.lodSplatsOf(m) as LodSplats;
-      if (!this.trees.has(splats) && !this.initQueue.includes(splats)) {
+      const record = this.trees.get(splats);
+      if (record) {
+        record.lastTouched = now;
+      } else if (!this.initQueue.includes(splats)) {
         this.initQueue.push(splats);
       }
       // The pool's SH buffer and the encoding appear with the first pages.
@@ -413,6 +479,7 @@ export class WgpuLod {
       maxSplats: number;
     },
   ) {
+    this.releaseTrees(lodMeshes);
     while (this.disposeQueue.length > 0) {
       const lodId = this.disposeQueue.shift() as number;
       await worker.call("disposeLodTree", { lodId });
@@ -439,7 +506,7 @@ export class WgpuLod {
           lodTree: (splats.extra.lodTree as Uint32Array).slice(),
         }));
       }
-      this.trees.set(splats, { lodId });
+      this.trees.set(splats, { lodId, lastTouched: performance.now() });
       this.lodIdToSplats.set(lodId, splats);
       this.dirty = true;
     }
@@ -457,7 +524,9 @@ export class WgpuLod {
           record.rootPage = undefined;
           for (const m of this.meshes) {
             if (m.splats === splats) {
-              this.renderer.setLodIndices(m.mesh, new Uint32Array(0));
+              m.lastIndices = NO_SPLATS;
+              m.raycastIndices = undefined;
+              this.renderer.setLodIndices(m.mesh, NO_SPLATS);
             }
           }
         }
@@ -491,6 +560,29 @@ export class WgpuLod {
     this.setDirty();
   }
 
+  // SparkRenderer.cleanupLodTrees: releases the trees that no mesh drawn now
+  // uses and none drew for lodCleanupTimeoutMs. Bookkeeping only: update()
+  // may run between the worker calls, so the disposals are queued.
+  private releaseTrees(lodMeshes: WgpuLodMesh[]) {
+    const drawn = new Set(lodMeshes.map((m) => this.lodSplatsOf(m)));
+    const expiry = performance.now() - this.options.lodCleanupTimeoutMs;
+    for (const [splats, record] of [...this.trees]) {
+      if (drawn.has(splats) || record.lastTouched > expiry) continue;
+      this.trees.delete(splats);
+      this.lodIdToSplats.delete(record.lodId);
+      this.disposeQueue.push(record.lodId);
+      if (!(splats instanceof PagedSplats)) continue;
+      // Its pages go back to the pool: drop selections that point there.
+      this.pager?.removeSplats(splats);
+      for (const m of this.meshes) {
+        if (m.splats !== splats) continue;
+        m.lastIndices = NO_SPLATS;
+        m.raycastIndices = undefined;
+        this.applySelection(m);
+      }
+    }
+  }
+
   private async traverse(
     worker: SplatWorker,
     lodMeshes: WgpuLodMesh[],
@@ -506,20 +598,7 @@ export class WgpuLod {
       new THREE.Vector3(1, 1, 1),
     );
     const byId = new Map<string, WgpuLodMesh>();
-    const instances: Record<
-      string,
-      {
-        instanceId: string;
-        lodId: number;
-        rootPage?: number;
-        viewToObjectCols: number[];
-        lodScale: number;
-        behindFoveate: number;
-        coneFov0: number;
-        coneFov: number;
-        coneFoveate: number;
-      }
-    > = {};
+    const instances: Record<string, LodInstance> = {};
     for (const m of lodMeshes) {
       const record = this.trees.get(this.lodSplatsOf(m) as LodSplats);
       if (!record) continue;
@@ -561,16 +640,32 @@ export class WgpuLod {
     let total = 0;
     for (const [id, { numSplats, indices }] of Object.entries(keyIndices)) {
       const m = byId.get(id);
-      // Removed or switched off while the traversal ran.
-      if (!m || !this.meshes.includes(m) || !m.enableLod) continue;
+      // Removed, hidden or switched off while the traversal ran.
+      if (!m || !this.meshes.includes(m) || !m.visible || !m.enableLod) {
+        continue;
+      }
       m.lastIndices = indices.subarray(0, numSplats);
       this.renderer.setLodIndices(m.mesh, m.lastIndices);
+      // PagedSplats.update's count, for stats (no texture here).
+      if (m.splats instanceof PagedSplats) {
+        m.splats.numSplats = numSplats;
+        m.splats.dynoNumSplats.value = numSplats;
+      }
       total += numSplats;
     }
     this.stats.lodSplats = total;
 
     const pager = this.pager;
-    if (!pager) return;
+    if (pager) this.fetchPages(pager, lodMeshes, chunks, viewPos);
+    await this.raycastTraverse(worker, instances, byId, total, pixelScaleLimit);
+  }
+
+  private fetchPages(
+    pager: WgpuSplatPager,
+    lodMeshes: WgpuLodMesh[],
+    chunks: [number, number][],
+    viewPos: THREE.Vector3,
+  ) {
     // Pages land in the pool in the same task as the indices that use them.
     pager.processUploads();
     this.markRendererDirty();
@@ -592,8 +687,43 @@ export class WgpuLod {
         pager.fetchPriority.push({ splats, chunk });
       }
     }
+    const o = this.options;
     pager.autoDrive = o.enableLodFetching;
     if (o.enableLodFetching) pager.driveFetchers();
+  }
+
+  // SparkRenderer's raycast selection: a coarser cut, at most every
+  // lodRaycastIntervalMs.
+  private async raycastTraverse(
+    worker: SplatWorker,
+    instances: Record<string, LodInstance>,
+    byId: Map<string, WgpuLodMesh>,
+    total: number,
+    pixelScaleLimit: number,
+  ) {
+    const o = this.options;
+    const lodRaycast = o.lodRaycast ?? (isMobile() ? 10000 : 25000);
+    const now = performance.now();
+    if (
+      lodRaycast <= 0 ||
+      byId.size === 0 ||
+      now - this.lastRaycastTime < o.lodRaycastIntervalMs
+    ) {
+      return;
+    }
+    this.lastRaycastTime = now;
+    const { keyIndices } = await worker.call("traverseLodTrees", {
+      maxSplats: Math.min(lodRaycast, Math.round(total * 0.1)),
+      pixelScaleLimit,
+      instances,
+      traverseMode: o.lodTraverseMode,
+    });
+    for (const [id, { numSplats, indices }] of Object.entries(keyIndices)) {
+      const m = byId.get(id);
+      if (m && this.meshes.includes(m)) {
+        m.raycastIndices = { numSplats, indices };
+      }
+    }
   }
 
   dispose() {
