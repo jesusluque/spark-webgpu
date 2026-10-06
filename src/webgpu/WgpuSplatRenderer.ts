@@ -51,6 +51,13 @@ import {
   createBindGroups,
   createReflectedRenderPipeline,
 } from "./renderPipeline";
+import {
+  type ThreeWebGPURenderer,
+  canvasContext,
+  gpuDevice,
+  gpuTexture,
+  webgpuBackend,
+} from "./threeInternals";
 import { UniformWriter } from "./uniforms";
 
 const {
@@ -248,15 +255,7 @@ export interface SplatRendererStage {
   draw?(context: SplatDrawContext): SplatDrawVariant | null;
 }
 
-interface WebGPURendererLike {
-  backend: {
-    isWebGPUBackend?: boolean;
-    device: GPUDevice;
-    context: GPUCanvasContext;
-    /** three's per-resource backend data; `.texture` for textures. */
-    get(resource: object): { texture?: GPUTexture } | undefined;
-  };
-}
+type WebGPURendererLike = ThreeWebGPURenderer;
 
 export class WgpuSplatRenderer {
   readonly device: GPUDevice;
@@ -282,7 +281,7 @@ export class WgpuSplatRenderer {
   readonly stages: SplatRendererStage[] = [];
   /**
    * The portal clip of SparkPortals' DISK_PORTAL_FRAGMENT_SHADER, for the
-   * next draws (default draw only, not attribute variants).
+   * next draws (default draw and attribute variants).
    */
   diskClip: SplatDiskClip | null = null;
 
@@ -318,12 +317,12 @@ export class WgpuSplatRenderer {
     readonly renderer: WebGPURendererLike,
     options: WgpuSplatRendererOptions = {},
   ) {
-    if (!renderer.backend?.isWebGPUBackend) {
+    if (!webgpuBackend(renderer)) {
       throw new Error(
         "WgpuSplatRenderer needs WebGPURenderer on its WebGPU backend (await renderer.init())",
       );
     }
-    this.device = renderer.backend.device;
+    this.device = gpuDevice(renderer);
     this.registry = new KernelRegistry(this.device);
     this.sorter = new GpuSorter(this.registry);
     this.options = {
@@ -757,17 +756,15 @@ export class WgpuSplatRenderer {
     depth: GPUTexture | null;
     linear: boolean;
   } {
-    const { backend } = this.renderer;
+    const { renderer } = this;
     if (!target) {
       return {
-        color: backend.context.getCurrentTexture(),
+        color: canvasContext(renderer).getCurrentTexture(),
         depth: null,
         linear: false,
       };
     }
-    const color = backend.get(target.texture)?.texture as
-      | GPUTexture
-      | undefined;
+    const color = gpuTexture(renderer, target.texture);
     if (!color) {
       throw new Error(
         "WgpuSplatRenderer: render the scene into the target first",
@@ -779,7 +776,7 @@ export class WgpuSplatRenderer {
       );
     }
     const depth = target.depthTexture
-      ? ((backend.get(target.depthTexture)?.texture as GPUTexture) ?? null)
+      ? (gpuTexture(renderer, target.depthTexture) ?? null)
       : null;
     return {
       color,

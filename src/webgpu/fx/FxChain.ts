@@ -16,6 +16,8 @@
 // frame); its other clips can be wired to any FxNode, such as a generator
 // for Merge's A. A step with no inputs replaces the picture.
 
+import type * as THREE from "three";
+import { type ThreeWebGPURenderer, gpuTexture } from "../threeInternals";
 import type { Effect } from "./Effect";
 import { type FxContext, FxGraph, type FxInput, type FxNode } from "./FxGraph";
 import { Gpu } from "./Gpu";
@@ -32,14 +34,8 @@ export interface FxStep extends FxNode {
   name?: string;
 }
 
-interface ThreeRendererLike {
-  backend: {
-    get(resource: object): { texture?: GPUTexture } | undefined;
-  };
-}
-
 interface RenderTargetLike {
-  texture: object & { colorSpace?: string };
+  texture: THREE.Texture;
   samples?: number;
 }
 
@@ -138,8 +134,8 @@ export class FxChain {
   }
 
   /** `apply` on a three.js RenderTarget's colour texture (WebGPURenderer). */
-  applyToRenderTarget(renderer: ThreeRendererLike, target: RenderTargetLike) {
-    const texture = renderer.backend.get(target.texture)?.texture;
+  applyToRenderTarget(renderer: ThreeWebGPURenderer, target: RenderTargetLike) {
+    const texture = gpuTexture(renderer, target.texture);
     if (!texture) {
       throw new Error(
         "FxChain: render into the target before applying effects",

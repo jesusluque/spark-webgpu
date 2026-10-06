@@ -51,6 +51,8 @@ describe.skipIf(!device)("SparkRenderer on WebGPU", () => {
         getSampleCountRenderContext: () => 1,
         getCurrentColorSpace: () => THREE.SRGBColorSpace,
       },
+      updateViewport: () => {},
+      pipelineUtils: { _activePipelines: new WeakMap() },
     },
   };
 
