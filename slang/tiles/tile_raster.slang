@@ -20,7 +20,7 @@
 // with alpha 1 - T, which composited with the quad draw's blend
 // (one, one-minus-src-alpha) gives the back-to-front result.
 //
-// Default limits only: no subgroups, 256 invocations, 13 KiB of workgroup
+// Default limits only: no subgroups, 256 invocations, 6.5 KiB of workgroup
 // memory, at most 7 storage buffers a kernel.
 
 import core.math;
@@ -28,6 +28,9 @@ import draw.splat_shape;
 
 static const uint TILE_SIZE = 16;
 static const uint TILE_THREADS = TILE_SIZE * TILE_SIZE;
+// Splats a tile's workgroup loads at a time: 128 keeps its workgroup memory
+// at 6.5 KiB, for more workgroups in flight.
+static const uint TILE_BATCH = 128;
 // tileRanges covers GpuSorter's dispatch blocks: 128 threads x 8 keys.
 static const uint RANGE_WG = 128;
 static const uint RANGE_ROUNDS = 8;
@@ -75,12 +78,64 @@ ConstantBuffer<TileParams> tileParams;
 
 bool hasTileFlag(uint f) { return (tileParams.flags & f) != 0u; }
 
-uint rectTiles(uint2 r) {
+// Splat-space squared radius of pixel offset d: |uv|^2 as the blend
+// computes it.
+float uvRadius2(float2 d, float2 u1, float2 u2) {
+    return sqr(dot(d, u1)) + sqr(dot(d, u2));
+}
+
+// The least uvRadius2 on the segment p + t * e, t in [0, 1].
+float segmentMin(float2 p, float2 e, float2 u1, float2 u2) {
+    float a = dot(e, u1);
+    float b = dot(e, u2);
+    float c = dot(p, u1);
+    float d = dot(p, u2);
+    float ee = a * a + b * b;
+    float t = ee > 0.0 ? clamp(-(c * a + d * b) / ee, 0.0, 1.0) : 0.0;
+    return sqr(c + t * a) + sqr(d + t * b);
+}
+
+// Whether a tile has pixel centres inside slot i's footprint ellipse: the
+// least uvRadius2 over the box of its centres (relative to the splat's
+// centre) is within stdDev^2. A box missing the centre has it on an edge.
+// Most of a large or thin splat's bounding rectangle can miss it.
+bool tileTouched(uint i, uint2 tile) {
+    uint4 a = tileSplats[2u * i];
+    uint4 b = tileSplats[2u * i + 1u];
+    float2 center = asfloat(a.xy);
+    float2 u1 = asfloat(a.zw);
+    float2 u2 = asfloat(b.xy);
+    float stdDev2 = asfloat(tileExtra[i].x);
+    float2 last = float2(float(tileParams.width), float(tileParams.height)) - 1.0;
+    float2 lo = float2(tile * TILE_SIZE) + 0.5 - center;
+    float2 hi = min(float2(tile * TILE_SIZE + TILE_SIZE - 1u), last) + 0.5 - center;
+    if (all(lo <= 0.0) && all(hi >= 0.0)) {
+        return true;
+    }
+    float m = min(
+        min(segmentMin(lo, float2(hi.x - lo.x, 0.0), u1, u2), segmentMin(float2(lo.x, hi.y), float2(hi.x - lo.x, 0.0), u1, u2)),
+        min(segmentMin(lo, float2(0.0, hi.y - lo.y), u1, u2), segmentMin(float2(hi.x, lo.y), float2(0.0, hi.y - lo.y), u1, u2)));
+    return m <= stdDev2;
+}
+
+// Tiles of slot i's rectangle that its ellipse touches.
+uint touchedTiles(uint i) {
+    uint2 r = tileRects[i];
     uint x0 = r.x & 0xffffu;
     uint y0 = r.x >> 16u;
     uint x1 = r.y & 0xffffu;
     uint y1 = r.y >> 16u;
-    return (x1 >= x0 && y1 >= y0) ? (x1 - x0 + 1u) * (y1 - y0 + 1u) : 0u;
+    uint n = 0u;
+    if (x1 >= x0 && y1 >= y0) {
+        for (uint y = y0; y <= y1; y++) {
+            for (uint x = x0; x <= x1; x++) {
+                if (tileTouched(i, uint2(x, y))) {
+                    n++;
+                }
+            }
+        }
+    }
+    return n;
 }
 
 [shader("compute")]
@@ -134,7 +189,7 @@ void tilePreprocess(uint3 tid: SV_DispatchThreadID) {
         }
     }
     tileRects[i] = rect;
-    tileCounts[i] = rectTiles(rect);
+    tileCounts[i] = touchedTiles(i);
 }
 
 // The pairs to write, once tileCounts is scanned: into keyArgs[1], clamped
@@ -143,7 +198,7 @@ void tilePreprocess(uint3 tid: SV_DispatchThreadID) {
 [numthreads(1, 1, 1)]
 void tileTotal() {
     uint n = min(sortCount[1], tileParams.slots);
-    uint total = n > 0u ? tileCounts[n - 1u] + rectTiles(tileRects[n - 1u]) : 0u;
+    uint total = n > 0u ? tileCounts[n - 1u] + touchedTiles(n - 1u) : 0u;
     keyTotal[0] = total;
     keyArgs[1] = min(total, tileParams.keyCapacity);
 }
@@ -163,6 +218,9 @@ void tileDuplicate(uint3 tid: SV_DispatchThreadID) {
     uint k = tileCounts[i];
     for (uint y = y0; y <= y1; y++) {
         for (uint x = x0; x <= x1; x++) {
+            if (!tileTouched(i, uint2(x, y))) {
+                continue;
+            }
             if (k >= tileParams.keyCapacity) {
                 return;
             }
@@ -195,10 +253,10 @@ void tileRanges(uint3 lid: SV_GroupThreadID, uint3 gid: SV_GroupID) {
 }
 
 // A batch of a tile's splats, front first, shared by its pixels.
-groupshared float4 sGeom0[TILE_THREADS]; // center, u1
-groupshared float4 sGeom1[TILE_THREADS]; // u2, stdDev^2, alpha
-groupshared float4 sColor[TILE_THREADS]; // rgb, ndc depth
-groupshared float sViewDepth[TILE_THREADS];
+groupshared float4 sGeom0[TILE_BATCH]; // center, u1
+groupshared float4 sGeom1[TILE_BATCH]; // u2, stdDev^2, alpha
+groupshared float4 sColor[TILE_BATCH]; // rgb, ndc depth
+groupshared float sViewDepth[TILE_BATCH];
 groupshared Atomic<uint> sDone;
 groupshared uint sDoneCount;
 
@@ -230,7 +288,7 @@ void tileBlend(uint3 lid: SV_GroupThreadID, uint3 gid: SV_GroupID) {
     uint end = range.y;
     GroupMemoryBarrierWithGroupSync();
     while (end > range.x) {
-        uint batch = min(TILE_THREADS, end - range.x);
+        uint batch = min(TILE_BATCH, end - range.x);
         if (t < batch) {
             uint slot = sortedVals[end - 1u - t];
             uint4 a = splatsIn[2u * slot];

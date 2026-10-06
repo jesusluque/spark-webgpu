@@ -143,6 +143,7 @@ export const kernelsSortRadix = {
 export const tilesTileRaster = {
   TILE_SIZE: 16,
   TILE_THREADS: 256,
+  TILE_BATCH: 128,
   RANGE_WG: 128,
   RANGE_ROUNDS: 8,
   TILE_DEPTH_TEST: 1,
