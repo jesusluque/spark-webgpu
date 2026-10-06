@@ -21,6 +21,7 @@
 // metric readback one frame behind, as SparkRenderer does with its WASM sort.
 
 import * as THREE from "three";
+import { GpuProfiler } from "./GpuProfiler";
 import { GpuSorter } from "./GpuSorter";
 import { GpuSplatSource } from "./GpuSplatSource";
 import { KernelRegistry } from "./KernelRegistry";
@@ -96,6 +97,19 @@ export interface WgpuSplatRendererOptions {
   focalAdjustment?: number;
   /** Trade LOD opacity above 1 for size (SparkRenderer.lodInflate). */
   lodInflate?: boolean;
+  /**
+   * Time the generate, sort and draw passes with timestamp queries into
+   * stats.gpuMs (needs the timestamp-query feature; ignored without it).
+   * Splits the sort into a pass per stage, so it costs a little.
+   */
+  profile?: boolean;
+  /**
+   * Accumulator format between generate and draw. "ext" (32 B a splat):
+   * float centers and colours. "packed" (16 B, as SparkRenderer's default):
+   * half-float centers relative to the camera, 8-bit colour clamped to the
+   * packed range; halves what the draw reads, losing precision far away.
+   */
+  accumulator?: "ext" | "packed";
 }
 
 /** A mesh's output range in the accumulator this frame. */
@@ -156,6 +170,10 @@ export class WgpuSplatRenderer {
     sortMs: 0,
     /** Frames that ran generate and the GPU sort (the rest redrew). */
     generated: 0,
+    /** JS time of the last render() call. */
+    cpuMs: 0,
+    /** Smoothed GPU ms per pass with options.profile (GpuProfiler labels). */
+    gpuMs: {} as Record<string, number>,
   };
   options: Required<WgpuSplatRendererOptions>;
   /** What the device allows; consulted for the sort path and sizes. */
@@ -174,6 +192,10 @@ export class WgpuSplatRenderer {
   private pipelines = new Map<string, ReflectedRenderPipeline>();
   private emptyBuffer: GPUBuffer;
   private dynoKernels: DynoKernels;
+  private profiler: GpuProfiler | null = null;
+  // The accumulator as the last generate wrote it: packed centers are
+  // relative to `origin` (the camera then).
+  private written = { packed: false, origin: new THREE.Vector3() };
   private lastTime = performance.now() / 1000;
   private dynoDirty = false;
 
@@ -211,6 +233,8 @@ export class WgpuSplatRenderer {
       clipXY: 1.4,
       focalAdjustment: 1,
       lodInflate: false,
+      profile: false,
+      accumulator: "ext",
       ...options,
     };
     this.capabilities = capabilitiesOf(this.device);
@@ -329,6 +353,7 @@ export class WgpuSplatRenderer {
     this.accumulator?.destroy();
     this.metric?.destroy();
     this.ordering?.destroy();
+    // Sized for ext, so switching options.accumulator needs no realloc.
     this.accumulator = createStorage(
       this.device,
       this.capacity * 32,
@@ -354,6 +379,7 @@ export class WgpuSplatRenderer {
       this.mappingVersion,
       this.options.sortBits,
       this.options.sortRadial ? 1 : 0,
+      this.options.accumulator === "packed" ? 1 : 0,
       ...camera.matrixWorld.elements,
       ...camera.projectionMatrix.elements,
     ];
@@ -382,6 +408,43 @@ export class WgpuSplatRenderer {
    * depthTexture, if any, occludes the splats), else onto the canvas.
    */
   render(camera: THREE.Camera, target?: THREE.RenderTarget) {
+    const t0 = performance.now();
+    this.renderFrame(camera, target);
+    this.stats.cpuMs = performance.now() - t0;
+  }
+
+  // The profiler while options.profile is on, created on first use.
+  private activeProfiler(): GpuProfiler | null {
+    if (!this.options.profile) return null;
+    if (!this.profiler) {
+      this.profiler = GpuProfiler.create(this.device);
+      if (!this.profiler) {
+        console.warn("WgpuSplatRenderer: no timestamp-query; not profiling");
+        this.options.profile = false;
+        return null;
+      }
+      this.stats.gpuMs = this.profiler.ms;
+    }
+    return this.profiler;
+  }
+
+  private timestampWrites(label: string) {
+    return this.options.profile
+      ? this.profiler?.timestampWrites(label)
+      : undefined;
+  }
+
+  private submit(encoder: GPUCommandEncoder) {
+    const after =
+      this.profiler && this.options.profile
+        ? this.profiler.resolve(encoder)
+        : null;
+    this.registry.submit(encoder.finish());
+    after?.();
+  }
+
+  private renderFrame(camera: THREE.Camera, target?: THREE.RenderTarget) {
+    const profiler = this.activeProfiler();
     const total = this.meshes.reduce((n, m) => n + this.meshCount(m), 0);
     this.stats.frames += 1;
     if (total === 0) return;
@@ -409,25 +472,35 @@ export class WgpuSplatRenderer {
     if (this.options.sort === "gpu") {
       if (this.changedSince(camera, total)) {
         this.generateAll(encoder, cameraPos, cameraDir);
-        const pass = encoder.beginComputePass({ label: "sort" });
-        this.sorter.encode(
-          pass,
-          this.metric as GPUBuffer,
-          total,
-          this.options.sortBits,
-        );
-        pass.end();
+        if (profiler) {
+          this.sorter.encodeProfiled(
+            encoder,
+            profiler,
+            this.metric as GPUBuffer,
+            total,
+            this.options.sortBits,
+          );
+        } else {
+          const pass = encoder.beginComputePass({ label: "sort" });
+          this.sorter.encode(
+            pass,
+            this.metric as GPUBuffer,
+            total,
+            this.options.sortBits,
+          );
+          pass.end();
+        }
         this.stats.generated += 1;
       }
       this.draw(encoder, camera, target, total);
-      this.registry.submit(encoder.finish());
+      this.submit(encoder);
       return;
     }
     this.generateAll(encoder, cameraPos, cameraDir);
     this.draw(encoder, camera, target);
     const version = this.mappingVersion;
     const readback = this.sortPending ? null : this.copyMetric(encoder, total);
-    this.registry.submit(encoder.finish());
+    this.submit(encoder);
     if (readback) this.sortFrom(readback, total, version);
   }
 
@@ -493,7 +566,15 @@ export class WgpuSplatRenderer {
     cameraDir: THREE.Vector3,
   ) {
     const kernel = this.registry.get(generateModule, "generate");
-    const pass = encoder.beginComputePass({ label: "generate" });
+    const packed = this.options.accumulator === "packed";
+    this.written.packed = packed;
+    const origin = this.written.origin;
+    if (packed) origin.copy(cameraPos);
+    else origin.set(0, 0, 0);
+    const pass = encoder.beginComputePass({
+      label: "generate",
+      timestampWrites: this.timestampWrites("generate"),
+    });
     const position = new THREE.Vector3();
     const rotation = new THREE.Quaternion();
     const scale = new THREE.Vector3();
@@ -516,7 +597,7 @@ export class WgpuSplatRenderer {
         .clone()
         .applyMatrix4(inverse.copy(object.matrixWorld).invert());
       const count = this.meshCount(mesh);
-      let flags = GEN_OUT_EXT;
+      let flags = packed ? 0 : GEN_OUT_EXT;
       if (source.format === "ext") flags |= GEN_SRC_EXT;
       if (mesh.lodIndices) flags |= GEN_USE_LOD;
       if (source.lodOpacity) flags |= GEN_LOD_OPACITY;
@@ -541,7 +622,7 @@ export class WgpuSplatRenderer {
         viewObject: [viewObject.x, viewObject.y, viewObject.z, 0],
         viewCenter: [cameraPos.x, cameraPos.y, cameraPos.z, 0],
         viewDir: [cameraDir.x, cameraDir.y, cameraDir.z, 0],
-        outOrigin: [0, 0, 0, 0],
+        outOrigin: [origin.x, origin.y, origin.z, 0],
       });
       (dyno?.kernel ?? kernel).dispatch(pass, {
         bindings: dyno?.bindings,
@@ -665,7 +746,10 @@ export class WgpuSplatRenderer {
 
     const view = camera.matrixWorldInverse;
     const viewQuat = new THREE.Quaternion().setFromRotationMatrix(view);
-    const viewPos = new THREE.Vector3().setFromMatrixPosition(view);
+    // World = stored + origin, so the origin moves into the translation.
+    const viewPos = new THREE.Vector3()
+      .copy(this.written.origin)
+      .applyMatrix4(view);
     const p = camera.projectionMatrix.elements;
     const basis = new THREE.Matrix3().setFromMatrix4(view).elements;
     const o = this.options;
@@ -693,7 +777,7 @@ export class WgpuSplatRenderer {
       focalAdjustment: o.focalAdjustment,
       falloff: o.falloff,
       flags:
-        DRAW_EXT |
+        (this.written.packed ? 0 : DRAW_EXT) |
         DRAW_PREMULTIPLIED |
         (o.lodInflate ? DRAW_LOD_INFLATE : 0) |
         (linear ? DRAW_ENCODE_LINEAR : 0) |
@@ -721,6 +805,7 @@ export class WgpuSplatRenderer {
     });
     const pass = encoder.beginRenderPass({
       label: "splats",
+      timestampWrites: this.timestampWrites("draw"),
       colorAttachments: [
         { view: target.createView(), loadOp: "load", storeOp: "store" },
         ...(variant?.attachments ?? []),
@@ -755,6 +840,7 @@ export class WgpuSplatRenderer {
     this.drawUniform.destroy();
     this.emptyBuffer.destroy();
     this.sorter.destroy();
+    this.profiler?.destroy();
     this.registry.destroy();
   }
 }

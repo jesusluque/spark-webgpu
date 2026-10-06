@@ -3,6 +3,7 @@
 // and the active count written into indirect draw arguments, all recorded
 // into one compute pass with no readback.
 
+import type { GpuProfiler } from "./GpuProfiler";
 import type { KernelRegistry } from "./KernelRegistry";
 import sortModule from "./generated/kernels/sort_radix";
 import { UniformWriter } from "./uniforms";
@@ -79,6 +80,46 @@ export class GpuSorter {
     count: number,
     bits: 16 | 24 | 32 = 32,
   ) {
+    this.encodeStages(() => pass, metric, count, bits);
+  }
+
+  /**
+   * As encode, with one compute pass per stage on `encoder` so a profiler
+   * can time each (labels sort.prepare, sort.histogram, sort.scan,
+   * sort.scatter; summed over the radix passes).
+   */
+  encodeProfiled(
+    encoder: GPUCommandEncoder,
+    profiler: GpuProfiler,
+    metric: GPUBuffer,
+    count: number,
+    bits: 16 | 24 | 32 = 32,
+  ) {
+    let open: GPUComputePassEncoder | null = null;
+    this.encodeStages(
+      (stage) => {
+        open?.end();
+        const label = `sort.${stage}`;
+        open = encoder.beginComputePass({
+          label,
+          timestampWrites: profiler.timestampWrites(label),
+        });
+        return open;
+      },
+      metric,
+      count,
+      bits,
+    );
+    (open as GPUComputePassEncoder | null)?.end();
+  }
+
+  // `pass(stage)` gives the pass to record each stage's dispatches into.
+  private encodeStages(
+    stagePass: (stage: string) => GPUComputePassEncoder,
+    metric: GPUBuffer,
+    count: number,
+    bits: 16 | 24 | 32,
+  ) {
     this.ensure(count);
     this.device.queue.writeBuffer(
       this.drawArgs,
@@ -94,7 +135,7 @@ export class GpuSorter {
       }).data;
     const get = (entry: string) => this.registry.get(sortModule, entry);
 
-    get("prepareSort").dispatch(pass, {
+    get("prepareSort").dispatch(stagePass("prepare"), {
       grid: [count],
       buffers: {
         sortMetric: metric,
@@ -110,13 +151,13 @@ export class GpuSorter {
       const src = p & 1;
       const dst = src ^ 1;
       const uniforms = sortParams(32 - bits + 4 * p);
-      get("radixHistogram").dispatch(pass, {
+      get("radixHistogram").dispatch(stagePass("histogram"), {
         grid: [numBlocks * 128],
         buffers: { keysIn: this.keys[src], blockHist: this.scanLevels[0] },
         uniforms,
       });
-      this.encodeScan(pass, BINS * numBlocks);
-      get("radixScatter").dispatch(pass, {
+      this.encodeScan(stagePass("scan"), BINS * numBlocks);
+      get("radixScatter").dispatch(stagePass("scatter"), {
         grid: [numBlocks * 128],
         buffers: {
           keysIn: this.keys[src],
