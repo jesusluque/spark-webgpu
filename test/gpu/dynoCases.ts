@@ -927,6 +927,15 @@ const arrayTex = new THREE.DataArrayTexture(
 arrayTex.format = THREE.RGBAIntegerFormat;
 arrayTex.type = THREE.UnsignedIntType;
 arrayTex.needsUpdate = true;
+// An 8-bit sRGB texture reads back decoded, as WebGL's SRGB8_ALPHA8.
+const srgbTex = dataTexture(
+  new Uint8Array([128, 0, 255, 128]),
+  1,
+  1,
+  THREE.RGBAFormat,
+  THREE.UnsignedByteType,
+);
+srgbTex.colorSpace = THREE.SRGBColorSpace;
 // Two 1x1 layers, red 10 and 200: texture() picks the layer floor(z + 0.5).
 const layersTex = new THREE.DataArrayTexture(
   new Uint8Array([10, 0, 0, 255, 200, 0, 0, 255]),
@@ -988,6 +997,17 @@ export const textureCases: [string, d.DynoType, () => Val, Expected][] = [
     "uvec4",
     () => d.texelFetch(d.dynoUsampler2DArray(arrayTex), iv3(1, 0, 2)),
     [36, 37, 38, 39],
+  ],
+  [
+    "texelFetch sRGB sampler2D decodes",
+    "vec4",
+    () => d.texelFetch(d.dynoSampler2D(srgbTex), d.dynoIvec2([0, 0])),
+    (v) => {
+      const lin = (c: number) => ((c + 0.055) / 1.055) ** 2.4;
+      expect(v[0]).toBeCloseTo(lin(128 / 255), 3);
+      expect(v[2]).toBeCloseTo(1, 5);
+      expect(v[3]).toBeCloseTo(128 / 255, 5); // alpha stays linear
+    },
   ],
   [
     "texture sampler2DArray rounds the layer",
