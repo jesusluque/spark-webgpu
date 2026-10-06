@@ -106,6 +106,9 @@ Splats are not tone mapped, as on WebGL.
 | dynamic-lighting.html (lighting on, debug SDFs) | – | 0.22, 0.23 |
 | mobile-joystick.html (still, after look + walk) | opaque clear color | 0.36, 0.38 |
 | multiple-viewpoints.html (still, turning) | the screens' map and UVs (three, see above) | 0.02, 0.05 |
+| interactive-deform.html (still, drag, bounce, rotate) | WGSL for its GLSL dyno, main.js inlined | 0.08, 0.09, 0.09, 0.09 |
+| interactive-ripples.html (still, 30 and 90 frames after a click) | WGSL for its GLSL dyno, main.js inlined | 0.33, 0.33, 0.34 |
+| interactive-holes.html (still, 1 click, 5 clicks, reset) | WGSL for its GLSL dyno (impulse loop unrolled) | 0.50, 0.57, 0.63, 0.50 |
 
 `spark-renderer.html` puts a cube through a splat mesh. Use
 `?backend=webgl` for the WebGL version, `&mode=target` or `&mode=post` for the
