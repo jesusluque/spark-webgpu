@@ -208,7 +208,11 @@ export async function createCorvette({
   // The clouds' transfers, cells and fields are directions of athenea's
   // Z-up stage: the relighting runs in the car's frame (`frame`), the dome
   // and the sun taken into it.
+  // ?footprint=0: athenea's exact centre shading, no coarse-splat prefilter.
   const relight = atheneaRelightPlugin({
+    ...(params.has("footprint")
+      ? { footprint: Number(params.get("footprint")) }
+      : {}),
     pixelDetail: params.get("detail") === "1",
     frame: car,
   });
