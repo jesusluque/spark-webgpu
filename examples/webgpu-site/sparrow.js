@@ -49,11 +49,20 @@ export async function createSparrow({
 }) {
   window.__athenea = { loaded: false, error: null };
   if (mobile) workerPool.maxWorkers = 1;
-  const info = await (
-    await fetch(`${base}${params.get("scene") ?? "sparrow.json"}`, {
-      cache: "no-cache",
-    })
-  ).json();
+  // Phones load the lighter cloud (sparrow-mobile.json: the same clips and
+  // camera, athenea's resolution-256 bake) when it is published.
+  const sceneJson = async (name) => {
+    try {
+      const response = await fetch(`${base}${name}`, { cache: "no-cache" });
+      return response.ok ? await response.json() : null;
+    } catch {
+      return null; // a missing file may come back without CORS headers
+    }
+  };
+  const info =
+    (params.has("scene") ? await sceneJson(params.get("scene")) : null) ??
+    (mobile ? await sceneJson("sparrow-mobile.json") : null) ??
+    (await sceneJson("sparrow.json"));
   const domeName = mobile
     ? (name) => name.replace(/_(2k|4k|8k)\.hdr$/, "_1k.hdr")
     : fullResHdri;
