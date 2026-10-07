@@ -139,6 +139,30 @@ for (const name of fs.readdirSync(out)) {
   }
   fs.writeFileSync(file, text);
 }
+// Cloudflare Web Analytics (cookie-less): the site's beacon token, which is
+// public, from examples/webgpu-site/analytics.json or CF_BEACON_TOKEN. With
+// neither, the pages carry no analytics.
+{
+  let token = process.env.CF_BEACON_TOKEN ?? "";
+  const config = path.join(src, "analytics.json");
+  if (!token && fs.existsSync(config)) {
+    token = JSON.parse(fs.readFileSync(config, "utf8")).beaconToken ?? "";
+  }
+  if (token) {
+    if (!/^[0-9a-f]{32}$/.test(token)) {
+      throw new Error(`analytics: unexpected beacon token "${token}"`);
+    }
+    const tag = `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "${token}"}'></script>`;
+    for (const name of fs.readdirSync(out)) {
+      if (!name.endsWith(".html")) continue;
+      const file = path.join(out, name);
+      const html = fs.readFileSync(file, "utf8");
+      if (!html.includes("</body>")) continue;
+      fs.writeFileSync(file, html.replace("</body>", `  ${tag}\n</body>`));
+    }
+    console.log("analytics: Cloudflare Web Analytics beacon added");
+  }
+}
 // Pages and the shared helpers revalidate on every load; the hashed Spark
 // folder never changes. (Rules must not overlap: Pages joins the headers of
 // every rule that matches.)
