@@ -19,6 +19,7 @@
 //        [--creases 0.03] [--threshold 1e-4] [--floor 0]
 //        [--part NAME=TEXT,TEXT[@IOR][!catcher]]... [--only hd|light]
 //        [--sidecar file.lights.usda] [--template corvette.json] [--list]
+//        [--no-catcher]
 //
 // Defaults: athenea's delivery in ~/luc/athenea-renders/corvette-lights
 // (clouds/base_tx.usdc, clouds/layer_<group>.usdc; the sidecar there or
@@ -216,6 +217,7 @@ function writeSet(dir, quality, entries) {
       droppedBacks: e.report.droppedBacks,
       ...(e.ior ? { ior: e.ior } : {}),
       ...(e.catcher ? { catcher: true } : {}),
+      // The detailed build's (usd-athc) per-group stats.
       lights: e.report.lights.groups.map((g) => ({
         group: g.group,
         radiance: g.radiance,
@@ -227,6 +229,35 @@ function writeSet(dir, quality, entries) {
       origin: e.origin,
     };
   });
+  // athenea's lights base has no floor: the live set's shadow catcher (a
+  // bake of the same car under the same dome), unlit by the lamps.
+  const liveSet = path.join(
+    out,
+    quality === "light" ? "corvette-v5-light" : "corvette-v2-hd",
+  );
+  const liveInfo = path.join(liveSet, "corvette.json");
+  if (
+    !args.includes("--no-catcher") &&
+    !parts.some((p) => p.catcher) &&
+    fs.existsSync(liveInfo)
+  ) {
+    const c = JSON.parse(fs.readFileSync(liveInfo, "utf8")).parts.find(
+      (p) => p.catcher,
+    );
+    if (c) {
+      const file = hashed(
+        dir,
+        path.join(liveSet, c.file),
+        "catcher-t16-gz",
+        ".athc",
+      );
+      parts.push({
+        ...c,
+        file,
+        origin: `${c.origin ?? ""} (from ${path.basename(liveSet)}; not lit by the lamps)`,
+      });
+    }
+  }
   const sidecarName = "corvette.lights.usda";
   fs.copyFileSync(sidecar, path.join(dir, sidecarName));
   // The phones' 1k domes and the credits, as the live sets have them.
@@ -249,7 +280,7 @@ function writeSet(dir, quality, entries) {
     lights: sidecarName,
     lightsState: "noche_ciudad",
     splats: parts.reduce((s, p) => s + p.splats, 0),
-    bytes: parts.reduce((s, p) => s + p.bytes + p.athlBytes, 0),
+    bytes: parts.reduce((s, p) => s + p.bytes + (p.athlBytes ?? 0), 0),
     parts,
     lightRecipe: `athenea's lights bake (${src}): base_tx.usdc + layer_<group>.usdc (${GROUPS.join(", ")}), scripts/build-corvette-lights.mjs --transfer ${transfer} --drop-backs ${dropBacks} --threshold ${threshold} --floor ${floor}${quality === "light" ? ` --light-splats ${lightSplats} --creases ${creases}` : ""}`,
   };
@@ -338,7 +369,9 @@ for (const [k, s] of Object.entries(summary)) {
   );
   for (const p of s.parts) {
     console.log(
-      `  ${p.name}: ${p.file} ${(p.bytes / 1e6).toFixed(1)} MB, ${p.athl} ${(p.athlBytes / 1e6).toFixed(2)} MB; ${p.lights.map((g) => `${g.group} ${g.blocks} blocks`).join(", ")}`,
+      p.athl
+        ? `  ${p.name}: ${p.file} ${(p.bytes / 1e6).toFixed(1)} MB, ${p.athl} ${(p.athlBytes / 1e6).toFixed(2)} MB; ${p.lights.map((g) => `${g.group} ${g.blocks} blocks`).join(", ")}`
+        : `  ${p.name}: ${p.file} ${(p.bytes / 1e6).toFixed(1)} MB (no lamps)`,
     );
   }
 }
