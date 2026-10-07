@@ -566,6 +566,12 @@ export async function createCorvette({
     chain.applyToRenderTarget(renderer, target);
     renderer.setRenderTarget(null);
     output.render(renderer);
+    // Debug: the frame as shown, read in the same task it was drawn in
+    // (window.__athenea.captureNext = true; then read .captured).
+    if (window.__athenea.captureNext) {
+      window.__athenea.captureNext = false;
+      window.__athenea.captured = renderer.domElement.toDataURL("image/png");
+    }
   }
   window.__athenea.frame = frame;
   renderer.setAnimationLoop(() => {
