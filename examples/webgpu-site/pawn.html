@@ -6,7 +6,7 @@
   relighting code running in Spark's WebGPU backend.
     ?base=<url/>    where the .athc clouds are
     ?hdriBase=<url/>  where the full-resolution (4k) HDRIs are (site.js HDRI_BASE)
-    ?transfer=t16|t64|t84   ?topTransfer=full|t64 (glass head; default full)   ?hdri=<name>   ?top=0   ?view=agx|aces2|standard
+    ?transfer=t16|t64|t84   ?topTransfer=full|t64 (glass head; default full)   ?hdri=<name>   ?top=0   ?view=agx|aces2|standard   ?glassCover=1|8
 -->
 <head>
   <meta charset="utf-8">
@@ -155,8 +155,12 @@
     // several times slower at full screen.
     // ?footprint=0 turns off the coarse-splat reflection prefilter (athenea's
     // exact centre shading); any other number is its gain (default 0.5).
+    // ?glassCover=1 draws the head at athenea's own alpha (a sixth of the
+    // room straight through beside the lens); 8, the default here, covers it
+    // whole so it shows its lens alone.
     const relight = atheneaRelightPlugin({
       pixelDetail: params.get("detail") === "1",
+      glassCover: Number(params.get("glassCover") ?? 8),
       ...(params.has("footprint") ? { footprint: Number(params.get("footprint")) } : {}),
     });
     // The glass head's index is the cloud's, not its file's (pawn.json).
