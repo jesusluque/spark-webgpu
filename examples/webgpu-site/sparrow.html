@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Animated, relightable sparrow: athenea's sparrow baked to Gaussian splats
+  with a light transfer per splat and a skeleton, posed every frame on the
+  GPU (athenea's splat skinning) and relit live under any HDRI. Not linked
+  from the home page. The scene is built by sparrow.js; the data by
+  scripts/build-sparrow.mjs.
+    ?base=<url/>      where sparrow.json, the .athc and clips/ are
+    ?hdriBase=<url/>  where the full-resolution (4k) HDRIs are (site.js HDRI_BASE)
+    ?clip=<name>  ?distance=0.65  ?pause=1  ?speed=  ?follow=0  ?hdri=<name>  ?view=agx|aces2|standard
+    ?exposure=  ?gui=0  ?maya=0  ?all=1 (the clips that do not loop too)
+-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Animated sparrow · Spark WebGPU</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./site.css">
+</head>
+
+<body>
+  <div class="hud">
+    <h1><a href="./">&larr;</a>Animated sparrow</h1>
+    <p>A sparrow baked to Gaussian splats, each carrying how it receives light and which bones move it. Pick an animation and an HDRI: the bird is posed and relit on the GPU every frame. Drag to orbit, scroll to zoom; on a desktop, Maya's camera (Alt + left tumble, middle track, right dolly, F to frame).</p>
+    <div class="stats" id="stats">loading… (about 8 MB, and one HDRI)</div>
+  </div>
+  <div class="credits">
+    <!-- The model's credit: one line to fill in when its licence is known. -->
+    <span id="model-credit">Model: Eurasian tree sparrow (rig and animations); converted with athenea</span> ·
+    HDRIs from <a href="https://polyhaven.com">Poly Haven</a> (CC0) ·
+    <a href="https://github.com/sparkjsdev/spark">Spark</a> (MIT) · <a href="https://threejs.org">three.js</a> (MIT) · <a href="https://lil-gui.georgealways.com">lil-gui</a> (MIT)
+  </div>
+  <canvas id="canvas" tabindex="0"></canvas>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/webgpu": "./vendor/three/three.webgpu.min.js",
+        "three/addons/": "./vendor/three/addons/",
+        "lil-gui": "./vendor/lil-gui/lil-gui.esm.min.js",
+        "@sparkjsdev/spark": "./vendor/spark/spark.module.min.js",
+        "@sparkjsdev/spark/webgpu": "./vendor/spark/spark.webgpu.module.min.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three/webgpu";
+    import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
+    import { HDRI_4K_BYTES, downloadProgress, isMobileDevice, requireWebGPU } from "./site.js";
+    import { createSparrow } from "./sparrow.js";
+
+    const params = new URLSearchParams(location.search);
+    const base = params.get("base") ?? "https://athenea-assets.lucab.co.uk/sparkwebgpu/sparrow/";
+    const status = document.getElementById("stats");
+    // Phones: 1k HDRIs, pixel ratio 1, one decoding worker.
+    const mobile = isMobileDevice();
+    const adapter = await requireWebGPU();
+    const download = downloadProgress({
+      match: (url) => /\.(athc|hdr|atcl\.gz)(\?|$)/.test(url),
+      // The bird (about 8 MB) and one HDRI.
+      expectedBytes: 8.3 * 1024 * 1024 + (mobile ? 1.6 * 1024 * 1024 : HDRI_4K_BYTES),
+    });
+    const renderer = new THREE.WebGPURenderer({
+      canvas: document.getElementById("canvas"),
+      requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
+    });
+    renderer.setPixelRatio(mobile ? 1 : Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    await renderer.init();
+    await createSparrow({ renderer, base, params, status, progress: download, mobile });
+    download.done();
+  </script>
+</body>
+
+</html>
