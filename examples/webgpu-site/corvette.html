@@ -53,6 +53,17 @@
       light: { folder: "corvette-v5-light", megabytes: 68, label: "light (~95 MB)" },
       hd: { folder: "corvette-v2-hd", megabytes: 289, label: "detailed (~315 MB)" },
     };
+    // ?set=lights: the Corvette with switchable lamps (athenea's per-group
+    // bakes, scripts/build-corvette-lights.mjs), by this URL only, its own
+    // folders; the sizes are the build's (corvette.json says them too).
+    const SETS = {
+      lights: {
+        light: { folder: "corvette-lights-light", megabytes: 120, label: "light (with lamps)" },
+        hd: { folder: "corvette-lights-hd", megabytes: 300, label: "detailed (with lamps)" },
+      },
+    };
+    const set = SETS[params.get("set")] ? params.get("set") : null;
+    if (set) Object.assign(QUALITY, SETS[set]);
     // Phones and tablets get the light set (the detailed one needs a desktop
     // browser's memory) unless ?force=1; 1k HDRIs, pixel ratio 1.
     const mobile = isMobileDevice();
@@ -63,7 +74,7 @@
     const status = document.getElementById("stats");
     const adapter = await requireWebGPU();
     const download = downloadProgress({
-      match: (url) => /\.(athc|hdr)(\?|$)/.test(url),
+      match: (url) => /\.(athc|athl|hdr)(\?|$)/.test(url),
       // The car, and one full-resolution (4k) HDRI.
       expectedBytes:
         QUALITY[quality].megabytes * 1024 * 1024 + (mobile ? 1.6 * 1024 * 1024 : HDRI_4K_BYTES),
@@ -71,7 +82,7 @@
     // The other set, one click away (it reloads the page).
     const other = quality === "hd" ? "light" : "hd";
     const link = document.createElement("a");
-    link.href = `?quality=${other}${mobile && other === "hd" ? "&force=1" : ""}`;
+    link.href = `?quality=${other}${mobile && other === "hd" ? "&force=1" : ""}${set ? `&set=${set}` : ""}`;
     link.textContent =
       mobile && other === "hd"
         ? asked === "hd"

@@ -1,9 +1,13 @@
 import { SparkRenderer, SplatMesh, workerPool } from "@sparkjsdev/spark";
 import {
+  athcCloudHash,
+  atheneaLightsPlugin,
   atheneaOutputPlugin,
   atheneaRelightPlugin,
+  decodeAthl,
   fx,
   plugins,
+  urlRange,
 } from "@sparkjsdev/spark/webgpu";
 import GUI from "lil-gui";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -22,6 +26,13 @@ import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 //                        of each from `hdriBase` (site.js HDRI_BASE)
 //   ground: { height, radius }   the dome's floor: a disc of this radius on
 //                        y = 0 seen from this height (three's GroundedSkybox)
+//   lights: "corvette.lights.usda"   optional: the lamps' sidecar (groups,
+//                        states, rules); then a part may carry `athl` (its
+//                        .lights.athl, usd-athc --light-layer), and the page
+//                        gets a "lights" folder (atheneaLightsPlugin).
+//                        ?lights=<state> or ?lights=cruce,pilotos (groups on)
+//                        or ?lights=off for the initial state;
+//                        lightsState: the scene's default state
 import * as THREE from "three/webgpu";
 import {
   HALF_MAX,
@@ -221,11 +232,38 @@ export async function createCorvette({
     view: params.get("view") ?? "standard",
     exposure: 0,
   });
+  // The lamps (only with a sidecar in the scene): each group's baked light
+  // (per unit of its radiance, .lights.athl) added after the relight,
+  // weighted by the sidecar's states and rules.
+  const lights = info.lights ? atheneaLightsPlugin() : null;
   const skip = new Set(
     ["glass", "trim", "catcher"].filter((k) => params.get(k) === "0"),
   );
   const parts = info.parts.filter((p) => !skip.has(p.group ?? p.name));
   const meshes = {};
+  const athlLoads = [];
+  const sidecarReady = lights
+    ? fetch(`${base}${info.lights}`).then(async (r) => {
+        if (!r.ok) throw new Error(`${info.lights}: ${r.status}`);
+        lights.setSidecar(await r.text());
+      })
+    : null;
+  sidecarReady?.catch(() => {}); // awaited (and reported) below
+  // A part's layers, checked against its cloud (the .athl's hash of the
+  // .athc's first 4 KB).
+  async function loadAthl(mesh, part) {
+    const [, head, bytes] = await Promise.all([
+      sidecarReady,
+      urlRange(`${base}${part.file}`)(0, 4096),
+      fetch(`${base}${part.athl}`).then((r) => {
+        if (!r.ok) throw new Error(`${part.athl}: ${r.status}`);
+        return r.arrayBuffer();
+      }),
+    ]);
+    lights.setLights(mesh, await decodeAthl(new Uint8Array(bytes)), {
+      cloudHash: athcCloudHash(head),
+    });
+  }
   for (const part of parts) {
     const mesh = new SplatMesh({
       url: `${base}${part.file}`,
@@ -237,6 +275,11 @@ export async function createCorvette({
     // A glass cloud's index is the cloud's, not its file's (corvette.json).
     if (part.ior) relight.setIor(mesh, part.ior);
     if (part.catcher) relight.setCatcher(mesh, true);
+    if (lights && part.athl) {
+      const load = loadAthl(mesh, part);
+      load.catch(() => {}); // awaited (and reported) below
+      athlLoads.push(load);
+    }
     // On a phone one cloud at a time, in one worker: each decode grows a
     // worker's WebAssembly memory, and four at once got the tab killed.
     if (mobile) await mesh.initialized;
@@ -305,9 +348,46 @@ export async function createCorvette({
     });
   }
 
+  // ?lights=: a state's name, "off", or the groups to switch on (a comma
+  // list); else the scene's lightsState, else the sidecar's default.
+  function setInitialLights(asked) {
+    const rig = lights.rig;
+    if (!rig) return;
+    const states = rig.stateNames;
+    const off = states.find((n) => n === "aparcado") ?? null;
+    const fallback =
+      info.lightsState ?? lights.sidecar?.defaultState ?? off ?? states[0];
+    if (!asked) {
+      if (fallback) lights.setLightState(fallback);
+      return;
+    }
+    if (states.includes(asked)) {
+      lights.setLightState(asked);
+      return;
+    }
+    if (off) lights.setLightState(off);
+    if (asked === "off") return;
+    const names = lights.lightGroups.map((g) => g.name);
+    for (const name of asked.split(",")) {
+      if (names.includes(name)) lights.setGroupLevel(name, 1);
+      else console.warn(`?lights=: no group or state '${name}'`);
+    }
+  }
+
   try {
     await setHdri(state.hdri);
     await Promise.all(Object.values(meshes).map((m) => m.initialized));
+    // The lamps failing leaves the car as it is, lamps off.
+    if (lights) {
+      try {
+        await sidecarReady;
+        await Promise.all(athlLoads);
+        setInitialLights(params.get("lights"));
+      } catch (error) {
+        console.error(error);
+        window.__athenea.lightsError = String(error);
+      }
+    }
     // Give the decoders' memory back once everything is on the GPU: each
     // worker keeps the WebAssembly heap of the largest cloud it decoded
     // (with four, about 0.4 GB for the light set and 2 GB for the detailed
@@ -432,6 +512,7 @@ export async function createCorvette({
       if (part.catcher) continue;
       p.add(meshes[part.name], "visible").name(part.label ?? part.name);
     }
+    if (lights?.rig) addLightsFolder(gui);
     const o = gui.addFolder("output").close();
     for (const c of display.ui) {
       const v = { [c.label]: c.get() };
@@ -448,6 +529,51 @@ export async function createCorvette({
         .name("Maya camera")
         .disable();
     }
+  }
+
+  // The lamps: the sidecar's states (with its rules: the DRL goes out with
+  // the low beam, the high beam needs it), a switch a group over the state,
+  // and a dimmer.
+  function addLightsFolder(gui) {
+    const rig = lights.rig;
+    const f = gui.addFolder("lights");
+    const view = { state: rig.currentState ?? "", dimmer: lights.master };
+    const switches = {};
+    const controllers = [];
+    const refresh = () => {
+      view.state = rig.currentState ?? "";
+      for (const g of lights.lightGroups) switches[g.name] = g.target > 0;
+      for (const c of controllers) c.updateDisplay();
+    };
+    controllers.push(
+      f
+        .add(view, "state", rig.stateNames)
+        .name("state")
+        .onChange((name) => {
+          rig.clearLevels(lights.time);
+          lights.setLightState(name);
+          // The targets settle on the next evaluation.
+          requestAnimationFrame(() => requestAnimationFrame(refresh));
+        }),
+    );
+    for (const g of lights.lightGroups) {
+      switches[g.name] = g.target > 0;
+      controllers.push(
+        f
+          .add(switches, g.name)
+          .name(g.name)
+          .onChange((on) => {
+            lights.setGroupLevel(g.name, on ? 1 : 0);
+            requestAnimationFrame(() => requestAnimationFrame(refresh));
+          }),
+      );
+    }
+    f.add(view, "dimmer", 0, 4, 0.05)
+      .name("lamp dimmer")
+      .onChange((v) => {
+        lights.master = v;
+      });
+    window.__athenea.refreshLights = refresh;
   }
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -539,6 +665,7 @@ export async function createCorvette({
     chain,
     corrector,
     relight,
+    lights,
     display,
     meshes,
     spark,
@@ -557,7 +684,9 @@ export async function createCorvette({
     const splats = spark.webgpu?.splats;
     if (!host && splats) {
       host = new plugins.PluginHost({ capabilities: splats.capabilities });
-      host.register(relight).register(display).attach(splats);
+      host.register(relight);
+      if (lights) host.register(lights);
+      host.register(display).attach(splats);
       host.applyFx(chain);
       corrector?.keepLast();
       window.__athenea.host = host;
@@ -566,6 +695,13 @@ export async function createCorvette({
         .inactive.find((r) => r.id === relight.id);
       if (why)
         status.textContent = `relight inactive: ${why.reason} ${why.detail ?? ""}`;
+      const off = lights
+        ? host
+            .resolve(splats.meshes[0])
+            .inactive.find((r) => r.id === lights.id)
+        : null;
+      if (off)
+        console.warn(`lights inactive: ${off.reason} ${off.detail ?? ""}`);
     }
     chain.applyToRenderTarget(renderer, target);
     renderer.setRenderTarget(null);
