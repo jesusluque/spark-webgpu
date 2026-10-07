@@ -154,7 +154,10 @@ export async function createSparrow({
   const spark = new SparkRenderer({
     renderer,
     hdr: true,
-    lodSplatCount: Number(params.get("lod")) || Math.max(info.splats ?? 0, 1e6),
+    // Phones draw at most 600k (as the Corvette); a desktop draws them all.
+    lodSplatCount:
+      Number(params.get("lod")) ||
+      (mobile ? 600_000 : Math.max(info.splats ?? 0, 1e6)),
   });
   scene.add(spark);
 
