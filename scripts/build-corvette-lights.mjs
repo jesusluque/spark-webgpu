@@ -311,7 +311,14 @@ function writeSet(dir, quality, entries) {
     }
   }
   const sidecarName = "corvette.lights.usda";
-  fs.copyFileSync(sidecar, path.join(dir, sidecarName));
+  // The published copy names no local folders.
+  fs.writeFileSync(
+    path.join(dir, sidecarName),
+    fs
+      .readFileSync(sidecar, "utf8")
+      .replaceAll(`${os.homedir()}/luc/`, "")
+      .replaceAll("~/luc/", ""),
+  );
   // The phones' 1k domes and the credits, as the live sets have them.
   const live = path.dirname(template);
   if (fs.existsSync(path.join(live, "hdri"))) {
@@ -334,7 +341,7 @@ function writeSet(dir, quality, entries) {
     splats: parts.reduce((s, p) => s + p.splats, 0),
     bytes: parts.reduce((s, p) => s + p.bytes + (p.athlBytes ?? 0), 0),
     parts,
-    lightRecipe: `athenea's lights bake (${src}): base_tx.usdc + layer_<group>.usdc (${GROUPS.join(", ")}), scripts/build-corvette-lights.mjs --transfer ${transfer} --drop-backs ${dropBacks} --threshold ${threshold} --floor ${floor}${quality === "light" ? ` --light-splats ${lightSplats} --creases ${creasesArg}` : ""}`,
+    lightRecipe: `athenea's lights bake (${path.basename(src)}): base_tx.usdc + layer_<group>.usdc (${GROUPS.join(", ")}), scripts/build-corvette-lights.mjs --transfer ${transfer} --drop-backs ${dropBacks} --threshold ${threshold} --floor ${floor}${quality === "light" ? ` --light-splats ${lightSplats} --creases ${creasesArg}` : ""}`,
   };
   fs.writeFileSync(
     path.join(dir, "corvette.json"),
