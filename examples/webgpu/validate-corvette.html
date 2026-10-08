@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Corvette validation (WebGPU)</title>
+  <style>
+    body { margin: 0; background-color: black; }
+    canvas { display: block; }
+    .overlay { position: fixed; margin: 12px; bottom: 0; color: white; font-family: sans-serif; white-space: pre; }
+  </style>
+</head>
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
+        "three/tsl": "../js/vendor/three/build/three.tsl.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js",
+        "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
+      }
+    }
+  </script>
+  <div class="overlay"><p id="status">loading…</p></div>
+  <canvas id="canvas"></canvas>
+  <script type="module">
+    // The relit Corvette as the public page builds it (createCorvette), for
+    // headless validation: window.__bd.capture(view) puts the camera on a
+    // view, lets the LoD and sort settle, draws the scene into the page's
+    // HalfFloat target and reads it back BEFORE the fx chain (athenea's
+    // display transform, bloom): linear radiance, RGBA float.
+    // window.__bd.time(frames) times whole page frames (each one waited for
+    // on the GPU queue) and the splat renderer's timestamp passes.
+    //   ?base=<dir>  ?hdriBase=<dir>  plus every createCorvette parameter
+    //   (?hdri=, ?night=, ?lights=, ?bloom=0, ?gui=0, ...)
+    import * as THREE from "three/webgpu";
+    import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
+    import { createCorvette } from "../webgpu-site/corvette.js";
+
+    const params = new URLSearchParams(location.search);
+    const base = params.get("base") ?? "./corvette/";
+    const status = document.getElementById("status");
+    const adapter = await navigator.gpu?.requestAdapter();
+    const renderer = new THREE.WebGPURenderer({
+      canvas: document.getElementById("canvas"),
+      requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
+      trackTimestamp: adapter?.features.has("timestamp-query") ?? false,
+    });
+    renderer.setPixelRatio(1);
+    renderer.setSize(innerWidth, innerHeight);
+    await renderer.init();
+    const hdriBase = params.get("hdriBase") ?? "./hdri-4k/";
+    await createCorvette({ renderer, base, params, status, hdriBase });
+
+    const A = window.__athenea;
+    const device = renderer.backend.device;
+    const idle = () => device.queue.onSubmittedWorkDone();
+    const raf = () => new Promise((r) => requestAnimationFrame(r));
+
+    function halfToFloat(h) {
+      const s = h & 0x8000 ? -1 : 1;
+      const e = (h >> 10) & 0x1f;
+      const f = h & 0x3ff;
+      if (e === 0) return s * 2 ** -14 * (f / 1024);
+      if (e === 31) return f ? Number.NaN : s * Number.POSITIVE_INFINITY;
+      return s * 2 ** (e - 15) * (1 + f / 1024);
+    }
+
+    // view: { position: [x,y,z], target: [x,y,z] } in three's Y-up world.
+    // OrbitControls off for good (its damping and its 1.5-20 m distance
+    // clamp would move a camera put here): the camera is placed directly.
+    A.controls.enabled = false;
+    A.controls.enableDamping = false;
+    A.controls.update = () => false;
+    async function setView(view, settle = 40) {
+      A.camera.position.fromArray(view.position);
+      A.camera.lookAt(new THREE.Vector3().fromArray(view.target));
+      A.camera.updateMatrixWorld();
+      for (let i = 0; i < settle; i++) {
+        A.frame();
+        await idle();
+        await raf();
+      }
+    }
+
+    async function capture(view, settle) {
+      await setView(view, settle);
+      // The scene alone into the target: linear light, no fx chain.
+      A.renderer.setRenderTarget(A.target);
+      A.renderer.render(scene(), A.camera);
+      A.renderer.setRenderTarget(null);
+      await idle();
+      const { width, height } = A.target;
+      const px = await A.renderer.readRenderTargetPixelsAsync(
+        A.target, 0, 0, width, height,
+      );
+      const out = new Float32Array(width * height * 4);
+      if (px instanceof Float32Array) out.set(px.subarray(0, out.length));
+      else for (let i = 0; i < out.length; i++) out[i] = halfToFloat(px[i]);
+      // Back to the page's own loop state (the chain on the next frame).
+      A.frame();
+      await idle();
+      const b = new Uint8Array(out.buffer);
+      let s = "";
+      for (let i = 0; i < b.length; i += 0x8000)
+        s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+      return { width, height, data: btoa(s) };
+    }
+
+    // The scene object: the parent of the SparkRenderer.
+    function scene() {
+      let o = A.spark;
+      while (o.parent) o = o.parent;
+      return o;
+    }
+
+    async function time(frames = 40) {
+      const splats = A.spark.webgpu?.splats;
+      const ms = [];
+      for (let i = 0; i < 10; i++) { A.frame(); await idle(); }
+      for (let i = 0; i < frames; i++) {
+        const t0 = performance.now();
+        A.frame();
+        await idle();
+        ms.push(performance.now() - t0);
+      }
+      ms.sort((a, b) => a - b);
+      let gpuMs = null;
+      if (splats && device.features.has("timestamp-query")) {
+        splats.options.profile = true;
+        for (let i = 0; i < frames; i++) { A.frame(); await idle(); await raf(); }
+        gpuMs = { ...(splats.stats.gpuMs ?? {}) };
+        splats.options.profile = false;
+      }
+      return {
+        medianMs: ms[ms.length >> 1],
+        p10Ms: ms[Math.floor(ms.length * 0.1)],
+        p90Ms: ms[Math.floor(ms.length * 0.9)],
+        gpuMs,
+        stats: splats ? JSON.parse(JSON.stringify({ ...splats.stats, gpuMs: undefined })) : null,
+      };
+    }
+
+    // The page's own animation loop off: frames are driven from here.
+    renderer.setAnimationLoop(null);
+    for (let i = 0; i < 120; i++) { A.frame(); await idle(); await raf(); }
+    // The dome alone (every cloud hidden), for masks of the car.
+    function hide(on) {
+      for (const m of Object.values(A.meshes)) m.visible = !on;
+    }
+    window.__bd = { capture, time, setView, hide, ready: true, error: A.error };
+  </script>
+</body>
+</html>
