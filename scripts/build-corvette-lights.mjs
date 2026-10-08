@@ -19,7 +19,8 @@
 //        [--creases auto|D] [--threshold 1e-4] [--floor 1e-2]
 //        [--part NAME=TEXT,TEXT[@IOR][!catcher]]... [--only hd|light]
 //        [--sidecar file.lights.usda] [--template corvette.json] [--list]
-//        [--no-catcher]
+//        [--no-catcher] [--layer GROUP=other.usdc]... [--ground-exclude a,b]
+//        [--ground-floor 1e-4]
 //
 // Defaults: athenea's delivery in ~/luc/athenea-renders/corvette-lights
 // (clouds/base_tx.usdc, clouds/layer_<group>.usdc; the sidecar there or
@@ -38,11 +39,13 @@
 // of --light-splats (this car's thin two-sided parts spread their normals
 // everywhere: 0.03 kept 1.7M of 2.8M).
 //
-// The lamps' light on the floor (athenea, when its shadow rays cross the
-// lenses): an additive cloud, clouds/catcher_layer_<group>.usdc (and its
-// geometry clouds/catcher.usdc, or the first of those), built as a part of
-// its own with its .athl and `additive: true` in corvette.json; the same in
-// both sets.
+// The lamps' light on the floor: an additive cloud, athenea's
+// clouds/ground_<group>.usdc (or catcher_layer_<group>.usdc) over the
+// geometry clouds/ground_base.usdc (black), built as a part of its own with
+// its .athl and `additive: true` in corvette.json (no cut: the same in both
+// sets); --ground-exclude leaves groups out of it, --ground-floor its floor.
+// --layer GROUP=PATH takes a group's car layer from elsewhere (an earlier
+// bake: clouds/glow/layer_<group>.usdc).
 // File names carry a hash of their bytes (R2 caches them); corvette.json
 // is the one name the page knows.
 
@@ -83,7 +86,18 @@ const template = arg(
 );
 
 const base = path.join(src, "clouds/base_tx.usdc");
-const layers = GROUPS.map((g) => [g, path.join(src, `clouds/layer_${g}.usdc`)]);
+// --layer NAME=PATH: that group's layer from elsewhere (an earlier bake).
+const layerOverride = Object.fromEntries(
+  all("--layer").map((v) => v.split("=")),
+);
+const layers = GROUPS.map((g) => [
+  g,
+  layerOverride[g] ?? path.join(src, `clouds/layer_${g}.usdc`),
+]);
+const groundExclude = (arg("--ground-exclude", "") ?? "")
+  .split(",")
+  .filter(Boolean);
+const groundFloor = arg("--ground-floor", "1e-4");
 const sidecar =
   arg("--sidecar", null) ??
   [
@@ -200,14 +214,19 @@ for (const p of parts) {
     report: JSON.parse(fs.readFileSync(json, "utf8")),
   });
 }
-// The lamps' light on the floor, when athenea sends it.
-const catcherLayers = GROUPS.map((g) => [
-  g,
-  path.join(src, `clouds/catcher_layer_${g}.usdc`),
-]).filter(([, f]) => fs.existsSync(f));
+// The lamps' light on the floor (athenea's ground_base.usdc, black, and
+// ground_<group>.usdc; or catcher_layer_<group>.usdc): an additive cloud.
+const catcherLayers = GROUPS.filter((g) => !groundExclude.includes(g))
+  .map((g) => [
+    g,
+    [`ground_${g}.usdc`, `catcher_layer_${g}.usdc`]
+      .map((f) => path.join(src, "clouds", f))
+      .find((f) => fs.existsSync(f)),
+  ])
+  .filter(([, f]) => f);
 if (catcherLayers.length) {
   const geometry =
-    ["catcher.usdc", "catcher_base.usdc"]
+    ["ground_base.usdc", "catcher.usdc", "catcher_base.usdc"]
       .map((f) => path.join(src, "clouds", f))
       .find((f) => fs.existsSync(f)) ?? catcherLayers[0][1];
   const raw = path.join(tmp, "lamp-floor.athc");
@@ -218,6 +237,8 @@ if (catcherLayers.length) {
     raw,
     "--transfer",
     "none",
+    "--no-material",
+    "--no-curvature",
     ...catcherLayers.flatMap(([g, f]) => ["--light-layer", `${g}=${f}`]),
     "--lights-usda",
     sidecar,
@@ -226,7 +247,7 @@ if (catcherLayers.length) {
     "--light-threshold",
     threshold,
     "--light-floor",
-    floor,
+    groundFloor,
     "--json",
     json,
   ]);
@@ -256,7 +277,7 @@ function writeSet(dir, quality, entries) {
     const athlBytes = fs.statSync(path.join(dir, athl)).size;
     return {
       name: e.name,
-      label: e.name === "car" ? "car" : e.name,
+      label: e.additive ? "lamp light on the floor" : e.name,
       file,
       bytes,
       splats: e.splats,
@@ -341,7 +362,13 @@ function writeSet(dir, quality, entries) {
     splats: parts.reduce((s, p) => s + p.splats, 0),
     bytes: parts.reduce((s, p) => s + p.bytes + (p.athlBytes ?? 0), 0),
     parts,
-    lightRecipe: `athenea's lights bake (${path.basename(src)}): base_tx.usdc + layer_<group>.usdc (${GROUPS.join(", ")}), scripts/build-corvette-lights.mjs --transfer ${transfer} --drop-backs ${dropBacks} --threshold ${threshold} --floor ${floor}${quality === "light" ? ` --light-splats ${lightSplats} --creases ${creasesArg}` : ""}`,
+    lightRecipe: `athenea's lights bake (${path.basename(src)}): base_tx.usdc + layer_<group>.usdc (${GROUPS.join(", ")}), scripts/build-corvette-lights.mjs --transfer ${transfer} --drop-backs ${dropBacks} --threshold ${threshold} --floor ${floor}${Object.keys(
+      layerOverride,
+    )
+      .map((g) => ` --layer ${g}=${path.relative(src, layerOverride[g])}`)
+      .join(
+        "",
+      )}${groundExclude.length ? ` --ground-exclude ${groundExclude}` : ""}${quality === "light" ? ` --light-splats ${lightSplats} --creases ${creasesArg}` : ""}`,
   };
   fs.writeFileSync(
     path.join(dir, "corvette.json"),
