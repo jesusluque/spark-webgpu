@@ -239,7 +239,15 @@ export async function createCorvette({
   const skip = new Set(
     ["glass", "trim", "catcher"].filter((k) => params.get(k) === "0"),
   );
-  const parts = info.parts.filter((p) => !skip.has(p.group ?? p.name));
+  // An additive cloud (the lamps' light on the floor, `additive` in
+  // corvette.json) needs an additive blend the renderer has not got yet:
+  // drawn over, its black splats would darken the floor. Left out.
+  for (const p of info.parts.filter((p) => p.additive)) {
+    console.warn(`${p.name}: additive clouds are not drawn yet`);
+  }
+  const parts = info.parts.filter(
+    (p) => !p.additive && !skip.has(p.group ?? p.name),
+  );
   const meshes = {};
   const athlLoads = [];
   const sidecarReady = lights

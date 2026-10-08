@@ -16,7 +16,7 @@
 //
 //   node scripts/build-corvette-lights.mjs [--src DIR] [--out DIR]
 //        [--transfer 16] [--drop-backs 0.008] [--light-splats 1000000]
-//        [--creases 0.03] [--threshold 1e-4] [--floor 0]
+//        [--creases auto|D] [--threshold 1e-4] [--floor 1e-2]
 //        [--part NAME=TEXT,TEXT[@IOR][!catcher]]... [--only hd|light]
 //        [--sidecar file.lights.usda] [--template corvette.json] [--list]
 //        [--no-catcher]
@@ -32,7 +32,17 @@
 // the base's prims and stops. Every part's .athl goes through the same
 // selection as its cloud (usd-athc --light-layer), so the layers line up.
 // --floor zeroes the splats whose layer is fainter than that (radiance
-// units, after the group's luminance): athenea's grainy faint indirect.
+// units, after the group's luminance): athenea's grainy faint indirect
+// (first bake: the .athl 22 MB at 0, 13 MB at 1e-2). --creases auto (the
+// default) finds the smallest crease threshold whose cut stays within 10 %
+// of --light-splats (this car's thin two-sided parts spread their normals
+// everywhere: 0.03 kept 1.7M of 2.8M).
+//
+// The lamps' light on the floor (athenea, when its shadow rays cross the
+// lenses): an additive cloud, clouds/catcher_layer_<group>.usdc (and its
+// geometry clouds/catcher.usdc, or the first of those), built as a part of
+// its own with its .athl and `additive: true` in corvette.json; the same in
+// both sets.
 // File names carry a hash of their bytes (R2 caches them); corvette.json
 // is the one name the page knows.
 
@@ -63,9 +73,9 @@ const out = arg("--out", path.join(project, "publish-r2/sparkwebgpu"));
 const transfer = arg("--transfer", "16");
 const dropBacks = arg("--drop-backs", "0.008");
 const lightSplats = Number(arg("--light-splats", "1000000"));
-const creases = arg("--creases", "0.03");
+const creasesArg = arg("--creases", "auto");
 const threshold = arg("--threshold", "1e-4");
-const floor = arg("--floor", "0");
+const floor = arg("--floor", "1e-2");
 const only = arg("--only", null);
 const template = arg(
   "--template",
@@ -190,7 +200,48 @@ for (const p of parts) {
     report: JSON.parse(fs.readFileSync(json, "utf8")),
   });
 }
-const totalHd = built.reduce((s, p) => s + p.report.splats, 0);
+// The lamps' light on the floor, when athenea sends it.
+const catcherLayers = GROUPS.map((g) => [
+  g,
+  path.join(src, `clouds/catcher_layer_${g}.usdc`),
+]).filter(([, f]) => fs.existsSync(f));
+if (catcherLayers.length) {
+  const geometry =
+    ["catcher.usdc", "catcher_base.usdc"]
+      .map((f) => path.join(src, "clouds", f))
+      .find((f) => fs.existsSync(f)) ?? catcherLayers[0][1];
+  const raw = path.join(tmp, "lamp-floor.athc");
+  const rawAthl = path.join(tmp, "lamp-floor.lights.athl");
+  const json = path.join(tmp, "lamp-floor.json");
+  run("usd-athc", [
+    geometry,
+    raw,
+    "--transfer",
+    "none",
+    ...catcherLayers.flatMap(([g, f]) => ["--light-layer", `${g}=${f}`]),
+    "--lights-usda",
+    sidecar,
+    "--athl",
+    rawAthl,
+    "--light-threshold",
+    threshold,
+    "--light-floor",
+    floor,
+    "--json",
+    json,
+  ]);
+  built.push({
+    name: "lamp-floor",
+    texts: [],
+    additive: true,
+    raw,
+    rawAthl,
+    report: JSON.parse(fs.readFileSync(json, "utf8")),
+  });
+}
+const totalHd = built
+  .filter((p) => !p.additive)
+  .reduce((s, p) => s + p.report.splats, 0);
 
 const info = JSON.parse(fs.readFileSync(template, "utf8"));
 function writeSet(dir, quality, entries) {
@@ -217,6 +268,7 @@ function writeSet(dir, quality, entries) {
       droppedBacks: e.report.droppedBacks,
       ...(e.ior ? { ior: e.ior } : {}),
       ...(e.catcher ? { catcher: true } : {}),
+      ...(e.additive ? { additive: true } : {}),
       // The detailed build's (usd-athc) per-group stats.
       lights: e.report.lights.groups.map((g) => ({
         group: g.group,
@@ -282,7 +334,7 @@ function writeSet(dir, quality, entries) {
     splats: parts.reduce((s, p) => s + p.splats, 0),
     bytes: parts.reduce((s, p) => s + p.bytes + (p.athlBytes ?? 0), 0),
     parts,
-    lightRecipe: `athenea's lights bake (${src}): base_tx.usdc + layer_<group>.usdc (${GROUPS.join(", ")}), scripts/build-corvette-lights.mjs --transfer ${transfer} --drop-backs ${dropBacks} --threshold ${threshold} --floor ${floor}${quality === "light" ? ` --light-splats ${lightSplats} --creases ${creases}` : ""}`,
+    lightRecipe: `athenea's lights bake (${src}): base_tx.usdc + layer_<group>.usdc (${GROUPS.join(", ")}), scripts/build-corvette-lights.mjs --transfer ${transfer} --drop-backs ${dropBacks} --threshold ${threshold} --floor ${floor}${quality === "light" ? ` --light-splats ${lightSplats} --creases ${creasesArg}` : ""}`,
   };
   fs.writeFileSync(
     path.join(dir, "corvette.json"),
@@ -312,7 +364,9 @@ for (const p of built) {
     athc,
     athl,
     splats: p.report.splats,
-    origin: `athenea's lights base bake, every splat (usd-athc --drop-backs ${dropBacks}${p.texts.length ? `, prims ${p.texts.join(", ")}` : ""})`,
+    origin: p.additive
+      ? "athenea's lamps' light on the floor, an additive cloud (its own .athl)"
+      : `athenea's lights base bake, every splat (usd-athc --drop-backs ${dropBacks}${p.texts.length ? `, prims ${p.texts.join(", ")}` : ""})`,
   });
 }
 if (only !== "light") {
@@ -325,10 +379,43 @@ if (only !== "light") {
   };
 }
 if (only !== "hd") {
+  // The smallest crease threshold (finer cut along creases) whose cut has
+  // at most 1.1 x keep splats; none (a plain cut) if even 1 is over.
+  const cutSplats = (athc, keep, creases) => {
+    const probe = path.join(tmp, "probe.athc");
+    const log = run("athc-convert", [
+      athc,
+      probe,
+      "--keep-splats",
+      String(keep),
+      "--creases",
+      String(creases),
+    ]);
+    fs.rmSync(probe, { force: true });
+    return Number(log.match(/: (\d+) splats \(of/)?.[1] ?? 0);
+  };
+  const findCreases = (athc, keep) => {
+    let [lo, hi] = [0.03, 1];
+    if (cutSplats(athc, keep, lo) <= 1.1 * keep) return String(lo);
+    if (cutSplats(athc, keep, hi) > 1.1 * keep) return "2";
+    for (let k = 0; k < 6; k++) {
+      const mid = Math.sqrt(lo * hi);
+      if (cutSplats(athc, keep, mid) <= 1.1 * keep) hi = mid;
+      else lo = mid;
+    }
+    return hi.toFixed(3);
+  };
   const lightEntries = [];
   for (const e of hdEntries) {
+    if (e.additive) {
+      // The floor light is light already: the same cloud in both sets.
+      lightEntries.push(e);
+      continue;
+    }
     // Each part's share of the light set's splats.
     const keep = Math.max(1000, Math.round((lightSplats * e.splats) / totalHd));
+    const creases =
+      creasesArg === "auto" ? findCreases(e.athc, keep) : creasesArg;
     const athc = path.join(tmp, `${e.name}-light.athc`);
     const athl = path.join(tmp, `${e.name}-light.lights.athl`);
     const log = run("athc-convert", [
