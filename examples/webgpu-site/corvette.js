@@ -33,6 +33,9 @@ import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 //                        ?lights=<state> or ?lights=cruce,pilotos (groups on)
 //                        or ?lights=off for the initial state;
 //                        lightsState: the scene's default state
+//                        ?night=1|0: the dome at athenea's night level
+//                        (NIGHT_DOME), which the lamps' radiances are
+//                        calibrated for, or at 1; the lights set opens at night
 import * as THREE from "three/webgpu";
 import {
   HALF_MAX,
@@ -297,10 +300,17 @@ export async function createCorvette({
   const megabytes = parts.reduce((s, p) => s + (p.bytes ?? 0), 0) / 1e6;
   status.textContent = `loading the car (${megabytes.toFixed(0)} MB)…`;
 
+  // athenea's lamps (cruce 10000, ...) are calibrated in Cycles against a
+  // dome at 0.005, the night scene; under a dome at 1 their light on the
+  // floor saturates. The lights set opens at night (?night=0: by day).
+  const NIGHT_DOME = 0.005;
+  const night = lights
+    ? params.get("night") !== "0"
+    : params.get("night") === "1";
   const state = {
     hdri: domeName(params.get("hdri") ?? "golden_gate_hills_4k.hdr"),
     rotation: info.domeRotation ?? 0,
-    intensity: 1,
+    intensity: night ? NIGHT_DOME : 1,
     sun: false,
     sunAzimuth: 40,
     sunElevation: 35,
@@ -474,7 +484,7 @@ export async function createCorvette({
       .name("dome rotation")
       .onChange(applySky);
     gui
-      .add(state, "intensity", 0, 4, 0.05)
+      .add(state, "intensity", 0, 4, 0.001)
       .name("dome intensity")
       .onChange(applySky);
     gui
@@ -548,9 +558,21 @@ export async function createCorvette({
   function addLightsFolder(gui) {
     const rig = lights.rig;
     const f = gui.addFolder("lights");
-    const view = { state: rig.currentState ?? "", dimmer: lights.master };
+    const view = {
+      state: rig.currentState ?? "",
+      dimmer: lights.master,
+      time: state.intensity === NIGHT_DOME ? "night" : "day",
+    };
     const switches = {};
     const controllers = [];
+    // Night: the dome at the level the lamps were calibrated against.
+    f.add(view, "time", ["night", "day"])
+      .name("time of day")
+      .onChange((t) => {
+        state.intensity = t === "night" ? NIGHT_DOME : 1;
+        applySky();
+        for (const c of gui.controllersRecursive()) c.updateDisplay();
+      });
     const refresh = () => {
       view.state = rig.currentState ?? "";
       for (const g of lights.lightGroups) switches[g.name] = g.target > 0;
