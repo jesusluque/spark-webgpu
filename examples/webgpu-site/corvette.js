@@ -36,11 +36,14 @@ import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 //                        ?night=1|0: the dome at athenea's night level
 //                        (NIGHT_DOME), which the lamps' radiances are
 //                        calibrated for, or at 1; the lights set opens at night
+//                        ?bloom=1|glow|0: aofx bloom over the scene (on with
+//                        the lamps), its glow preset, or off
 import * as THREE from "three/webgpu";
 import {
   HALF_MAX,
   HDRIS_4K,
   HDRI_BASE,
+  addBloom,
   addColourCorrector,
   fullResHdri,
   hdriLabel,
@@ -465,6 +468,14 @@ export async function createCorvette({
   let floorControllers = [];
 
   let corrector = null;
+  // Bloom / glow over the whole scene (aofx, on linear light before the
+  // display transform): on by default with the lamps, else ?bloom=1 (or
+  // ?bloom=glow); ?bloom=0 turns it off.
+  const bloomParam = params.get("bloom");
+  const bloomOn =
+    bloomParam !== null ? bloomParam !== "0" : Boolean(info.lights);
+  const bloomPreset = bloomParam === "glow" ? "glow" : "bloom";
+  let bloom = null;
   const maya = isWorkstation() && params.get("maya") !== "0";
   if (params.get("gui") !== "0") {
     const gui = new GUI({ title: "Corvette" });
@@ -540,6 +551,7 @@ export async function createCorvette({
       if (c.type === "select") o.add(v, c.label, c.options).onChange(c.set);
       else o.add(v, c.label, c.min, c.max, c.step).onChange(c.set);
     }
+    bloom = addBloom(gui, chain, fx, { enabled: bloomOn, preset: bloomPreset });
     corrector = addColourCorrector(gui, chain, fx);
     if (maya) {
       gui
@@ -550,6 +562,13 @@ export async function createCorvette({
         .name("Maya camera")
         .disable();
     }
+  }
+
+  if (!bloom) {
+    bloom = addBloom(null, chain, fx, {
+      enabled: bloomOn,
+      preset: bloomPreset,
+    });
   }
 
   // The lamps: the sidecar's states (with its rules: the DRL goes out with
@@ -697,6 +716,7 @@ export async function createCorvette({
     target,
     chain,
     corrector,
+    bloom,
     relight,
     lights,
     display,

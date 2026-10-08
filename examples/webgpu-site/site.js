@@ -167,6 +167,63 @@ export function downloadProgress({
   };
 }
 
+/** Bloom (tight halo over the brightest light) and glow (wide, soft, from lower down). */
+export const BLOOM_PRESETS = {
+  bloom: { threshold: 1, knee: 0.5, intensity: 0.25, size: 0.2 },
+  glow: { threshold: 0.25, knee: 1, intensity: 0.6, size: 0.6 },
+};
+
+/**
+ * aofx Bloom over the whole scene: a step in `chain`, added before any
+ * PluginHost's applyFx so it runs on linear light ahead of the display
+ * transform, and a folder in `gui` (when there is one) with the two presets.
+ */
+export function addBloom(
+  gui,
+  chain,
+  fx,
+  { enabled = false, preset = "bloom" } = {},
+) {
+  const bloom = new fx.Bloom();
+  const step = chain.add(
+    bloom,
+    { ...fx.FxChain.defaults(bloom), ...BLOOM_PRESETS[preset] },
+    { enabled, channels: [true, true, true, false], instance: "bloom" },
+  );
+  if (!gui) return { step };
+  const folder = gui.addFolder("bloom / glow (aofx)").close();
+  folder.add(step, "enabled");
+  const knobs = [
+    ["threshold", "threshold (scene light)", 0, 20, 0.01],
+    ["knee", "knee", 0, 1, 0.01],
+    ["intensity", "intensity", 0, 2, 0.01],
+    ["size", "size (of height)", 0.02, 1, 0.01],
+    ["clamp", "clamp", 1, 65504, 1],
+  ];
+  for (const [name, label, min, max, step_] of knobs) {
+    folder.add(step.params, name, min, max, step_).name(label);
+  }
+  const tint = { tint: [...(step.params.tint ?? [1, 1, 1])] };
+  folder.addColor(tint, "tint").onChange((c) => {
+    step.params.tint = [...c];
+  });
+  for (const name of Object.keys(BLOOM_PRESETS)) {
+    folder
+      .add(
+        {
+          [name]() {
+            Object.assign(step.params, BLOOM_PRESETS[name]);
+            step.enabled = true;
+            for (const c of folder.controllersRecursive()) c.updateDisplay();
+          },
+        },
+        name,
+      )
+      .name(`preset: ${name}`);
+  }
+  return { step, folder };
+}
+
 /**
  * aofx Grade as the scene's colour corrector, after the display transform
  * (display-referred, as a colourist grades): a step in `chain` and a folder
