@@ -16,7 +16,7 @@
 //
 //   node scripts/build-corvette-lights.mjs [--src DIR] [--out DIR]
 //        [--transfer 16] [--drop-backs 0.008] [--light-splats 1000000]
-//        [--creases auto|D] [--threshold 1e-4] [--floor 1e-2]
+//        [--creases auto|D] [--threshold 1e-4] [--floor 1e-4]
 //        [--part NAME=TEXT,TEXT[@IOR][!catcher]]... [--only hd|light]
 //        [--sidecar file.lights.usda] [--template corvette.json] [--list]
 //        [--no-catcher] [--layer GROUP=other.usdc]... [--ground-exclude a,b]
@@ -34,7 +34,8 @@
 // selection as its cloud (usd-athc --light-layer), so the layers line up.
 // --floor zeroes the splats whose layer is fainter than that (radiance
 // units, after the group's luminance): athenea's grainy faint indirect
-// (first bake: the .athl 22 MB at 0, 13 MB at 1e-2). --creases auto (the
+// (the second bake, detailed: 21 MB at 1e-4; at 1e-2 it was 4.75 MB but lost
+// the faint lamp light on the body that shows under athenea's night dome of 0.005). --creases auto (the
 // default) finds the smallest crease threshold whose cut stays within 10 %
 // of --light-splats (this car's thin two-sided parts spread their normals
 // everywhere: 0.03 kept 1.7M of 2.8M).
@@ -78,7 +79,7 @@ const dropBacks = arg("--drop-backs", "0.008");
 const lightSplats = Number(arg("--light-splats", "1000000"));
 const creasesArg = arg("--creases", "auto");
 const threshold = arg("--threshold", "1e-4");
-const floor = arg("--floor", "1e-2");
+const floor = arg("--floor", "1e-4");
 const only = arg("--only", null);
 const template = arg(
   "--template",
@@ -239,6 +240,7 @@ if (catcherLayers.length) {
     "none",
     "--no-material",
     "--no-curvature",
+    "--light-additive",
     ...catcherLayers.flatMap(([g, f]) => ["--light-layer", `${g}=${f}`]),
     "--lights-usda",
     sidecar,
