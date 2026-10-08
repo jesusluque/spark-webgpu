@@ -239,15 +239,13 @@ export async function createCorvette({
   const skip = new Set(
     ["glass", "trim", "catcher"].filter((k) => params.get(k) === "0"),
   );
-  // An additive cloud (the lamps' light on the floor, `additive` in
-  // corvette.json) needs an additive blend the renderer has not got yet:
-  // drawn over, its black splats would darken the floor. Left out.
-  for (const p of info.parts.filter((p) => p.additive)) {
-    console.warn(`${p.name}: additive clouds are not drawn yet`);
-  }
+  // An additive cloud (`additive` in corvette.json: the lamps' light on the
+  // floor) adds light and covers nothing (SplatMesh.additive); black under
+  // the dome, it is lit by the lamps alone (no relight), and only with them.
   const parts = info.parts.filter(
-    (p) => !p.additive && !skip.has(p.group ?? p.name),
+    (p) => !skip.has(p.group ?? p.name) && (!p.additive || lights),
   );
+  const additive = [];
   const meshes = {};
   const athlLoads = [];
   const sidecarReady = lights
@@ -279,6 +277,10 @@ export async function createCorvette({
       onProgress: progress?.track(part.file),
     });
     meshes[part.name] = mesh;
+    if (part.additive) {
+      mesh.additive = true;
+      additive.push(mesh);
+    }
     car.add(mesh);
     // A glass cloud's index is the cloud's, not its file's (corvette.json).
     if (part.ior) relight.setIor(mesh, part.ior);
@@ -340,6 +342,7 @@ export async function createCorvette({
     intensity.value = state.intensity;
     grounded.value = state.ground ? 1 : 0;
     if (meshes.catcher) meshes.catcher.visible = state.ground;
+    for (const m of additive) m.visible = state.ground;
     const az = THREE.MathUtils.degToRad(state.sunAzimuth);
     const el = THREE.MathUtils.degToRad(state.sunElevation);
     relight.set({
@@ -695,6 +698,7 @@ export async function createCorvette({
       host.register(relight);
       if (lights) host.register(lights);
       host.register(display).attach(splats);
+      for (const m of additive) host.disable(relight.id, m);
       host.applyFx(chain);
       corrector?.keepLast();
       window.__athenea.host = host;
