@@ -240,7 +240,6 @@ if (catcherLayers.length) {
     "none",
     "--no-material",
     "--no-curvature",
-    "--light-additive",
     ...catcherLayers.flatMap(([g, f]) => ["--light-layer", `${g}=${f}`]),
     "--lights-usda",
     sidecar,
