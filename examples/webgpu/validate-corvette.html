@@ -85,6 +85,11 @@
       if (s && params.has("surfels")) s.options.surfels = params.get("surfels");
       // ?aa=box: the renderer's aaFilter.
       if (s && params.has("aa")) s.options.aaFilter = params.get("aa");
+      // ?maxStdDev=4&minAlpha=1e-5: the footprint's cut (thread BS: HDR glints).
+      if (params.has("maxStdDev")) A.spark.maxStdDev = Number(params.get("maxStdDev"));
+      if (params.has("minAlpha")) A.spark.minAlpha = Number(params.get("minAlpha"));
+      // ?faint=drop: the renderer's faintSplats (thread BS).
+      if (s && params.has("faint")) s.options.faintSplats = params.get("faint");
       // ?hide=windshield,tinted: those parts hidden (a part's own share).
       for (const n of (params.get("hide") ?? "").split(",").filter(Boolean))
         if (A.meshes[n]) A.meshes[n].visible = false;
