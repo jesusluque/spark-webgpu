@@ -46,6 +46,7 @@ import {
   addBloom,
   addColourCorrector,
   fullResHdri,
+  hdriDome,
   hdriLabel,
   isWorkstation,
   mayaControls,
@@ -126,15 +127,6 @@ export async function createCorvette({
   const groundHeight = TSL.uniform(info.ground?.height ?? 1.6);
   const groundRadius = TSL.uniform(info.ground?.radius ?? 25);
   const grounded = TSL.uniform(1);
-  const skyTexture = TSL.texture(
-    new THREE.DataTexture(
-      new Float32Array(4),
-      1,
-      1,
-      THREE.RGBAFormat,
-      THREE.FloatType,
-    ),
-  );
   // three's GroundedSkybox (examples/jsm/objects/GroundedSkybox.js): a
   // sphere of groundRadius centred on the camera that shot the dome,
   // groundHeight above the floor; below 1.5 heights under that centre its
@@ -175,19 +167,9 @@ export async function createCorvette({
     TSL.attribute("skyDir", "vec3").normalize(),
     ray,
   );
-  const local = TSL.vec3(
-    turn.x.mul(d.x).sub(turn.y.mul(d.z)),
-    d.y,
-    turn.y.mul(d.x).add(turn.x.mul(d.z)),
-  );
-  const skyUv = TSL.vec2(
-    TSL.fract(
-      TSL.atan(local.z, local.x)
-        .add(Math.PI / 2)
-        .div(2 * Math.PI),
-    ),
-    TSL.acos(TSL.clamp(local.y, -1, 1)).div(Math.PI),
-  );
+  // Filtered, with mipmaps (site.js hdriDome): a texel-by-texel lookup
+  // shimmered behind the car as the camera moved (thread BT).
+  const dome = hdriDome(THREE, d, turn);
   const backdrop = new THREE.Mesh(
     groundedGeometry(groundHeight.value, groundRadius.value),
     new THREE.MeshBasicNodeMaterial({
@@ -199,7 +181,7 @@ export async function createCorvette({
   // Linear radiance into the HalfFloat target, held at its largest finite
   // value (a sun past it would turn to infinity there).
   backdrop.material.colorNode = TSL.min(
-    skyTexture.sample(skyUv).rgb.mul(intensity),
+    dome.color.mul(intensity),
     TSL.vec3(HALF_MAX),
   );
   scene.add(backdrop);
@@ -335,8 +317,9 @@ export async function createCorvette({
     ground: true,
   };
   const hdrLoader = new HDRLoader().setDataType(THREE.FloatType);
-  // A 4k float dome is 128 MB as a texture: only the one shown is kept (the
-  // browser's HTTP cache keeps the files), a request in flight shared.
+  // A 4k float dome is 128 MB (85 MB as its half copy with mips on the
+  // GPU): only the one shown is kept (the browser's HTTP cache keeps the
+  // files), a request in flight shared.
   const hdriCache = new Map();
   async function setHdri(name) {
     state.hdri = name;
@@ -353,8 +336,7 @@ export async function createCorvette({
     if (state.hdri !== name) return;
     const { width, height, data } = tex.image;
     relight.set({ hdri: { width, height, data, channels: 4 } });
-    tex.flipY = false;
-    skyTexture.value = tex;
+    dome.set(tex);
     applySky();
   }
   function applySky() {
