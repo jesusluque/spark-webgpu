@@ -122,6 +122,11 @@ for (const name of names) {
     Buffer.concat([Buffer.from(`PF\n${width} ${height}\n-1.0\n`), rgb]),
   );
   result.views[name] = { width, height, nonFinite };
+  // The splats generated and drawn for the view (LoD switching, thread BS).
+  result.views[name].stats = await page.evaluate(() => {
+    const st = window.__athenea.spark?.webgpu?.splats?.stats;
+    return st ? { drawn: st.drawn } : null;
+  });
   if (
     flags.includes("--time") &&
     (name === "close" || name === "far" || name === "default")
