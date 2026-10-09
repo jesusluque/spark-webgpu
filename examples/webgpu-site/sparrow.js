@@ -32,6 +32,7 @@ import {
   HDRI_BASE,
   addColourCorrector,
   fullResHdri,
+  hdriDome,
   hdriLabel,
   isWorkstation,
   mayaControls,
@@ -121,29 +122,9 @@ export async function createSparrow({
   // turned with the dome.
   const turn = TSL.uniform(new THREE.Vector2(1, 0)); // cos, sin of the rotation
   const intensity = TSL.uniform(1);
-  const skyTexture = TSL.texture(
-    new THREE.DataTexture(
-      new Float32Array(4),
-      1,
-      1,
-      THREE.RGBAFormat,
-      THREE.FloatType,
-    ),
-  );
   const d = TSL.positionWorld.sub(TSL.cameraPosition).normalize();
-  const local = TSL.vec3(
-    turn.x.mul(d.x).sub(turn.y.mul(d.z)),
-    d.y,
-    turn.y.mul(d.x).add(turn.x.mul(d.z)),
-  );
-  const skyUv = TSL.vec2(
-    TSL.fract(
-      TSL.atan(local.z, local.x)
-        .add(Math.PI / 2)
-        .div(2 * Math.PI),
-    ),
-    TSL.acos(TSL.clamp(local.y, -1, 1)).div(Math.PI),
-  );
+  // Filtered, with mipmaps (site.js hdriDome; thread BT).
+  const dome = hdriDome(THREE, d, turn);
   const backdrop = new THREE.Mesh(
     new THREE.SphereGeometry(20, 64, 32),
     new THREE.MeshBasicNodeMaterial({
@@ -154,7 +135,7 @@ export async function createSparrow({
   // Linear radiance into the HalfFloat target, held at its largest finite
   // value (a sun past it would turn to infinity there).
   backdrop.material.colorNode = TSL.min(
-    skyTexture.sample(skyUv).rgb.mul(intensity),
+    dome.color.mul(intensity),
     TSL.vec3(HALF_MAX),
   );
   scene.add(backdrop);
@@ -260,7 +241,8 @@ export async function createSparrow({
   });
 
   const hdrLoader = new HDRLoader().setDataType(THREE.FloatType);
-  // A 4k float dome is 128 MB as a texture: only the one shown is kept.
+  // A 4k float dome is 128 MB (85 MB as its half copy with mips on the
+  // GPU): only the one shown is kept.
   const hdriCache = new Map();
   async function setHdri(name) {
     state.hdri = name;
@@ -287,8 +269,7 @@ export async function createSparrow({
     if (state.hdri !== name) return;
     const { width, height, data } = tex.image;
     relight.set({ hdri: { width, height, data, channels: 4 } });
-    tex.flipY = false;
-    skyTexture.value = tex;
+    dome.set(tex);
     applySky();
   }
   function applySky() {

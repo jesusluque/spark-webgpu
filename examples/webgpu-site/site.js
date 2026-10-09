@@ -436,3 +436,85 @@ export function hdriLabel(name) {
  * infinite: the backdrop is held here, still far above any display white.
  */
 export const HALF_MAX = 65504;
+
+/**
+ * The HDRI dome behind athenea's pages (thread BT), filtered: a float dome
+ * looked up texel by texel (three samples an unfilterable FloatType
+ * DataTexture with textureLoad) shimmers as the camera moves, 10x its
+ * supersampled reference behind the car. The dome is drawn from a HalfFloat
+ * copy with mipmaps, trilinear and anisotropic: still HDR (the full-res
+ * image, values held at HALF_MAX, the HalfFloat target's own ceiling), half
+ * the GPU memory of the float texture even with its mips. The relighting
+ * keeps reading the float image itself (AtheneaSky builds its own mips).
+ *
+ * `dir` is the world direction to look up (a TSL vec3), `turn` the dome's
+ * rotation (a uniform vec2: cos, sin). Returns `color`, the dome's linear
+ * radiance there (a TSL vec3), and `set(floatTexture)`, which shows an
+ * HDRLoader FloatType texture (its data is read, not uploaded).
+ */
+export function hdriDome(THREE, dir, turn) {
+  const { TSL } = THREE;
+  const halfTexture = (data, width, height) => {
+    const t = new THREE.DataTexture(
+      data,
+      width,
+      height,
+      THREE.RGBAFormat,
+      THREE.HalfFloatType,
+    );
+    // Rows top down, as athenea's domeUv reads them (v = 0 at the zenith).
+    t.flipY = false;
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.ClampToEdgeWrapping;
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.generateMipmaps = true;
+    // The floor seen at a grazing angle and the poles' squeezed rows.
+    t.anisotropy = 16;
+    t.needsUpdate = true;
+    return t;
+  };
+  // A filterable placeholder: the shader is built for the texture first seen.
+  const node = TSL.texture(halfTexture(new Uint16Array(4), 1, 1));
+  const local = TSL.vec3(
+    turn.x.mul(dir.x).sub(turn.y.mul(dir.z)),
+    dir.y,
+    turn.y.mul(dir.x).add(turn.x.mul(dir.z)),
+  );
+  // u wraps through the sampler (RepeatWrapping); its derivatives are taken
+  // from whichever of u and u + 1/2 has no seam at that pixel, so the cut
+  // behind the dome does not pull the smallest mip (a line of it).
+  const u = TSL.atan(local.z, local.x)
+    .add(Math.PI / 2)
+    .div(2 * Math.PI);
+  const v = TSL.acos(TSL.clamp(local.y, -1, 1)).div(Math.PI);
+  const u2 = TSL.fract(u.add(0.5));
+  const seamless = (d, d2) => TSL.select(d.abs().lessThan(d2.abs()), d, d2);
+  const dx = TSL.vec2(seamless(TSL.dFdx(u), TSL.dFdx(u2)), TSL.dFdx(v));
+  const dy = TSL.vec2(seamless(TSL.dFdy(u), TSL.dFdy(u2)), TSL.dFdy(v));
+  const color = node.sample(TSL.vec2(u, v)).grad(dx, dy).rgb;
+  function toHalf(data) {
+    // Rounded to nearest, past HALF_MAX held there (not infinity).
+    if (typeof Float16Array === "function") {
+      const half = new Float16Array(data.length);
+      half.set(data);
+      const bits = new Uint16Array(half.buffer);
+      for (let i = 0; i < bits.length; i++)
+        if ((bits[i] & 0x7fff) === 0x7c00) bits[i] -= 1; // inf -> HALF_MAX
+      return bits;
+    }
+    const bits = new Uint16Array(data.length);
+    for (let i = 0; i < data.length; i++)
+      bits[i] = THREE.DataUtils.toHalfFloat(Math.min(data[i], HALF_MAX));
+    return bits;
+  }
+  return {
+    color,
+    set(floatTexture) {
+      const { width, height, data } = floatTexture.image;
+      const previous = node.value;
+      node.value = halfTexture(toHalf(data), width, height);
+      previous.dispose();
+    },
+  };
+}
