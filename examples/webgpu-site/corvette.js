@@ -107,7 +107,9 @@ export async function createCorvette({
   // ?accum=N: progressive accumulation while the view holds still (thread
   // BU): N sub-pixel jittered frames at a sharp splat blur (?accumBlur=,
   // 0.02) averaged in linear float before the fx chain; any change starts
-  // over from the ordinary frame. Off (0) by default.
+  // over from the ordinary frame. Off (0) by default. Once complete, the
+  // scene is drawn again only every ?accumRefresh= frames (30; 0 = every
+  // frame) or when the splats have LoD or paging work pending (thread BV).
   const accumFrames = Math.max(0, Number(params.get("accum")) || 0);
   const accum =
     accumFrames > 0
@@ -116,6 +118,9 @@ export async function createCorvette({
           blur: params.has("accumBlur")
             ? Number(params.get("accumBlur"))
             : 0.02,
+          refreshEvery: params.has("accumRefresh")
+            ? Number(params.get("accumRefresh"))
+            : 30,
         })
       : null;
   function resize() {
@@ -747,14 +752,15 @@ export async function createCorvette({
   // that drive frames themselves).
   function frame() {
     controls.update();
-    accum?.begin({
+    const mode = accum?.begin({
       camera,
       width: target.width,
       height: target.height,
       spark,
     });
     renderer.setRenderTarget(target);
-    renderer.render(scene, camera);
+    // Idle: the mean is complete and nothing is pending; end() shows it.
+    if (mode !== "idle") renderer.render(scene, camera);
     const splats = spark.webgpu?.splats;
     if (splats && params.has("aa")) splats.options.aaFilter = params.get("aa");
     if (!host && splats) {
