@@ -31,6 +31,8 @@
     // HalfFloat target back BEFORE the fx chain (linear radiance, RGBA).
     // window.__bd.hideTop(on) hides the glass head (masks of the head).
     //   ?base=<dir> ?hdriBase=<dir> ?hdri= ?transfer= ?topTransfer= ?glassCover= ?footprint= ?lodRenderScale=
+    //   ?backdrop=<v> a constant backdrop (two of them give the head's coverage: the
+    //   relighting still reads the dome)   ?body=0 the glass head alone
     import * as THREE from "three/webgpu";
     import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
     import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
@@ -74,7 +76,9 @@
       new THREE.SphereGeometry(5, 64, 32),
       new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false }),
     );
-    backdrop.material.colorNode = TSL.min(skyTexture.sample(skyUv).rgb, TSL.vec3(HALF_MAX));
+    backdrop.material.colorNode = params.has("backdrop")
+      ? TSL.vec3(Number(params.get("backdrop")))
+      : TSL.min(skyTexture.sample(skyUv).rgb, TSL.vec3(HALF_MAX));
     scene.add(backdrop);
 
     // ?lodRenderScale=0.001 draws every leaf (the full cloud: a reference).
@@ -85,7 +89,7 @@
     });
     scene.add(spark);
     const body = new SplatMesh({ url: `${base}body-${suffix}.athc`, extSplats: true });
-    scene.add(body);
+    if (params.get("body") !== "0") scene.add(body);
     const top = new SplatMesh({ url: `${base}top-${topSuffix}.athc`, extSplats: true });
     scene.add(top);
     const relight = atheneaRelightPlugin({
