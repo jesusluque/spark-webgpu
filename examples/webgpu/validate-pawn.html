@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Pawn validation (WebGPU)</title>
+  <style>
+    body { margin: 0; background-color: black; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/webgpu": "../js/vendor/three/build/three.webgpu.js",
+        "three/tsl": "../js/vendor/three/build/three.tsl.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark/webgpu": "../../dist/spark.webgpu.module.js"
+      }
+    }
+  </script>
+  <canvas id="canvas"></canvas>
+  <script type="module">
+    // The relit pawn as webgpu-site/pawn.html builds it (body t64, glass head
+    // with its full transfer, glassCover 8, ior 1.5, the default dome), for
+    // headless validation (thread BL): window.__bd.capture(view, settle)
+    // puts the camera on a view, lets the LoD and sort settle and reads the
+    // HalfFloat target back BEFORE the fx chain (linear radiance, RGBA).
+    // window.__bd.hideTop(on) hides the glass head (masks of the head).
+    //   ?base=<dir> ?hdriBase=<dir> ?hdri= ?transfer= ?topTransfer= ?glassCover= ?footprint= ?lodRenderScale=
+    import * as THREE from "three/webgpu";
+    import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
+    import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import { splatRequiredLimits, fx, plugins, atheneaRelightPlugin, atheneaOutputPlugin } from "@sparkjsdev/spark/webgpu";
+    import { HALF_MAX, fullResHdri } from "../webgpu-site/site.js";
+
+    const params = new URLSearchParams(location.search);
+    const base = params.get("base") ?? "/r2/pawn/";
+    const hdriBase = params.get("hdriBase") ?? "/r2/hdri-4k/";
+    const transfer = params.get("transfer") ?? "t64";
+    const suffix = transfer === "full" ? "full-gz" : `${transfer}-gz`;
+    const topTransfer = params.get("topTransfer") ?? (params.has("transfer") ? transfer : "full");
+    const topSuffix = topTransfer === "full" ? "full-gz" : `${topTransfer}-gz`;
+    const A = (window.__athenea = { loaded: false, error: null });
+    const adapter = await navigator.gpu?.requestAdapter();
+    const renderer = new THREE.WebGPURenderer({
+      canvas: document.getElementById("canvas"),
+      requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
+    });
+    renderer.setPixelRatio(1);
+    renderer.setSize(innerWidth, innerHeight);
+    await renderer.init();
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(2 * THREE.MathUtils.radToDeg(Math.atan(18 / 50)), innerWidth / innerHeight, 0.01, 10);
+    camera.position.set(0, 0.048, 0.18);
+    const target = new THREE.RenderTarget(innerWidth, innerHeight, {
+      type: THREE.HalfFloatType,
+      depthTexture: new THREE.DepthTexture(innerWidth, innerHeight),
+    });
+    const chain = new fx.FxChain(renderer.backend.device);
+
+    const { TSL } = THREE;
+    const skyTexture = TSL.texture(new THREE.DataTexture(new Float32Array(4), 1, 1, THREE.RGBAFormat, THREE.FloatType));
+    const d = TSL.positionWorld.sub(TSL.cameraPosition).normalize();
+    const skyUv = TSL.vec2(
+      TSL.fract(TSL.atan(d.z, d.x).add(Math.PI / 2).div(2 * Math.PI)),
+      TSL.acos(TSL.clamp(d.y, -1, 1)).div(Math.PI),
+    );
+    const backdrop = new THREE.Mesh(
+      new THREE.SphereGeometry(5, 64, 32),
+      new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false }),
+    );
+    backdrop.material.colorNode = TSL.min(skyTexture.sample(skyUv).rgb, TSL.vec3(HALF_MAX));
+    scene.add(backdrop);
+
+    // ?lodRenderScale=0.001 draws every leaf (the full cloud: a reference).
+    const spark = new SparkRenderer({
+      renderer,
+      hdr: true,
+      ...(params.has("lodRenderScale") ? { lodRenderScale: Number(params.get("lodRenderScale")) } : {}),
+    });
+    scene.add(spark);
+    const body = new SplatMesh({ url: `${base}body-${suffix}.athc`, extSplats: true });
+    scene.add(body);
+    const top = new SplatMesh({ url: `${base}top-${topSuffix}.athc`, extSplats: true });
+    scene.add(top);
+    const relight = atheneaRelightPlugin({
+      glassCover: Number(params.get("glassCover") ?? 8),
+      ...(params.has("footprint") ? { footprint: Number(params.get("footprint")) } : {}),
+    });
+    relight.setIor(top, 1.5);
+    const display = atheneaOutputPlugin({ view: "agx", exposure: 0 });
+    let host = null;
+    try {
+      const tex = await new HDRLoader().setDataType(THREE.FloatType).loadAsync(`${hdriBase}${fullResHdri(params.get("hdri") ?? "autoshop_01_4k.hdr")}`);
+      const { width, height, data } = tex.image;
+      relight.set({ hdri: { width, height, data, channels: 4 } });
+      relight.set({ rotation: 0, intensity: 1, indirect: true, sun: null });
+      tex.flipY = false;
+      skyTexture.value = tex;
+      await Promise.all([body.initialized, top.initialized]);
+      await spark.webgpuReady;
+      A.loaded = true;
+    } catch (error) {
+      A.error = String(error);
+    }
+    const device = renderer.backend.device;
+    const idle = () => device.queue.onSubmittedWorkDone();
+    const raf = () => new Promise((r) => requestAnimationFrame(r));
+    function frame() {
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+      renderer.setRenderTarget(null);
+      const splats = spark.webgpu?.splats;
+      if (!host && splats) {
+        host = new plugins.PluginHost({ capabilities: splats.capabilities });
+        host.register(relight).register(display).attach(splats);
+        host.applyFx(chain);
+        const why = host.resolve(splats.meshes[0]).inactive.find((r) => r.id === relight.id);
+        if (why) A.error = `relight inactive: ${why.reason} ${why.detail ?? ""}`;
+      }
+    }
+    function halfToFloat(h) {
+      const s = h & 0x8000 ? -1 : 1;
+      const e = (h >> 10) & 0x1f;
+      const f = h & 0x3ff;
+      if (e === 0) return s * 2 ** -14 * (f / 1024);
+      if (e === 31) return f ? Number.NaN : s * Number.POSITIVE_INFINITY;
+      return s * 2 ** (e - 15) * (1 + f / 1024);
+    }
+    async function setView(view, settle = 40) {
+      camera.position.fromArray(view.position);
+      camera.lookAt(new THREE.Vector3().fromArray(view.target));
+      camera.updateMatrixWorld();
+      for (let i = 0; i < settle; i++) { frame(); await idle(); await raf(); }
+    }
+    async function capture(view, settle) {
+      await setView(view, settle);
+      frame();
+      await idle();
+      const px = await renderer.readRenderTargetPixelsAsync(target, 0, 0, target.width, target.height);
+      const out = new Float32Array(target.width * target.height * 4);
+      if (px instanceof Float32Array) out.set(px.subarray(0, out.length));
+      else for (let i = 0; i < out.length; i++) out[i] = halfToFloat(px[i]);
+      const b = new Uint8Array(out.buffer);
+      let s = "";
+      for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+      return { width: target.width, height: target.height, data: btoa(s), stats: { ...relight.stats, numSplats: spark.webgpu?.splats?.stats?.numSplats } };
+    }
+    for (let i = 0; i < 60 && !A.error; i++) { frame(); await idle(); await raf(); }
+    window.__bd = { capture, setView, hideTop: (on) => { top.visible = !on; }, ready: true, error: A.error };
+  </script>
+</body>
+</html>
