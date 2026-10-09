@@ -75,7 +75,14 @@
     A.controls.enabled = false;
     A.controls.enableDamping = false;
     A.controls.update = () => false;
+    // ?surfels=ewa: discs drawn as rank-2 3D Gaussians (the renderer's
+    // `surfels` option), to tell the surfel path from the data.
+    function applyOptions() {
+      const s = A.spark.webgpu?.splats;
+      if (s && params.has("surfels")) s.options.surfels = params.get("surfels");
+    }
     async function setView(view, settle = 40) {
+      applyOptions();
       A.camera.position.fromArray(view.position);
       A.camera.lookAt(new THREE.Vector3().fromArray(view.target));
       A.camera.updateMatrixWorld();
