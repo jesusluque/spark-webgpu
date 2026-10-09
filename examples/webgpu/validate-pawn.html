@@ -52,16 +52,18 @@
       canvas: document.getElementById("canvas"),
       requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
     });
-    renderer.setPixelRatio(1);
+    // ?ss=N: N x N supersampled, box-filtered down in capture (a reference).
+    const ss = Number(params.get("ss")) || 1;
+    renderer.setPixelRatio(ss);
     renderer.setSize(innerWidth, innerHeight);
     await renderer.init();
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(2 * THREE.MathUtils.radToDeg(Math.atan(18 / 50)), innerWidth / innerHeight, 0.01, 10);
     camera.position.set(0, 0.048, 0.18);
-    const target = new THREE.RenderTarget(innerWidth, innerHeight, {
+    const target = new THREE.RenderTarget(innerWidth * ss, innerHeight * ss, {
       type: THREE.HalfFloatType,
-      depthTexture: new THREE.DepthTexture(innerWidth, innerHeight),
+      depthTexture: new THREE.DepthTexture(innerWidth * ss, innerHeight * ss),
     });
     const chain = new fx.FxChain(renderer.backend.device);
 
@@ -86,6 +88,8 @@
       renderer,
       hdr: true,
       ...(params.has("lodRenderScale") ? { lodRenderScale: Number(params.get("lodRenderScale")) } : {}),
+      // ?blur=0.1: the Gaussian AA blur's variance in px^2.
+      ...(params.has("blur") ? { blurAmount: Number(params.get("blur")) } : {}),
     });
     scene.add(spark);
     const body = new SplatMesh({ url: `${base}body-${suffix}.athc`, extSplats: true });
@@ -120,6 +124,8 @@
       renderer.render(scene, camera);
       renderer.setRenderTarget(null);
       const splats = spark.webgpu?.splats;
+      // ?aa=box: the renderer's aaFilter.
+      if (splats && params.has("aa")) splats.options.aaFilter = params.get("aa");
       if (!host && splats) {
         host = new plugins.PluginHost({ capabilities: splats.capabilities });
         host.register(relight).register(display).attach(splats);
@@ -150,10 +156,22 @@
       const out = new Float32Array(target.width * target.height * 4);
       if (px instanceof Float32Array) out.set(px.subarray(0, out.length));
       else for (let i = 0; i < out.length; i++) out[i] = halfToFloat(px[i]);
-      const b = new Uint8Array(out.buffer);
+      let res = out, w = target.width, h = target.height;
+      if (ss > 1) {
+        w = Math.floor(target.width / ss);
+        h = Math.floor(target.height / ss);
+        res = new Float32Array(w * h * 4);
+        for (let y = 0; y < h * ss; y++)
+          for (let x = 0; x < w * ss; x++) {
+            const o = (Math.floor(y / ss) * w + Math.floor(x / ss)) * 4;
+            const i = (y * target.width + x) * 4;
+            for (let c = 0; c < 4; c++) res[o + c] += out[i + c] / (ss * ss);
+          }
+      }
+      const b = new Uint8Array(res.buffer);
       let s = "";
       for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
-      return { width: target.width, height: target.height, data: btoa(s), stats: { ...relight.stats, numSplats: spark.webgpu?.splats?.stats?.numSplats } };
+      return { width: w, height: h, data: btoa(s), stats: { ...relight.stats, numSplats: spark.webgpu?.splats?.stats?.numSplats } };
     }
     for (let i = 0; i < 60 && !A.error; i++) { frame(); await idle(); await raf(); }
     window.__bd = { capture, setView, hideTop: (on) => { top.visible = !on; }, ready: true, error: A.error };
