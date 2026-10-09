@@ -56,6 +56,8 @@
     await createCorvette({ renderer, base, params, status, hdriBase });
 
     const A = window.__athenea;
+    // ?lodRenderScale=0.001: every leaf in view (a full-detail reference, thread BL).
+    if (params.has("lodRenderScale")) A.spark.lodRenderScale = Number(params.get("lodRenderScale"));
     const device = renderer.backend.device;
     const idle = () => device.queue.onSubmittedWorkDone();
     const raf = () => new Promise((r) => requestAnimationFrame(r));
