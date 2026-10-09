@@ -49,7 +49,8 @@
       requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
       trackTimestamp: adapter?.features.has("timestamp-query") ?? false,
     });
-    renderer.setPixelRatio(1);
+    // ?ss=N: N x N supersampled capture (a reference to box-filter down).
+    renderer.setPixelRatio(Number(params.get("ss")) || 1);
     renderer.setSize(innerWidth, innerHeight);
     await renderer.init();
     const hdriBase = params.get("hdriBase") ?? "./hdri-4k/";
@@ -80,6 +81,12 @@
     function applyOptions() {
       const s = A.spark.webgpu?.splats;
       if (s && params.has("surfels")) s.options.surfels = params.get("surfels");
+      // ?hide=windshield,tinted: those parts hidden (a part's own share).
+      for (const n of (params.get("hide") ?? "").split(",").filter(Boolean))
+        if (A.meshes[n]) A.meshes[n].visible = false;
+      // ?lodRenderScale=0.01: the LoD tree's leaves at any distance.
+      if (params.has("lodRenderScale"))
+        A.spark.lodRenderScale = Number(params.get("lodRenderScale"));
     }
     async function setView(view, settle = 40) {
       applyOptions();
@@ -110,11 +117,25 @@
       // Back to the page's own loop state (the chain on the next frame).
       A.frame();
       await idle();
-      const b = new Uint8Array(out.buffer);
+      // ?ss=N: box-filtered down to the window's size in the page.
+      const n = Number(params.get("ss")) || 1;
+      let res = out, w = width, h = height;
+      if (n > 1) {
+        w = Math.floor(width / n);
+        h = Math.floor(height / n);
+        res = new Float32Array(w * h * 4);
+        for (let y = 0; y < h * n; y++)
+          for (let x = 0; x < w * n; x++) {
+            const o = (Math.floor(y / n) * w + Math.floor(x / n)) * 4;
+            const i = (y * width + x) * 4;
+            for (let c = 0; c < 4; c++) res[o + c] += out[i + c] / (n * n);
+          }
+      }
+      const b = new Uint8Array(res.buffer);
       let s = "";
       for (let i = 0; i < b.length; i += 0x8000)
         s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
-      return { width, height, data: btoa(s) };
+      return { width: w, height: h, data: btoa(s) };
     }
 
     // The scene object: the parent of the SparkRenderer.

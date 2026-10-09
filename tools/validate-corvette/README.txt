@@ -14,3 +14,9 @@ compare.mjs: relMSE = mean (x-r)^2/(r^2+0.01) over a mask, values clamped to
 [0,16]; trim999 drops the worst 0.1% pixels; ratio = sum x / sum r; flies =
 pixels with lum > 1 and > 4 lum(ref) + 0.25. Writes PNG previews and diff maps.
 Run every GPU job through the scratchpad gpu-run.sh (one at a time, cool Mac).
+
+Page parameters for references (thread BM): ?ss=N renders N x N supersampled
+and box-filters down in the page (same PFM size; the AA blur then is 1/N^2
+of a final pixel); ?lodRenderScale=0.01 draws the LoD tree's leaves at any
+distance (the HD's own cloud, not its merged levels); ?hide=part,part hides
+parts (a part's share as full - hidden).
