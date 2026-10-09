@@ -28,6 +28,7 @@ import * as THREE from "three/webgpu";
 import {
   HALF_MAX,
   HDRIS_4K,
+  HDRI_4K_BYTES,
   HDRI_BASE,
   addColourCorrector,
   fullResHdri,
@@ -175,6 +176,13 @@ export async function createSparrow({
   });
   scene.add(spark);
 
+  // The bird's size from its JSON (cloudBytes), for the download bar.
+  if (info.cloudBytes) {
+    progress?.expect?.(
+      info.cloudBytes + (mobile ? 1.6 * 1024 * 1024 : HDRI_4K_BYTES),
+    );
+    status.textContent = `loading the bird (${(info.cloudBytes / (1024 * 1024)).toFixed(0)} MB)…`;
+  }
   const url = `${base}${info.cloud}`;
   const skeleton = await readAthcSkeleton({ url });
   if (!skeleton) throw new Error(`${info.cloud}: no skeleton`);

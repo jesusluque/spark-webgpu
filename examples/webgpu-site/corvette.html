@@ -5,7 +5,10 @@
   light transfer per splat, thinned for the web (about 1.2M splats), relit
   live under any HDRI by athenea's own relighting code in Spark's WebGPU
   backend. The scene is built by corvette.js (shared with the dev page).
-    ?base=<url/>    where corvette.json and the .athc clouds are
+    ?data=v8        the v8 candidate sets (research/upload-v8.md) instead of the published ones
+    ?set=lights     the Corvette with switchable lamps   ?quality=hd  the detailed set
+    ?root=<url/>    where the sets' folders are (default R2, site.js ASSETS_ROOT)
+    ?base=<url/>    where corvette.json and the .athc clouds are (one set)
     ?hdriBase=<url/>  where the full-resolution (4k) HDRIs are (site.js HDRI_BASE)
     ?hdri=<name>    ?glass=0  ?trim=0  ?catcher=0  ?gui=0  ?view=agx|aces2|standard
 -->
@@ -20,8 +23,8 @@
 <body>
   <div class="hud">
     <h1><a href="./">&larr;</a>Relightable Corvette</h1>
-    <p>A Corvette baked to Gaussian splats, each carrying how it receives light, thinned for the web (1.1M splats, or 4.7M in the detailed version). Pick an HDRI and the car is relit on the GPU: the dome with its shadows, an optional sun, the glass and the car’s shadow on the ground. Drag to orbit, scroll to zoom; on a desktop, Maya's camera (Alt + left tumble, middle track, right dolly, F to frame).</p>
-    <div class="stats" id="stats">loading… (about 96 MB)</div>
+    <p>A Corvette baked to Gaussian splats, each carrying how it receives light, thinned for the web (<span id="splat-counts">1.1M splats, or 5.2M in the detailed version</span>). Pick an HDRI and the car is relit on the GPU: the dome with its shadows, an optional sun, the glass and the car’s shadow on the ground. Drag to orbit, scroll to zoom; on a desktop, Maya's camera (Alt + left tumble, middle track, right dolly, F to frame).</p>
+    <div class="stats" id="stats">loading…</div>
   </div>
   <div class="credits">
     Corvette model by Billy Mukhiddinov (<a href="https://www.blendkit.com/asset-gallery-detail/a16f1abf-86d5-4cec-9c89-69224c1b7a42/">BlendKit</a>), baked to Gaussian splats by athenea (modified) · HDRIs from <a href="https://polyhaven.com">Poly Haven</a> (CC0) ·
@@ -43,55 +46,94 @@
   <script type="module">
     import * as THREE from "three/webgpu";
     import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
-    import { HDRI_4K_BYTES, downloadProgress, isMobileDevice, requireWebGPU } from "./site.js";
+    import {
+      HDRI_4K_BYTES,
+      assetsRoot,
+      downloadProgress,
+      fetchJson,
+      isMobileDevice,
+      requireWebGPU,
+      sceneBytes,
+      splatCount,
+    } from "./site.js";
     import { createCorvette } from "./corvette.js";
 
     const params = new URLSearchParams(location.search);
-    // Two sets on R2: light (about 71 MB) and detailed (?quality=hd, about
-    // 250 MB, three times the splats); ?base= points anywhere else (testing).
-    const QUALITY = {
-      light: { folder: "corvette-v5-light", megabytes: 68, label: "light (~95 MB)" },
-      hd: { folder: "corvette-v2-hd", megabytes: 289, label: "detailed (~315 MB)" },
-    };
-    // ?set=lights: the Corvette with switchable lamps (athenea's per-group
-    // bakes, scripts/build-corvette-lights.mjs), by this URL only, its own
-    // folders; the sizes are the build's (corvette.json says them too).
-    const SETS = {
-      lights: {
-        light: { folder: "corvette-lights-light", megabytes: 60, label: "light (~60 MB, with lamps)" },
-        hd: { folder: "corvette-lights-hd", megabytes: 146, label: "detailed (~146 MB, with lamps)" },
+    // The sets on R2, by ?data= (the published folders by default; v8: the
+    // candidates of 2026-10-09, research/upload-v8.md) and ?set= (lights: the
+    // Corvette with switchable lamps, athenea's per-group bakes,
+    // scripts/build-corvette-lights.mjs, by this URL only). Each set's
+    // corvette.json says its parts' sizes and splats, for the labels.
+    // ?root= is where the folders are, ?base= one set's folder (testing).
+    const DATA = {
+      default: {
+        car: { light: "corvette-v5-light", hd: "corvette-v2-hd" },
+        lights: { light: "corvette-lights-light", hd: "corvette-lights-hd" },
+      },
+      v8: {
+        car: { light: "corvette-v8s-light", hd: "corvette-v8-hd" },
+        // mobile: what phones and tablets load instead of light.
+        lights: {
+          light: "corvette-lights-v8-light",
+          hd: "corvette-lights-v8-hd",
+          mobile: "corvette-lights-v8-mobile",
+        },
       },
     };
-    const set = SETS[params.get("set")] ? params.get("set") : null;
-    if (set) Object.assign(QUALITY, SETS[set]);
+    const data = DATA[params.get("data")] ? params.get("data") : "default";
+    const set = params.get("set") === "lights" ? "lights" : null;
+    const FOLDERS = DATA[data][set ?? "car"];
     // Phones and tablets get the light set (the detailed one needs a desktop
     // browser's memory) unless ?force=1; 1k HDRIs, pixel ratio 1.
     const mobile = isMobileDevice();
-    const asked = QUALITY[params.get("quality")] ? params.get("quality") : "light";
+    const asked = params.get("quality") === "hd" ? "hd" : "light";
     const quality = mobile && asked === "hd" && params.get("force") !== "1" ? "light" : asked;
-    const base =
-      params.get("base") ?? `https://athenea-assets.lucab.co.uk/sparkwebgpu/${QUALITY[quality].folder}/`;
+    const folderOf = (q) => (q === "light" && mobile && FOLDERS.mobile) || FOLDERS[q];
+    const root = assetsRoot(params);
+    const base = params.get("base") ?? `${root}${folderOf(quality)}/`;
+    const hdriBytes = mobile ? 1.6 * 1024 * 1024 : HDRI_4K_BYTES;
+    const MB = 1024 * 1024;
     const status = document.getElementById("stats");
     const adapter = await requireWebGPU();
+    const info = await fetchJson(`${base}${params.get("scene") ?? "corvette.json"}`);
     const download = downloadProgress({
       match: (url) => /\.(athc|athl|hdr)(\?|$)/.test(url),
-      // The car, and one full-resolution (4k) HDRI.
-      expectedBytes:
-        QUALITY[quality].megabytes * 1024 * 1024 + (mobile ? 1.6 * 1024 * 1024 : HDRI_4K_BYTES),
+      // The car (its corvette.json's parts), and one HDRI.
+      expectedBytes: sceneBytes(info) + hdriBytes,
     });
+    if (info) status.textContent = `loading… (about ${((sceneBytes(info) + hdriBytes) / MB).toFixed(0)} MB)`;
     // The other set, one click away (it reloads the page).
     const other = quality === "hd" ? "light" : "hd";
     const link = document.createElement("a");
-    link.href = `?quality=${other}${mobile && other === "hd" ? "&force=1" : ""}${set ? `&set=${set}` : ""}`;
-    link.textContent =
-      mobile && other === "hd"
+    const query = new URLSearchParams();
+    query.set("quality", other);
+    if (mobile && other === "hd") query.set("force", "1");
+    if (set) query.set("set", set);
+    for (const key of ["data", "root", "hdriBase"]) if (params.has(key)) query.set(key, params.get(key));
+    link.href = `?${query}`;
+    const label = (bytes) => {
+      const size = bytes ? ` (~${((bytes + hdriBytes) / MB).toFixed(0)} MB${set ? ", with lamps" : ""})` : "";
+      return mobile && other === "hd"
         ? asked === "hd"
-          ? "Showing the light version on this device; open the detailed one anyway (needs a lot of memory)"
-          : "Open the detailed version anyway (needs a lot of memory)"
-        : `Switch to the ${QUALITY[other].label} version`;
+          ? `Showing the light version on this device; open the detailed one${size} anyway (needs a lot of memory)`
+          : `Open the detailed version${size} anyway (needs a lot of memory)`
+        : `Switch to the ${other === "hd" ? "detailed" : "light"}${size} version`;
+    };
+    link.textContent = label(0);
     link.style.display = "block";
     link.style.marginTop = "6px";
     status.after(link);
+    // Sizes and splat counts from the two sets' corvette.json (the text in
+    // the page is only what shows if they cannot be read).
+    const otherInfo = params.has("base") ? Promise.resolve(null) : fetchJson(`${root}${folderOf(other)}/corvette.json`);
+    otherInfo.then((o) => {
+      if (o) link.textContent = label(sceneBytes(o));
+      const counts = document.getElementById("splat-counts");
+      const [light, hd] = quality === "hd" ? [o, info] : [info, o];
+      if (counts && light?.splats && hd?.splats) {
+        counts.textContent = `${splatCount(light.splats)} splats, or ${splatCount(hd.splats)} in the detailed version`;
+      }
+    });
     const renderer = new THREE.WebGPURenderer({
       canvas: document.getElementById("canvas"),
       requiredLimits: adapter ? splatRequiredLimits(adapter) : {},
@@ -99,7 +141,7 @@
     renderer.setPixelRatio(mobile ? 1 : Math.min(devicePixelRatio, 2));
     renderer.setSize(innerWidth, innerHeight);
     await renderer.init();
-    await createCorvette({ renderer, base, params, status, progress: download, mobile });
+    await createCorvette({ renderer, base, params, status, progress: download, mobile, info });
     download.done();
   </script>
 </body>

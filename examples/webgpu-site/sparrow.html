@@ -6,6 +6,8 @@
   GPU (athenea's splat skinning) and relit live under any HDRI. Not linked
   from the home page. The scene is built by sparrow.js; the data by
   scripts/build-sparrow.mjs.
+    ?data=v8          the v8 candidate (sparrow-v7) instead of the published bird
+    ?root=<url/>      where the folders are (default R2, site.js ASSETS_ROOT)
     ?base=<url/>      where sparrow.json, the .athc and clips/ are
     ?hdriBase=<url/>  where the full-resolution (4k) HDRIs are (site.js HDRI_BASE)
     ?clip=<name>  ?distance=0.65  ?pause=1  ?speed=  ?follow=0  ?hdri=<name>  ?view=agx|aces2|standard
@@ -23,7 +25,7 @@
   <div class="hud">
     <h1><a href="./">&larr;</a>Animated sparrow</h1>
     <p>A sparrow baked to Gaussian splats, each carrying how it receives light and which bones move it. Pick an animation and an HDRI: the bird is posed and relit on the GPU every frame. Drag to orbit, scroll to zoom; on a desktop, Maya's camera (Alt + left tumble, middle track, right dolly, F to frame).</p>
-    <div class="stats" id="stats">loading… (about 8 MB, and one HDRI)</div>
+    <div class="stats" id="stats">loading…</div>
   </div>
   <div class="credits">
     <!-- The model's credit: one line to fill in when its licence is known. -->
@@ -47,19 +49,23 @@
   <script type="module">
     import * as THREE from "three/webgpu";
     import { splatRequiredLimits } from "@sparkjsdev/spark/webgpu";
-    import { HDRI_4K_BYTES, downloadProgress, isMobileDevice, requireWebGPU } from "./site.js";
+    import { HDRI_4K_BYTES, assetsRoot, downloadProgress, isMobileDevice, requireWebGPU } from "./site.js";
     import { createSparrow } from "./sparrow.js";
 
     const params = new URLSearchParams(location.search);
-    const base = params.get("base") ?? "https://athenea-assets.lucab.co.uk/sparkwebgpu/sparrow/";
+    // ?data=v8: the candidate of 2026-10-09 (sparrow-v7, research/upload-v8.md)
+    // instead of the published folder; ?root= where the folders are,
+    // ?base= the bird's own folder (testing).
+    const folder = params.get("data") === "v8" ? "sparrow-v7" : "sparrow";
+    const base = params.get("base") ?? `${assetsRoot(params)}${folder}/`;
     const status = document.getElementById("stats");
     // Phones: 1k HDRIs, pixel ratio 1, one decoding worker.
     const mobile = isMobileDevice();
     const adapter = await requireWebGPU();
     const download = downloadProgress({
       match: (url) => /\.(athc|hdr|atcl\.gz)(\?|$)/.test(url),
-      // The bird (about 8 MB) and one HDRI.
-      expectedBytes: 8.3 * 1024 * 1024 + (mobile ? 1.6 * 1024 * 1024 : HDRI_4K_BYTES),
+      // The bird (sparrow.js sets its size from the JSON) and one HDRI.
+      expectedBytes: mobile ? 1.6 * 1024 * 1024 : HDRI_4K_BYTES,
     });
     const renderer = new THREE.WebGPURenderer({
       canvas: document.getElementById("canvas"),
