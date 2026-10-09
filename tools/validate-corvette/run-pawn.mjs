@@ -1,4 +1,5 @@
-// node run-pawn.mjs <outdir> <query> <views comma list|all> [--notop]
+// node run-pawn.mjs <outdir> <query> <views comma list|all> [--notop] [--time [--time-only]]
+// --time: the median frame ms of each view first (__bd.time).
 // Thread BL: the relit pawn (examples/webgpu/validate-pawn.html, the public
 // page's scene) at 1920x1080, each view read back as linear float (PFM, RGB)
 // before the fx chain; --notop also renders every view with the glass head
@@ -77,10 +78,21 @@ async function grab(name, file, settle) {
   );
   return { width, height, nonFinite, stats };
 }
-for (const name of names) {
-  result.views[name] = await grab(name, `${name}.pfm`, 40);
-  console.log(name, JSON.stringify(result.views[name]));
+if (flags.includes("--time")) {
+  result.time = {};
+  for (const name of names) {
+    result.time[name] = await page.evaluate(
+      ([v]) => window.__bd.time(v),
+      [VIEWS[name]],
+    );
+    console.log("time", name, JSON.stringify(result.time[name]));
+  }
 }
+if (!flags.includes("--time-only"))
+  for (const name of names) {
+    result.views[name] = await grab(name, `${name}.pfm`, 40);
+    console.log(name, JSON.stringify(result.views[name]));
+  }
 if (flags.includes("--notop")) {
   await page.evaluate(() => window.__bd.hideTop(true));
   for (const name of names) await grab(name, `${name}.notop.pfm`, 15);
