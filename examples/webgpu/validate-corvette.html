@@ -85,6 +85,13 @@
     }
     async function setView(view, settle = 40) {
       applyOptions();
+      // A view may carry its own vertical fov (athenea's CameraRear).
+      if (A.__fov0 === undefined) A.__fov0 = A.camera.fov;
+      const fov = view.vfov ?? A.__fov0;
+      if (A.camera.fov !== fov) {
+        A.camera.fov = fov;
+        A.camera.updateProjectionMatrix();
+      }
       A.camera.position.fromArray(view.position);
       A.camera.lookAt(new THREE.Vector3().fromArray(view.target));
       A.camera.updateMatrixWorld();

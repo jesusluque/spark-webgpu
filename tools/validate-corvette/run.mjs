@@ -26,8 +26,22 @@ export const VIEWS = {
   glass: { position: orbit(140, 25, 6.0), target: T },
   rear: { position: orbit(-130, 12, 6.5), target: T },
   far: { position: along(4.0), target: T },
+  // athenea's corvette_scene_night.usda /World/CameraRear (45 mm over 36 mm),
+  // Z-up turned to Y-up: (x, y, z) -> (x, z, -y).
+  athrear: {
+    position: [3.2, 1.45, -6.4],
+    target: [-0.8245, 0.5697, -0.7406],
+    vfov: (2 * Math.atan(0.10125 / 0.45) * 180) / Math.PI,
+  },
 };
-const names = viewArg === "all" ? Object.keys(VIEWS) : viewArg.split(",");
+const names =
+  viewArg === "all"
+    ? Object.keys(VIEWS).filter((v) => v !== "athrear")
+    : viewArg.split(",");
+// VALIDATE_SIZE=1280x720: athenea's EXRs' size (default 1920x1080).
+const [W, H] = (process.env.VALIDATE_SIZE ?? "1920x1080")
+  .split("x")
+  .map(Number);
 fs.mkdirSync(outdir, { recursive: true });
 
 const browser = await chromium.launch({
@@ -40,7 +54,7 @@ const browser = await chromium.launch({
   ],
 });
 const page = await browser.newPage({
-  viewport: { width: 1920, height: 1080 },
+  viewport: { width: W, height: H },
   deviceScaleFactor: 1,
 });
 const log = [];
