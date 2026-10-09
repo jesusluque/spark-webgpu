@@ -10,11 +10,13 @@ import fs from "node:fs";
 const CLAMP = 16;
 export function readPfm(file) {
   const b = fs.readFileSync(file);
+  // An empty or truncated capture (e.g. a full disk) must fail, not hang.
+  if (b.length < 16) throw new Error(`${file}: not a PFM (${b.length} bytes)`);
   let p = 0;
   const tok = () => {
-    while (b[p] === 10 || b[p] === 32) p++;
+    while (p < b.length && (b[p] === 10 || b[p] === 32)) p++;
     const s = p;
-    while (b[p] !== 10 && b[p] !== 32) p++;
+    while (p < b.length && b[p] !== 10 && b[p] !== 32) p++;
     return b.toString("latin1", s, p);
   };
   const kind = tok();
@@ -23,6 +25,8 @@ export function readPfm(file) {
   const scale = Number(tok());
   p++;
   const ch = kind === "PF" ? 3 : 1;
+  if (!(w > 0 && h > 0) || p + 4 * w * h * ch > b.length)
+    throw new Error(`${file}: truncated PFM`);
   const f = new Float32Array(w * h * ch);
   for (let i = 0; i < f.length; i++)
     f[i] = scale < 0 ? b.readFloatLE(p + 4 * i) : b.readFloatBE(p + 4 * i);
