@@ -104,6 +104,18 @@ export async function createCorvette({
     new THREE.MeshBasicNodeMaterial({ colorNode: TSL.texture(target.texture) }),
   );
   const chain = new fx.FxChain(renderer.backend.device);
+  // ?accum=N: progressive accumulation while the view holds still (thread
+  // BU): N sub-pixel jittered frames at a sharp splat blur (?accumBlur=,
+  // 0.1) averaged in linear float before the fx chain; any change starts
+  // over from the ordinary frame. Off (0) by default.
+  const accumFrames = Math.max(0, Number(params.get("accum")) || 0);
+  const accum =
+    accumFrames > 0
+      ? new fx.ProgressiveAccumulator(chain, {
+          frames: accumFrames,
+          blur: params.has("accumBlur") ? Number(params.get("accumBlur")) : 0.1,
+        })
+      : null;
   function resize() {
     const aspect = innerWidth / innerHeight;
     // athenea's horizontal field on a wide window, the same vertical one on a
@@ -338,8 +350,10 @@ export async function createCorvette({
     relight.set({ hdri: { width, height, data, channels: 4 } });
     dome.set(tex);
     applySky();
+    accum?.reset();
   }
   function applySky() {
+    accum?.reset();
     relight.set({
       rotation: THREE.MathUtils.degToRad(state.rotation),
       intensity: state.intensity,
@@ -444,6 +458,7 @@ export async function createCorvette({
   scene.add(ring);
   let builtFloor = "";
   const applyFloor = () => {
+    accum?.reset();
     groundHeight.value = floor.height;
     floor.radius = Math.min(Math.max(floor.radius, 1.6 * floor.height), 180);
     groundRadius.value = floor.radius;
@@ -474,6 +489,8 @@ export async function createCorvette({
   const maya = isWorkstation() && params.get("maya") !== "0";
   if (params.get("gui") !== "0") {
     const gui = new GUI({ title: "Corvette" });
+    // Any control may change what is in view: the mean starts over.
+    gui.onChange(() => accum?.reset());
     if (innerWidth < 700) gui.close();
     // Every dome at full resolution, the scene's own first (on a phone, the
     // scene's 1k domes only).
@@ -710,6 +727,7 @@ export async function createCorvette({
     renderer,
     target,
     chain,
+    accum,
     corrector,
     bloom,
     relight,
@@ -727,6 +745,12 @@ export async function createCorvette({
   // that drive frames themselves).
   function frame() {
     controls.update();
+    accum?.begin({
+      camera,
+      width: target.width,
+      height: target.height,
+      spark,
+    });
     renderer.setRenderTarget(target);
     renderer.render(scene, camera);
     const splats = spark.webgpu?.splats;
@@ -753,7 +777,8 @@ export async function createCorvette({
       if (off)
         console.warn(`lights inactive: ${off.reason} ${off.detail ?? ""}`);
     }
-    chain.applyToRenderTarget(renderer, target);
+    if (accum) accum.endRenderTarget(renderer, target);
+    else chain.applyToRenderTarget(renderer, target);
     renderer.setRenderTarget(null);
     output.render(renderer);
     // Debug: the frame as shown, read in the same task it was drawn in

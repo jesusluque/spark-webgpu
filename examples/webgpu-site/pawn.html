@@ -106,6 +106,16 @@
     });
     const output = new THREE.QuadMesh(new THREE.MeshBasicNodeMaterial({ colorNode: THREE.TSL.texture(target.texture) }));
     const chain = new fx.FxChain(renderer.backend.device);
+    // ?accum=N: progressive accumulation while the view holds still (thread
+    // BU): N jittered frames at a sharp splat blur (?accumBlur=, 0.1),
+    // averaged in linear float before the fx chain. Off (0) by default.
+    const accumFrames = Math.max(0, Number(params.get("accum")) || 0);
+    const accum = accumFrames > 0
+      ? new fx.ProgressiveAccumulator(chain, {
+          frames: accumFrames,
+          blur: params.has("accumBlur") ? Number(params.get("accumBlur")) : 0.1,
+        })
+      : null;
     function resize() {
       camera.aspect = innerWidth / innerHeight;
       camera.updateProjectionMatrix();
@@ -192,8 +202,10 @@
       // itself goes no further than the relighting.
       dome.set(tex);
       applySky();
+      accum?.reset();
     }
     function applySky() {
+      accum?.reset();
       relight.set({ rotation: THREE.MathUtils.degToRad(state.rotation), intensity: state.intensity, indirect: state.indirect });
       const r = THREE.MathUtils.degToRad(state.rotation);
       turn.value.set(Math.cos(r), Math.sin(r));
@@ -225,6 +237,7 @@
     const maya = isWorkstation() && params.get("maya") !== "0";
     if (params.get("gui") !== "0") {
       const gui = new GUI({ title: "athenea relight" });
+      gui.onChange(() => accum?.reset());
       gui.add(state, "hdri", hdris).onChange(setHdri);
       gui.add(state, "rotation", -180, 180, 1).name("dome rotation").onChange(applySky);
       gui.add(state, "intensity", 0, 4, 0.05).name("dome intensity").onChange(applySky);
@@ -252,7 +265,7 @@
           .disable();
       }
     }
-    Object.assign(window.__athenea, { corrector, relight, display, body, top, spark, camera, setHdri, state });
+    Object.assign(window.__athenea, { corrector, relight, display, body, top, spark, camera, setHdri, state, accum });
 
     let controls;
     if (maya) {
@@ -276,6 +289,7 @@
     let last = performance.now();
     renderer.setAnimationLoop(() => {
       controls.update(camera);
+      accum?.begin({ camera, width: target.width, height: target.height, spark });
       renderer.setRenderTarget(target);
       renderer.render(scene, camera);
       const splats = spark.webgpu?.splats;
@@ -289,7 +303,8 @@
         const why = host.resolve(splats.meshes[0]).inactive.find((r) => r.id === relight.id);
         if (why) status.textContent = `relight inactive: ${why.reason} ${why.detail ?? ""}`;
       }
-      chain.applyToRenderTarget(renderer, target);
+      if (accum) accum.endRenderTarget(renderer, target);
+      else chain.applyToRenderTarget(renderer, target);
       renderer.setRenderTarget(null);
       output.render(renderer);
       window.__sparkFrames = (window.__sparkFrames ?? 0) + 1;
