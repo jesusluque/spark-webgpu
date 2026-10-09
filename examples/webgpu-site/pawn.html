@@ -114,6 +114,9 @@
       ? new fx.ProgressiveAccumulator(chain, {
           frames: accumFrames,
           blur: params.has("accumBlur") ? Number(params.get("accumBlur")) : 0.02,
+          // Holding, the scene is drawn every ?accumRefresh= frames (30; 0 =
+          // every frame) or when LoD/paging work is pending (thread BV).
+          refreshEvery: params.has("accumRefresh") ? Number(params.get("accumRefresh")) : 30,
         })
       : null;
     function resize() {
@@ -289,9 +292,9 @@
     let last = performance.now();
     renderer.setAnimationLoop(() => {
       controls.update(camera);
-      accum?.begin({ camera, width: target.width, height: target.height, spark });
+      const mode = accum?.begin({ camera, width: target.width, height: target.height, spark });
       renderer.setRenderTarget(target);
-      renderer.render(scene, camera);
+      if (mode !== "idle") renderer.render(scene, camera);
       const splats = spark.webgpu?.splats;
       if (splats && params.has("aa")) splats.options.aaFilter = params.get("aa");
       if (!host && splats) {
