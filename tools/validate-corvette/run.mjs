@@ -125,7 +125,14 @@ for (const name of names) {
   // The splats generated and drawn for the view (LoD switching, thread BS).
   result.views[name].stats = await page.evaluate(() => {
     const st = window.__athenea.spark?.webgpu?.splats?.stats;
-    return st ? { drawn: st.drawn } : null;
+    const a = window.__athenea.accum;
+    return st
+      ? {
+          drawn: st.drawn,
+          // ?accum=N (thread BU): the mean's samples when captured.
+          ...(a ? { accumSamples: a.samples, accumMode: a.mode } : {}),
+        }
+      : null;
   });
   if (
     flags.includes("--time") &&

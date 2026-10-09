@@ -119,11 +119,18 @@
     }
 
     async function capture(view, settle) {
-      await setView(view, settle);
-      // The scene alone into the target: linear light, no fx chain.
-      A.renderer.setRenderTarget(A.target);
-      A.renderer.render(scene(), A.camera);
-      A.renderer.setRenderTarget(null);
+      // ?accum=N: enough still frames for the whole mean (thread BU).
+      await setView(view, A.accum ? Math.max(settle, Math.min(A.accum.frames, 256) + 48) : settle);
+      if (A.accum?.converged) {
+        // The mean, linear, no fx chain.
+        A.accum.writeMean(A.renderer.backend.get(A.target.texture).texture);
+      } else {
+        if (A.accum) console.warn(`accum: ${A.accum.samples} of ${A.accum.frames} samples`);
+        // The scene alone into the target: linear light, no fx chain.
+        A.renderer.setRenderTarget(A.target);
+        A.renderer.render(scene(), A.camera);
+        A.renderer.setRenderTarget(null);
+      }
       await idle();
       const { width, height } = A.target;
       const px = await A.renderer.readRenderTargetPixelsAsync(
