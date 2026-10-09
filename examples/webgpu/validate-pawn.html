@@ -173,8 +173,27 @@
       for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
       return { width: w, height: h, data: btoa(s), stats: { ...relight.stats, numSplats: spark.webgpu?.splats?.stats?.numSplats } };
     }
+    // __bd.time(view, n): the median ms of n frames (render + GPU done) on a
+    // view, the camera nudged ~0.1 mm each frame so the sort and LoD rerun.
+    async function time(view, n = 40) {
+      await setView(view, 20);
+      const ms = [];
+      for (let i = 0; i < n; i++) {
+        camera.position.fromArray(view.position);
+        camera.position.x += 1e-4 * (i % 2);
+        camera.lookAt(new THREE.Vector3().fromArray(view.target));
+        camera.updateMatrixWorld();
+        const t = performance.now();
+        frame();
+        await idle();
+        ms.push(performance.now() - t);
+        await raf();
+      }
+      ms.sort((a, b) => a - b);
+      return { median: ms[n >> 1], p10: ms[Math.floor(n * 0.1)], p90: ms[Math.floor(n * 0.9)], numSplats: spark.webgpu?.splats?.stats?.numSplats };
+    }
     for (let i = 0; i < 60 && !A.error; i++) { frame(); await idle(); await raf(); }
-    window.__bd = { capture, setView, hideTop: (on) => { top.visible = !on; }, ready: true, error: A.error };
+    window.__bd = { capture, setView, time, hideTop: (on) => { top.visible = !on; }, ready: true, error: A.error };
   </script>
 </body>
 </html>
