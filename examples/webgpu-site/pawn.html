@@ -144,7 +144,15 @@
     // Float end to end: the relit light (past 1 in highlights) is kept per
     // splat and blended in linear light into the HalfFloat target, over the
     // unclipped dome; athenea's display transform comes last.
-    const spark = new SparkRenderer({ renderer, hdr: true });
+    // ?blur=0.15: the anti-alias blur's variance in px^2 (Spark's 0.3 by
+    // default); ?aa=box: the pixel's box instead (WgpuSplatRenderer's
+    // aaFilter). Thread BO: both match a supersampled render better far
+    // away, at some temporal shimmer (research/simplify-measurements.md).
+    const spark = new SparkRenderer({
+      renderer,
+      hdr: true,
+      ...(params.has("blur") ? { blurAmount: Number(params.get("blur")) } : {}),
+    });
     scene.add(spark);
     const body = new SplatMesh({ url: `${base}body-${suffix}.athc`, extSplats: true, onProgress: download.track("body") });
     scene.add(body);
@@ -279,6 +287,7 @@
       renderer.setRenderTarget(target);
       renderer.render(scene, camera);
       const splats = spark.webgpu?.splats;
+      if (splats && params.has("aa")) splats.options.aaFilter = params.get("aa");
       if (!host && splats) {
         host = new plugins.PluginHost({ capabilities: splats.capabilities });
         host.register(relight).register(display).attach(splats);

@@ -34,9 +34,24 @@ export const VIEWS = {
     vfov: (2 * Math.atan(0.10125 / 0.45) * 180) / Math.PI,
   },
 };
+// farS0..farS7 (thread BO): the far view moved sideways 3 mm a step (about
+// a quarter of a pixel at the car), camera and target together: temporal
+// stability over a small camera move.
+const SIDE = [
+  -AWAY[2] / Math.hypot(AWAY[0], AWAY[2]),
+  0,
+  AWAY[0] / Math.hypot(AWAY[0], AWAY[2]),
+];
+for (let k = 0; k < 8; k++) {
+  const t = T.map((v, i) => v + SIDE[i] * 0.003 * k);
+  VIEWS[`farS${k}`] = {
+    position: along(4.0).map((v, i) => v + SIDE[i] * 0.003 * k),
+    target: t,
+  };
+}
 const names =
   viewArg === "all"
-    ? Object.keys(VIEWS).filter((v) => v !== "athrear")
+    ? Object.keys(VIEWS).filter((v) => v !== "athrear" && !v.startsWith("farS"))
     : viewArg.split(",");
 // VALIDATE_SIZE=1280x720: athenea's EXRs' size (default 1920x1080).
 const [W, H] = (process.env.VALIDATE_SIZE ?? "1920x1080")

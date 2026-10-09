@@ -210,6 +210,11 @@ export async function createCorvette({
   const spark = new SparkRenderer({
     renderer,
     hdr: true,
+    // ?blur=0.15: the anti-alias blur's variance in px^2 (Spark's 0.3 by
+    // default); ?aa=box: the pixel's box instead (WgpuSplatRenderer's
+    // aaFilter). Thread BO: both match a supersampled render better far
+    // away, at some temporal shimmer (research/simplify-measurements.md).
+    ...(params.has("blur") ? { blurAmount: Number(params.get("blur")) } : {}),
     lodSplatCount:
       Number(params.get("lod")) ||
       (mobile ? 600_000 : Math.max(info.splats ?? 0, 2_500_000)),
@@ -735,6 +740,7 @@ export async function createCorvette({
     renderer.setRenderTarget(target);
     renderer.render(scene, camera);
     const splats = spark.webgpu?.splats;
+    if (splats && params.has("aa")) splats.options.aaFilter = params.get("aa");
     if (!host && splats) {
       host = new plugins.PluginHost({ capabilities: splats.capabilities });
       host.register(relight);

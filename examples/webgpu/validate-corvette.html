@@ -83,12 +83,16 @@
     function applyOptions() {
       const s = A.spark.webgpu?.splats;
       if (s && params.has("surfels")) s.options.surfels = params.get("surfels");
+      // ?aa=box: the renderer's aaFilter.
+      if (s && params.has("aa")) s.options.aaFilter = params.get("aa");
       // ?hide=windshield,tinted: those parts hidden (a part's own share).
       for (const n of (params.get("hide") ?? "").split(",").filter(Boolean))
         if (A.meshes[n]) A.meshes[n].visible = false;
       // ?lodRenderScale=0.01: the LoD tree's leaves at any distance.
       if (params.has("lodRenderScale"))
         A.spark.lodRenderScale = Number(params.get("lodRenderScale"));
+      // ?blur=0.1: the AA blur's variance in px^2 (SparkRenderer.blurAmount).
+      if (params.has("blur")) A.spark.blurAmount = Number(params.get("blur"));
     }
     async function setView(view, settle = 40) {
       applyOptions();
