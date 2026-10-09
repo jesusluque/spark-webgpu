@@ -148,6 +148,11 @@ export function downloadProgress({
   };
 
   return {
+    /** Sets the total to show before the Content-Length headers arrive. */
+    expect(bytes) {
+      expectedBytes = bytes;
+      render();
+    },
     /** An onProgress(ProgressEvent) for a download the page doesn't fetch. */
     track(key) {
       tracked.set(key, { loaded: 0, total: 0 });
@@ -371,6 +376,46 @@ export const HDRIS_4K = [
   "urban_alley_01_4k.hdr",
   "venice_sunset_4k.hdr",
 ];
+/**
+ * Where the pages' data folders are on R2 (?root=<url/> points elsewhere,
+ * e.g. a local server of publish-r2/sparkwebgpu/ for testing).
+ */
+export const ASSETS_ROOT = "https://athenea-assets.lucab.co.uk/sparkwebgpu/";
+export function assetsRoot(params) {
+  return params.get("root") ?? ASSETS_ROOT;
+}
+
+/**
+ * What a corvette.json's set downloads: its parts' clouds, and their lamp
+ * layers (.athl) when the scene has lamps; the additive parts (the lamps'
+ * light on the floor) only then. The JSON's own `bytes` is not used: some
+ * builds left the layers out of it, or wrote it before a part changed.
+ */
+export function sceneBytes(info) {
+  const lights = Boolean(info?.lights);
+  let bytes = 0;
+  for (const p of info?.parts ?? []) {
+    if (p.additive && !lights) continue;
+    bytes += (p.bytes ?? 0) + (lights ? (p.athlBytes ?? 0) : 0);
+  }
+  return bytes;
+}
+
+/** A JSON next to the data, or null if it is not there. */
+export async function fetchJson(url) {
+  try {
+    const response = await fetch(url, { cache: "no-cache" });
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null; // a missing file may come back without CORS headers
+  }
+}
+
+/** 1082994 -> "1.08M", 371138 -> "371k". */
+export function splatCount(n) {
+  return n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : `${(n / 1e3).toFixed(0)}k`;
+}
+
 /** About what one 4k HDRI downloads (for the download bar). */
 export const HDRI_4K_BYTES = 25 * 1024 * 1024;
 

@@ -62,13 +62,15 @@ export async function createCorvette({
   mobile = false,
   // On a phone the scene's own 1k domes (next to its clouds), not the 4k set.
   hdriBase = params.get("hdriBase") ?? (mobile ? `${base}hdri/` : HDRI_BASE),
+  info = null,
 }) {
   const domeName = mobile
     ? (name) => name.replace(/_(1k|2k|4k)\.hdr$/, "_1k.hdr")
     : fullResHdri;
   window.__athenea = { loaded: false, error: null };
   if (mobile) workerPool.maxWorkers = 1;
-  const info = await (
+  // The page may have read corvette.json already (for its labels).
+  info ??= await (
     await fetch(`${base}${params.get("scene") ?? "corvette.json"}`)
   ).json();
 
@@ -305,7 +307,13 @@ export async function createCorvette({
     // worker's WebAssembly memory, and four at once got the tab killed.
     if (mobile) await mesh.initialized;
   }
-  const megabytes = parts.reduce((s, p) => s + (p.bytes ?? 0), 0) / 1e6;
+  const megabytes =
+    parts.reduce(
+      (s, p) =>
+        s + (p.bytes ?? 0) + (lights && p.athl ? (p.athlBytes ?? 0) : 0),
+      0,
+    ) /
+    (1024 * 1024);
   status.textContent = `loading the car (${megabytes.toFixed(0)} MB)…`;
 
   // athenea's lamps (cruce 10000, ...) are calibrated in Cycles against a
