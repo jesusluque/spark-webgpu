@@ -120,7 +120,7 @@
 
     async function capture(view, settle) {
       // ?accum=N: enough still frames for the whole mean (thread BU).
-      await setView(view, A.accum ? Math.max(settle, Math.min(A.accum.frames, 64) + 8) : settle);
+      await setView(view, A.accum ? Math.max(settle, Math.min(A.accum.frames, 256) + 48) : settle);
       if (A.accum?.converged) {
         // The mean, linear, no fx chain.
         A.accum.writeMean(A.renderer.backend.get(A.target.texture).texture);

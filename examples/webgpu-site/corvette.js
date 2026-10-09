@@ -106,14 +106,16 @@ export async function createCorvette({
   const chain = new fx.FxChain(renderer.backend.device);
   // ?accum=N: progressive accumulation while the view holds still (thread
   // BU): N sub-pixel jittered frames at a sharp splat blur (?accumBlur=,
-  // 0.1) averaged in linear float before the fx chain; any change starts
+  // 0.02) averaged in linear float before the fx chain; any change starts
   // over from the ordinary frame. Off (0) by default.
   const accumFrames = Math.max(0, Number(params.get("accum")) || 0);
   const accum =
     accumFrames > 0
       ? new fx.ProgressiveAccumulator(chain, {
           frames: accumFrames,
-          blur: params.has("accumBlur") ? Number(params.get("accumBlur")) : 0.1,
+          blur: params.has("accumBlur")
+            ? Number(params.get("accumBlur"))
+            : 0.02,
         })
       : null;
   function resize() {
