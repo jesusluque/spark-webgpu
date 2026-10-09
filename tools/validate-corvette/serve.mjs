@@ -5,6 +5,7 @@ import http from "node:http";
 import path from "node:path";
 
 const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
+const PORT = Number(process.env.VALIDATE_PORT ?? 8121);
 const MOUNTS = [
   ["/examples/js/vendor/", `${ROOT}/node_modules/`],
   ["/r2/", process.env.R2_DIR ?? `${ROOT}/../publish-r2/sparkwebgpu/`],
@@ -60,4 +61,4 @@ http
       fs.createReadStream(file).pipe(res);
     }
   })
-  .listen(8121, "127.0.0.1", () => console.log("serving on 8121"));
+  .listen(PORT, "127.0.0.1", () => console.log(`serving on ${PORT}`));
