@@ -49,7 +49,7 @@ page.on("console", (m) => {
     log.push(`${m.type()}: ${m.text()}`);
 });
 page.on("pageerror", (e) => log.push(`pageerror: ${e.message}`));
-const url = `http://127.0.0.1:8121/examples/webgpu/validate-corvette.html?base=/r2/${set}/&hdriBase=/r2/hdri-4k/&gui=0&bloom=0&${query}`;
+const url = `http://127.0.0.1:${process.env.VALIDATE_PORT ?? 8121}/examples/webgpu/validate-corvette.html?base=/r2/${set}/&hdriBase=/r2/hdri-4k/&gui=0&bloom=0&${query}`;
 const t0 = Date.now();
 await page.goto(url);
 await page.waitForFunction(

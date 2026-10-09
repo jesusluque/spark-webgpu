@@ -1,6 +1,6 @@
 Relit Corvette validation in float (thread BD).
 
-  node tools/validate-corvette/serve.mjs            # :8121, /r2/ = publish-r2/sparkwebgpu (R2_DIR)
+  node tools/validate-corvette/serve.mjs            # :8121 (VALIDATE_PORT, also for run.mjs), /r2/ = publish-r2/sparkwebgpu (R2_DIR)
   node tools/validate-corvette/run.mjs <set> <outdir> "<query>" all|close,far [--time] [--bg] [--masks]
   node tools/validate-corvette/compare.mjs spec.json
 
